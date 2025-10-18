@@ -1,8 +1,4 @@
-"""Battery device implementation for Space Engineers grid control.
-
-This module provides functionality to control battery blocks on SE grids,
-including setting charging/discharging modes.
-"""
+"""Battery device implementation for Space Engineers grid control."""
 
 from __future__ import annotations
 
@@ -10,6 +6,8 @@ from sepy.base_device import BaseDevice, DEVICE_TYPE_MAP
 
 
 class BatteryDevice(BaseDevice):
+    """Control helper for battery blocks."""
+
     device_type = "battery"
 
     def set_mode(self, mode: str) -> int:
