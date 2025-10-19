@@ -31,9 +31,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://example.com/sepy"
-Repository = "https://example.com/sepy/repository"
-Issues = "https://example.com/sepy/issues"
+Homepage = "https://outenemy.ru/se"
+Repository = "https://github.com/rootfabric/sepy"
+Issues = "https://github.com/rootfabric/sepy/issues"
 
 [project.optional-dependencies]
 dev = [
