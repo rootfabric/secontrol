@@ -222,12 +222,6 @@ class Grid:
                 return
         if not isinstance(payload, dict):
             return
-        # Normalize nested layout: promote comp.devices to root devices when present
-        try:
-            if "devices" not in payload and isinstance(payload.get("comp"), dict) and "devices" in payload["comp"]:
-                payload["devices"] = payload["comp"]["devices"]
-        except Exception:
-            pass
         # Отладка: покажем, откуда берём устройства
         if "devices" not in payload:
             if isinstance(payload.get("comp"), dict) and "devices" in payload["comp"]:
@@ -624,54 +618,21 @@ class Grid:
         # собираем кандидатов из всех известных мест: payload['devices'] и payload['comp']['devices']
         candidates: list[Dict[str, Any]] = []
 
-        def _looks_like_device(d: Dict[str, Any]) -> bool:
-            if not isinstance(d, dict):
-                return False
-            has_id = any(k in d for k in ("deviceId", "entityId", "id"))
-            has_type = any(k in d for k in ("type", "deviceType", "subtype", "blockType"))
-            return bool(has_id or has_type)
-
-        def _collect_from_devices_section(section: Any) -> None:
-            if isinstance(section, dict):
-                if section and all(isinstance(k, str) and k.isdigit() for k in section.keys()):
-                    for v in section.values():
-                        if isinstance(v, dict) and _looks_like_device(v):
-                            candidates.append(v)
-                else:
-                    for v in section.values():
-                        if isinstance(v, list):
-                            for item in v:
-                                if isinstance(item, dict) and _looks_like_device(item):
-                                    candidates.append(item)
-                        elif isinstance(v, dict) and _looks_like_device(v):
-                            candidates.append(v)
-            elif isinstance(section, list):
-                for item in section:
-                    if isinstance(item, dict) and _looks_like_device(item):
-                        candidates.append(item)
-
-        def _search_recursively(obj: Any, depth: int = 0, limit: int = 4) -> None:
-            if depth > limit:
-                return
-            if isinstance(obj, dict):
-                if "devices" in obj:
-                    _collect_from_devices_section(obj.get("devices"))
-                for v in obj.values():
-                    _search_recursively(v, depth + 1, limit)
-            elif isinstance(obj, list):
-                for v in obj:
-                    _search_recursively(v, depth + 1, limit)
-
         # examples) корневой devices (если вдруг существует)
         root_devices = payload.get("devices")
-        _collect_from_devices_section(root_devices)
+        if isinstance(root_devices, dict):
+            candidates.extend([d for d in root_devices.values() if isinstance(d, dict)])
+        elif isinstance(root_devices, list):
+            candidates.extend([d for d in root_devices if isinstance(d, dict)])
 
         # 2) devices под comp
         comp = payload.get("comp")
         if isinstance(comp, dict):
-            _collect_from_devices_section(comp.get("devices"))
-            if not candidates:
-                _search_recursively(comp)
+            comp_devices = comp.get("devices")
+            if isinstance(comp_devices, dict):
+                candidates.extend([d for d in comp_devices.values() if isinstance(d, dict)])
+            elif isinstance(comp_devices, list):
+                candidates.extend([d for d in comp_devices if isinstance(d, dict)])
 
         # Отладка: если кандидатов нет — покажем, что есть
         if not candidates:
@@ -706,7 +667,15 @@ class Grid:
             if not telemetry_key:
                 telemetry_key = self.build_device_key(device_type, device_id)
 
-            name = entry.get("name") or entry.get("customName")
+            custom_name = entry.get("customName") or entry.get("CustomName")
+            display_name = (
+                entry.get("displayName")
+                or entry.get("displayNameText")
+                or entry.get("DisplayName")
+                or entry.get("DisplayNameText")
+            )
+            raw_name = entry.get("name") or entry.get("Name")
+            name = custom_name or display_name or raw_name
             extra = {
                 k: v
                 for k, v in entry.items()
@@ -720,10 +689,14 @@ class Grid:
                     "id",
                     "telemetryKey",
                     "key",
-                    "name",
-                    "customName",
                 }
             }
+            if custom_name is not None:
+                extra.setdefault("customName", custom_name)
+            if raw_name is not None:
+                extra.setdefault("name", raw_name)
+            if display_name is not None:
+                extra.setdefault("displayName", display_name)
 
             yield DeviceMetadata(
                 device_type=device_type,
@@ -979,9 +952,27 @@ class BaseDevice:
         self.device_type = metadata.device_type
         self.telemetry_key = metadata.telemetry_key
         self.grid_id = metadata.grid_id
-        self.name = metadata.name or metadata.extra.get("name")
+        self.name = (
+            metadata.name
+            or metadata.extra.get("customName")
+            or metadata.extra.get("name")
+            or metadata.extra.get("displayName")
+            or metadata.extra.get("displayNameText")
+        )
         self.metadata = metadata
         self.telemetry: Optional[Dict[str, Any]] = None
+        self._enabled: bool = self._extract_optional_bool(
+            metadata.extra,
+            "enabled",
+            "isEnabled",
+            "isWorking",
+            "isFunctional",
+        ) or False
+        self._show_in_terminal: bool = self._extract_optional_bool(metadata.extra, "showInTerminal") or False
+        self._show_in_toolbar: bool = self._extract_optional_bool(metadata.extra, "showInToolbar") or False
+        self._show_on_screen: bool = self._extract_optional_bool(metadata.extra, "showOnScreen") or False
+        raw_custom = metadata.extra.get("customData")
+        self._custom_data: str = "" if raw_custom is None else str(raw_custom)
 
         # examples) Подписка на «ожидаемый» ключ
         self._subscription = self.redis.subscribe_to_key(self.telemetry_key, self._on_telemetry_change)
@@ -999,6 +990,9 @@ class BaseDevice:
                 self.telemetry_key = resolved
                 self._subscription = self.redis.subscribe_to_key(self.telemetry_key, self._on_telemetry_change)
                 snapshot = self.redis.get_json(self.telemetry_key)
+
+        if self.name:
+            self._cache_name_in_metadata()
 
         if snapshot is not None:
             self._on_telemetry_change(self.telemetry_key, snapshot, "initial")
@@ -1027,7 +1021,19 @@ class BaseDevice:
     # ------------------------------------------------------------------
     def update_metadata(self, metadata: DeviceMetadata) -> None:
         self.metadata = metadata
-        self.name = metadata.name or self.name
+        new_name = (
+            metadata.name
+            or metadata.extra.get("customName")
+            or metadata.extra.get("name")
+            or metadata.extra.get("displayName")
+            or metadata.extra.get("displayNameText")
+        )
+        if new_name:
+            self.name = new_name
+            self._cache_name_in_metadata()
+        if self.telemetry is not None:
+            if self._sync_name_with_telemetry():
+                self._persist_common_telemetry()
 
     # ------------------------------------------------------------------
     def _on_telemetry_change(self, key: str, payload: Optional[Any], event: str) -> None:
@@ -1039,12 +1045,245 @@ class BaseDevice:
             except json.JSONDecodeError:
                 payload = {"raw": payload}
         if isinstance(payload, dict):
-            self.telemetry = payload
-            self.handle_telemetry(payload)
+            telemetry_payload = dict(payload)
+            changed = self._merge_common_telemetry(telemetry_payload)
+            self.telemetry = telemetry_payload
+            if changed:
+                self._persist_common_telemetry()
+            self.handle_telemetry(telemetry_payload)
 
     # ------------------------------------------------------------------
     def handle_telemetry(self, telemetry: Dict[str, Any]) -> None:
         """Hook for subclasses to parse telemetry."""
+
+    # ------------------------------------------------------------------
+
+    def is_enabled(self) -> bool:
+        if isinstance(self.telemetry, dict) and "enabled" in self.telemetry:
+            return bool(self.telemetry["enabled"])
+        return self._enabled
+
+    @property
+    def enabled(self) -> bool:
+        return self.is_enabled()
+
+    def enable(self) -> int:
+        return self.set_enabled(True)
+
+    def disable(self) -> int:
+        return self.set_enabled(False)
+
+    def toggle_enabled(self) -> int:
+        result = self.send_command({"cmd": "toggle"})
+        if result:
+            self._update_common_flag("enabled", not self.is_enabled())
+        return result
+
+    def set_enabled(self, enabled: bool) -> int:
+        command = "enable" if enabled else "disable"
+        result = self.send_command({"cmd": command})
+        if result:
+            self._update_common_flag("enabled", bool(enabled))
+        return result
+
+    # ------------------------------------------------------------------
+
+    def show_in_terminal(self) -> Optional[bool]:
+        return self._read_bool_flag("showInTerminal")
+
+    def set_show_in_terminal(self, visible: bool) -> int:
+        return self._send_boolean_command("set_show_in_terminal", "showInTerminal", visible)
+
+    def show_in_toolbar(self) -> Optional[bool]:
+        return self._read_bool_flag("showInToolbar")
+
+    def set_show_in_toolbar(self, visible: bool) -> int:
+        return self._send_boolean_command("set_show_in_toolbar", "showInToolbar", visible)
+
+    def show_on_screen(self) -> Optional[bool]:
+        return self._read_bool_flag("showOnScreen")
+
+    def set_show_on_screen(self, visible: bool) -> int:
+        return self._send_boolean_command("set_show_on_screen", "showOnScreen", visible)
+
+    def custom_data(self) -> str:
+        if isinstance(self.telemetry, dict):
+            value = self.telemetry.get("customData")
+            if value is None:
+                if "customData" not in self.telemetry:
+                    self.telemetry["customData"] = self._custom_data
+                return self._custom_data
+            text_value = str(value)
+            if text_value != self._custom_data:
+                self._custom_data = text_value
+            return self._custom_data
+        return self._custom_data
+
+    def set_custom_data(self, data: str) -> int:
+        payload = {
+            "cmd": "set_custom_data",
+            "state": {"customData": str(data)},
+        }
+        result = self.send_command(payload)
+        if result:
+            self._update_common_flag("customData", str(data))
+        return result
+
+    # ------------------------------------------------------------------
+
+    def _read_bool_flag(self, key: str) -> Optional[bool]:
+        if isinstance(self.telemetry, dict) and key in self.telemetry:
+            return bool(self.telemetry[key])
+        attr = {
+            "showInTerminal": self._show_in_terminal,
+            "showInToolbar": self._show_in_toolbar,
+            "showOnScreen": self._show_on_screen,
+        }.get(key)
+        return attr if attr is None else bool(attr)
+
+    def _send_boolean_command(self, command: str, telemetry_key: str, value: bool) -> int:
+        payload = {
+            "cmd": command,
+            "state": {telemetry_key: bool(value)},
+        }
+        result = self.send_command(payload)
+        if result:
+            self._update_common_flag(telemetry_key, bool(value))
+        return result
+
+    def _update_common_flag(self, key: str, value: Any) -> None:
+        telemetry = self._ensure_telemetry_dict()
+        telemetry[key] = value
+        if key == "enabled":
+            self._enabled = bool(value)
+        elif key == "showInTerminal":
+            self._show_in_terminal = bool(value)
+        elif key == "showInToolbar":
+            self._show_in_toolbar = bool(value)
+        elif key == "showOnScreen":
+            self._show_on_screen = bool(value)
+        elif key == "customData":
+            self._custom_data = str(value)
+        self._persist_common_telemetry()
+
+    def _ensure_telemetry_dict(self) -> Dict[str, Any]:
+        if not isinstance(self.telemetry, dict):
+            self.telemetry = {}
+        return self.telemetry
+
+    def _merge_common_telemetry(self, telemetry: Dict[str, Any]) -> bool:
+        changed = False
+
+        if "enabled" in telemetry:
+            self._enabled = bool(telemetry["enabled"])
+        else:
+            telemetry["enabled"] = bool(self._enabled)
+            changed = True
+
+        if "showInTerminal" in telemetry:
+            self._show_in_terminal = bool(telemetry["showInTerminal"])
+        else:
+            telemetry["showInTerminal"] = bool(self._show_in_terminal)
+            changed = True
+
+        if "showInToolbar" in telemetry:
+            self._show_in_toolbar = bool(telemetry["showInToolbar"])
+        else:
+            telemetry["showInToolbar"] = bool(self._show_in_toolbar)
+            changed = True
+
+        if "showOnScreen" in telemetry:
+            self._show_on_screen = bool(telemetry["showOnScreen"])
+        else:
+            telemetry["showOnScreen"] = bool(self._show_on_screen)
+            changed = True
+
+        if "customData" in telemetry:
+            raw_custom = telemetry["customData"]
+            if raw_custom is None:
+                telemetry["customData"] = ""
+                self._custom_data = ""
+                changed = True
+            else:
+                text_value = str(raw_custom)
+                if text_value != self._custom_data:
+                    self._custom_data = text_value
+        else:
+            telemetry["customData"] = self._custom_data
+            changed = True
+
+        if self._sync_name_with_telemetry(telemetry):
+            changed = True
+
+        return changed
+
+    def _sync_name_with_telemetry(self, telemetry: Optional[Dict[str, Any]] = None) -> bool:
+        target = telemetry if telemetry is not None else self._ensure_telemetry_dict()
+        changed = False
+
+        if self.name:
+            for key in ("name", "customName", "displayName", "displayNameText", "CustomName", "DisplayName"):
+                if target.get(key) != self.name:
+                    target[key] = self.name
+                    changed = True
+            self._cache_name_in_metadata()
+        else:
+            for key in ("customName", "name", "displayName", "displayNameText", "CustomName", "DisplayName"):
+                value = target.get(key)
+                if value:
+                    text_value = str(value)
+                    if text_value != self.name:
+                        self.name = text_value
+                        self._cache_name_in_metadata()
+                    break
+
+        return changed
+
+    def _cache_name_in_metadata(self) -> None:
+        if not getattr(self, "metadata", None):
+            return
+        if self.name:
+            try:
+                self.metadata.name = self.name
+            except Exception:
+                pass
+        extra = getattr(self.metadata, "extra", None)
+        if not isinstance(extra, dict):
+            extra = {}
+            try:
+                self.metadata.extra = extra  # type: ignore[assignment]
+            except Exception:
+                return
+        if not self.name:
+            return
+        for key in ("customName", "name", "displayName", "displayNameText"):
+            extra[key] = self.name
+
+    def _persist_common_telemetry(self) -> None:
+        if not isinstance(self.telemetry, dict):
+            return
+        try:
+            self.redis.set_json(self.telemetry_key, self.telemetry)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _extract_optional_bool(data: Dict[str, Any], *keys: str) -> Optional[bool]:
+        for key in keys:
+            if key not in data:
+                continue
+            value = data[key]
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return bool(value)
+            if isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in {"1", "true", "yes", "on"}:
+                    return True
+                if lowered in {"0", "false", "no", "off"}:
+                    return False
+        return None
 
     # ------------------------------------------------------------------
 

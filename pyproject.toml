@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "secontrol"
-version = "0.1.2"
+version = "0.1.3"
 description = "Space Engineers Redis helper utilities"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://outenemy.ru/se"
+Homepage = "https://www.outenemy.ru/se"
 Repository = "https://github.com/rootfabric/secontrol"
 Issues = "https://github.com/rootfabric/secontrol/issues"
 
