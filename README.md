@@ -49,10 +49,10 @@ print(", ".join((d.name or f"{d.device_type}:{d.device_id}") for d in grid.devic
 
 ## Примеры
 
-Готовые скрипты находятся в каталоге [`sepy/examples`](src/secontrol/examples). Чтобы запустить пример:
+Готовые скрипты находятся в каталоге [`sepy/examples`](src/secontrol/examples_direct_connect). Чтобы запустить пример:
 
 ```bash
-python -m secontrol.examples.list_grids
+python -m secontrol.examples_direct_connect.list_grids
 ```
 
 ## Лицензия

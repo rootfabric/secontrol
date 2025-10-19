@@ -1,4 +1,4 @@
-"""Shared helpers for CLI utilities and examples."""
+"""Shared helpers for CLI utilities and examples_direct_connect."""
 
 from __future__ import annotations
 
@@ -35,20 +35,20 @@ def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
     if not grids:
         raise RuntimeError(
             "No grids were found for the provided owner id. "
-            "Run 'python -m secontrol.examples.list_grids' to inspect available grids."
+            "Run 'python -m secontrol.examples_direct_connect.list_grids' to inspect available grids."
         )
 
     first_grid = grids[0]
     grid_id = str(first_grid.get("id"))
     print(
-        "[examples] SE_GRID_ID is not set; using the first available grid:",
+        "[examples_direct_connect] SE_GRID_ID is not set; using the first available grid:",
         f"{grid_id} ({first_grid.get('name', 'unnamed')})",
     )
     return grid_id
 
 
 def prepare_grid(existing_client: RedisEventClient | None = None) -> Tuple[RedisEventClient, Grid]:
-    """Create :class:`RedisEventClient` and :class:`Grid` instances for examples."""
+    """Create :class:`RedisEventClient` and :class:`Grid` instances for examples_direct_connect."""
 
     client = existing_client or RedisEventClient()
     owner_id = resolve_owner_id()

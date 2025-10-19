@@ -4,6 +4,7 @@ import json
 
 from secontrol.redis_client import RedisEventClient
 from secontrol.common import resolve_owner_id
+from secontrol.base_device import Grid
 
 
 def main() -> None:
@@ -18,13 +19,16 @@ def main() -> None:
             return
 
         print(f"Found {len(grids)} grids for owner {owner_id}:")
-        for grid_raw in grids:
-            grid_id = grid_raw.get("id")
+        for grid_info in grids:
+            grid_id = grid_info.get("id")
             print(grid_id)
 
-            # Пример создания объекта SimpleGrid, который сам разбирается с зависимостями
-            # grid_raw = GridConstructor(grid_id)
-            # print(f"   SimpleGrid object created for {grid_raw.name}")
+            # Создаём Grid и передаём известное имя из списка грида
+            grid = Grid(client, owner_id, grid_id, owner_id, name=grid_info.get("name"))
+            print(f"SimpleGrid object created for {grid.name}")
+
+
+
 
         print("\nRaw response:")
         print(json.dumps({"grids": grids}, indent=2, ensure_ascii=False))

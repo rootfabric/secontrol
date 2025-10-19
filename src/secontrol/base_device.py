@@ -161,7 +161,7 @@ def _prepare_color_payload(
         r, g, b = _normalize_rgb_triplet(values)
         return {"rgb": {"r": r, "g": g, "b": b}}
 
-    # Автоопределение: значения <= examples.0 трактуем как HSV, иначе как RGB.
+    # Автоопределение: значения <= examples_direct_connect.0 трактуем как HSV, иначе как RGB.
     if max(abs(float(values[0])), abs(float(values[1])), abs(float(values[2]))) <= 1.0:
         h, s, v = _normalize_hsv_triplet(values)
         return {"hsv": {"h": h, "s": s, "v": v}}
@@ -222,14 +222,27 @@ class Grid:
                 return
         if not isinstance(payload, dict):
             return
+        # При наличии имени грида в payload — обновим локальное имя
+        try:
+            new_name = (
+                payload.get("name")
+                or payload.get("gridName")
+                or payload.get("displayName")
+                or payload.get("DisplayName")
+            )
+            if isinstance(new_name, str) and new_name.strip():
+                self.name = new_name
+        except Exception:
+            pass
+
         # Отладка: покажем, откуда берём устройства
         if "devices" not in payload:
             if isinstance(payload.get("comp"), dict) and "devices" in payload["comp"]:
                 print("[gridinfo] устройства найдены в comp.devices")
-            else:
-                print(
-                    f"[gridinfo] нет поля 'devices' ни в корне, ни в comp. Ключи: {list(payload.keys())}"
-                )
+            # else:
+            #     print(
+            #         f"[gridinfo] нет поля 'devices' ни в корне, ни в comp. Ключи: {list(payload.keys())}"
+            #     )
 
         self.metadata = payload
         device_metadata = list(self._extract_devices(payload))
@@ -265,10 +278,11 @@ class Grid:
                 dev.close()
 
         if "devices" not in payload:
-            print(f"[gridinfo] нет поля 'devices'. Ключи: {list(payload.keys())}")
+            # print(f"[gridinfo] нет поля 'devices'. Ключи: {list(payload.keys())}")
+            pass
         else:
             print(f"[gridinfo] devices type: {type(payload['devices'])}")
-            # например, покажем первые examples-2 записи
+            # например, покажем первые examples_direct_connect-2 записи
             try:
                 it = (
                     payload["devices"].values()
@@ -326,6 +340,23 @@ class Grid:
             return self.devices_by_num.get(int(device_id))
         except Exception:
             return None
+
+    # NEW: поиск устройств по типу
+    def find_devices_by_type(self, device_type: str) -> list["BaseDevice"]:
+        """
+        Возвращает список устройств указанного типа.
+
+        Принимает как нормализованные типы (например, "battery", "projector"),
+        так и исходные имена из Space Engineers (например, "MyObjectBuilder_BatteryBlock").
+        Тип приводится к нормализованному виду через ``normalize_device_type``.
+        """
+
+        try:
+            normalized = normalize_device_type(device_type)
+        except Exception:
+            normalized = str(device_type).lower()
+
+        return [d for d in self.devices.values() if getattr(d, "device_type", "").lower() == normalized]
 
     # ------------------------------------------------------------------
     def _grid_command_channel(self) -> str:
@@ -618,7 +649,7 @@ class Grid:
         # собираем кандидатов из всех известных мест: payload['devices'] и payload['comp']['devices']
         candidates: list[Dict[str, Any]] = []
 
-        # examples) корневой devices (если вдруг существует)
+        # examples_direct_connect) корневой devices (если вдруг существует)
         root_devices = payload.get("devices")
         if isinstance(root_devices, dict):
             candidates.extend([d for d in root_devices.values() if isinstance(d, dict)])
@@ -853,93 +884,6 @@ class Grid:
         # Простейшая snake_case нормализация
         return "".join([("_" + c.lower() if c.isupper() else c) for c in dev_type]).lstrip("_")
 
-
-class GridConstructor:
-    """A wrapper around Grid that only requires grid_id and resolves other dependencies internally."""
-    
-    def __init__(self, grid_id: str, redis_client=None, owner_id=None, player_id=None, name=None) -> None:
-        from .common import resolve_owner_id
-        from .redis_client import RedisEventClient
-        
-        # Используем переданные значения или получаем их из конфигурации
-        self.grid_id = grid_id
-        self.redis = redis_client or RedisEventClient()
-        self.owner_id = owner_id or resolve_owner_id()
-        self.player_id = player_id or self.owner_id  # В большинстве случаев player_id совпадает с owner_id
-
-        # Получаем информацию о гриде из Redis
-        grids = self.redis.list_grids(self.owner_id)
-        grid_info = next((g for g in grids if str(g.get("id")) == str(grid_id)), None)
-        
-        if grid_info is None:
-            raise ValueError(f"Grid with ID {grid_id} not found for owner {self.owner_id}")
-        
-        # Используем информацию из grid_info для завершения инициализации
-        resolved_player_id = grid_info.get("playerId") or self.player_id
-        resolved_name = name or grid_info.get("name") or f"Grid_{grid_id}"
-        
-        # Создаем внутренний объект Grid
-        self._internal_grid = Grid(
-            self.redis,
-            self.owner_id,
-            self.grid_id,
-            resolved_player_id,
-            resolved_name
-        )
-
-    def __getattr__(self, name):
-        """Делегируем все неопределенные атрибуты внутреннему объекту Grid."""
-        return getattr(self._internal_grid, name)
-
-
-class TakeGrid:
-    """A utility class that returns a ready-to-use Grid object based on an index or the first available grid."""
-
-    def __init__(self, index: int = None, redis_client=None, owner_id=None) -> None:
-        from .common import resolve_owner_id
-        from .redis_client import RedisEventClient
-
-        # Используем переданные значения или получаем их из конфигурации
-        self.redis = redis_client or RedisEventClient()
-        self.owner_id = owner_id or resolve_owner_id()
-
-        # Получаем список гридов
-        grids = self.redis.list_grids(self.owner_id)
-
-        if not grids:
-            raise ValueError(f"No grids found for owner {self.owner_id}")
-
-        # Определяем, какой грид использовать
-        if index is None:
-            # Берем первый доступный грид
-            selected_grid = grids[0]
-        else:
-            # Проверяем, что индекс в допустимом диапазоне
-            if index < 0 or index >= len(grids):
-                raise ValueError(
-                    f"Grid index {index} is out of range (available indices: 0-{len(grids)-1})"
-                )
-            selected_grid = grids[index]
-
-        # Извлекаем информацию о выбранном гриде
-        grid_id = selected_grid.get("id")
-        grid_name = selected_grid.get("name") or f"Grid_{grid_id}"
-        player_id = selected_grid.get("playerId") or self.owner_id
-
-        # Создаем внутренний объект Grid
-        self._internal_grid = Grid(
-            self.redis,
-            self.owner_id,
-            str(grid_id),
-            player_id,
-            grid_name,
-        )
-
-    def __getattr__(self, name):
-        """Делегируем все неопределенные атрибуты внутреннему объекту Grid."""
-
-        return getattr(self._internal_grid, name)
-
 class BaseDevice:
     """Base class for all telemetry driven devices."""
 
@@ -974,7 +918,7 @@ class BaseDevice:
         raw_custom = metadata.extra.get("customData")
         self._custom_data: str = "" if raw_custom is None else str(raw_custom)
 
-        # examples) Подписка на «ожидаемый» ключ
+        # examples_direct_connect) Подписка на «ожидаемый» ключ
         self._subscription = self.redis.subscribe_to_key(self.telemetry_key, self._on_telemetry_change)
         snapshot = self.redis.get_json(self.telemetry_key)
 
@@ -1324,12 +1268,61 @@ class BaseDevice:
         sent = 0
         for ch in self._command_channels():
             sent += self.redis.publish(ch, command)
+            print(command)
         return sent
 
     # ------------------------------------------------------------------
     def close(self) -> None:
         self._subscription.close()
 
+
+class TakeGrid:
+    """A utility class that returns a ready-to-use Grid object based on an index or the first available grid."""
+
+    def __init__(self, index: int = None, redis_client=None, owner_id=None) -> None:
+        from .common import resolve_owner_id
+        from .redis_client import RedisEventClient
+
+        # Используем переданные значения или получаем их из конфигурации
+        self.redis = redis_client or RedisEventClient()
+        self.owner_id = owner_id or resolve_owner_id()
+
+        # Получаем список гридов
+        grids = self.redis.list_grids(self.owner_id)
+
+        if not grids:
+            raise ValueError(f"No grids found for owner {self.owner_id}")
+
+        # Определяем, какой грид использовать
+        if index is None:
+            # Берем первый доступный грид
+            selected_grid = grids[0]
+        else:
+            # Проверяем, что индекс в допустимом диапазоне
+            if index < 0 or index >= len(grids):
+                raise ValueError(
+                    f"Grid index {index} is out of range (available indices: 0-{len(grids)-1})"
+                )
+            selected_grid = grids[index]
+
+        # Извлекаем информацию о выбранном гриде
+        grid_id = selected_grid.get("id")
+        grid_name = selected_grid.get("name") or f"Grid_{grid_id}"
+        player_id = selected_grid.get("playerId") or self.owner_id
+
+        # Создаем внутренний объект Grid
+        self._internal_grid = Grid(
+            self.redis,
+            self.owner_id,
+            str(grid_id),
+            player_id,
+            grid_name,
+        )
+
+    def __getattr__(self, name):
+        """Делегируем все неопределенные атрибуты внутреннему объекту Grid."""
+
+        return getattr(self._internal_grid, name)
 
 # Карта: нормализованный тип -> класс устройства
 DEVICE_TYPE_MAP: Dict[str, Type[BaseDevice]] = {}

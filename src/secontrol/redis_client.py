@@ -60,6 +60,7 @@ class RedisEventClient:
         self._client = redis.Redis.from_url(resolved_url, **connection_kwargs)
 
         self._db_index = int(self._client.connection_pool.connection_kwargs.get("db", 0))
+        print(self._db_index)
         self._subscriptions: list[_PubSubSubscription] = []
 
     # ------------------------------------------------------------------
