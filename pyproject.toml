@@ -3,13 +3,13 @@ requires = ["setuptools>=67", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sepy"
+name = "secontrol"
 version = "0.1.0"
 description = "Space Engineers Redis helper utilities"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
-  { name = "sepy contributors" }
+  { name = "secontrol contributors" }
 ]
 license = { file = "LICENSE" }
 classifiers = [
@@ -32,8 +32,8 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://outenemy.ru/se"
-Repository = "https://github.com/rootfabric/sepy"
-Issues = "https://github.com/rootfabric/sepy/issues"
+Repository = "https://github.com/rootfabric/secontrol"
+Issues = "https://github.com/rootfabric/secontrol/issues"
 
 [project.optional-dependencies]
 dev = [
