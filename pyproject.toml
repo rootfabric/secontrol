@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=67", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sepy"
+version = "0.1.0"
+description = "Space Engineers Redis helper utilities"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  { name = "sepy contributors" }
+]
+license = { file = "LICENSE" }
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Utilities"
+]
+dependencies = [
+  "redis>=4.5",
+  "python-dotenv>=1.0"
+]
+
+[project.urls]
+Homepage = "https://example.com/sepy"
+Repository = "https://example.com/sepy/repository"
+Issues = "https://example.com/sepy/issues"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7",
+  "build>=1.2",
+  "twine>=4.0"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
