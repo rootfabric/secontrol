@@ -55,45 +55,6 @@ print(", ".join((d.name or f"{d.device_type}:{d.device_id}") for d in grid.devic
 python -m secontrol.examples.list_grids
 ```
 
-## Разработка
-
-1. Создайте виртуальное окружение и установите зависимости:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   pip install -e .[dev]
-   ```
-2. Запустите тесты:
-   ```bash
-   pytest
-   ```
-
-## Подготовка и публикация пакета
-
-1. Обновите версию в `pyproject.toml` и `src/secontrol/__init__.py`.
-2. Сформируйте wheel и sdist:
-   ```bash
-   python -m build
-   ```
-3. Проверьте содержимое архива:
-   ```bash
-   tar tzf dist/secontrol-<версия>.tar.gz
-   ```
-4. Загрузите пакет на TestPyPI:
-   ```bash
-   twine upload --repository testpypi dist/*
-   ```
-5. Убедитесь, что установка проходит успешно:
-   ```bash
-  pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple secontrol
-   ```
-6. Опубликуйте на PyPI:
-   ```bash
-   twine upload dist/*
-   ```
-
-После публикации команда `pip install sepy` станет доступной всем пользователям.
-
 ## Лицензия
 
 Проект распространяется по лицензии MIT. См. файл [LICENSE](LICENSE).
