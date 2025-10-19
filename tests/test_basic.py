@@ -1,4 +1,4 @@
-from sepy import RedisEventClient
+from secontrol import RedisEventClient
 
 
 def test_client_can_be_instantiated_without_args():

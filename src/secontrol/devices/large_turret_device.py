@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from sepy.base_device import DEVICE_TYPE_MAP
-from sepy.devices.container_device import ContainerDevice
+from secontrol.base_device import DEVICE_TYPE_MAP
+from secontrol.devices.container_device import ContainerDevice
 
 
 class LargeTurretDevice(ContainerDevice):

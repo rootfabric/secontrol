@@ -35,7 +35,7 @@ def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
     if not grids:
         raise RuntimeError(
             "No grids were found for the provided owner id. "
-            "Run 'python -m sepy.examples.list_grids' to inspect available grids."
+            "Run 'python -m secontrol.examples.list_grids' to inspect available grids."
         )
 
     first_grid = grids[0]

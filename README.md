@@ -1,6 +1,6 @@
-# sepy
+# secontrol
 
-`sepy` — это высокоуровневый клиент для взаимодействия с Redis-шлюзом Space Engineers. Библиотека упрощает получение телеметрии, отправку команд и реализацию автоматизаций, используя устойчивые подписки на ключевые события.
+`secontrol` — это высокоуровневый клиент для взаимодействия с Redis-шлюзом Space Engineers. Библиотека упрощает получение телеметрии, отправку команд и реализацию автоматизаций, используя устойчивые подписки на ключевые события.
 
 ## Возможности
 
@@ -14,7 +14,7 @@
 После публикации на PyPI библиотеку можно будет установить стандартным способом:
 
 ```bash
-pip install sepy
+pip install secontrol
 ```
 
 До публикации можно установить пакет из исходников:
@@ -26,13 +26,13 @@ pip install .
 ## Быстрый старт
 
 ```python
-from sepy import RedisEventClient, prepare_grid
+from secontrol.common import prepare_grid
 
-client = RedisEventClient()
-client.publish("se:commands", {"command": "open_hangar"})
+#Первый грид игрока
+client, grid = prepare_grid()
+#Устройства на гриде
+print(", ".join((d.name or f"{d.device_type}:{d.device_id}") for d in grid.devices.values()) or "(no devices)")
 
-client, grid = prepare_grid(client)
-print(grid.grid_id)
 ```
 
 ### Переменные окружения
@@ -49,10 +49,10 @@ print(grid.grid_id)
 
 ## Примеры
 
-Готовые скрипты находятся в каталоге [`sepy/examples`](src/sepy/examples). Чтобы запустить пример:
+Готовые скрипты находятся в каталоге [`sepy/examples`](src/secontrol/examples). Чтобы запустить пример:
 
 ```bash
-python -m sepy.examples.list_grids
+python -m secontrol.examples.list_grids
 ```
 
 ## Разработка
@@ -70,14 +70,14 @@ python -m sepy.examples.list_grids
 
 ## Подготовка и публикация пакета
 
-1. Обновите версию в `pyproject.toml` и `src/sepy/__init__.py`.
+1. Обновите версию в `pyproject.toml` и `src/secontrol/__init__.py`.
 2. Сформируйте wheel и sdist:
    ```bash
    python -m build
    ```
 3. Проверьте содержимое архива:
    ```bash
-   tar tzf dist/sepy-<версия>.tar.gz
+   tar tzf dist/secontrol-<версия>.tar.gz
    ```
 4. Загрузите пакет на TestPyPI:
    ```bash
@@ -85,7 +85,7 @@ python -m sepy.examples.list_grids
    ```
 5. Убедитесь, что установка проходит успешно:
    ```bash
-   pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple sepy
+  pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple secontrol
    ```
 6. Опубликуйте на PyPI:
    ```bash
@@ -97,3 +97,4 @@ python -m sepy.examples.list_grids
 ## Лицензия
 
 Проект распространяется по лицензии MIT. См. файл [LICENSE](LICENSE).
+

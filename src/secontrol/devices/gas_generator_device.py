@@ -1,30 +1,36 @@
-"""Reactor device implementation for Space Engineers grid control."""
+"""Gas/Oxygen generator wrapper with inventory helpers."""
 
 from __future__ import annotations
 
 from typing import Any, Dict
 
-from sepy.base_device import DEVICE_TYPE_MAP
-from sepy.devices.container_device import ContainerDevice
+from secontrol.base_device import DEVICE_TYPE_MAP
+from secontrol.devices.container_device import ContainerDevice
 
 
-class ReactorDevice(ContainerDevice):
-    """Expose telemetry and commands for reactor blocks."""
+class GasGeneratorDevice(ContainerDevice):
+    """Expose telemetry and commands for gas and oxygen generators."""
 
-    device_type = "reactor"
+    device_type = "gas_generator"
 
     # ----------------------- Telemetry helpers -----------------------
+    def fill_ratio(self) -> float:
+        return float((self.telemetry or {}).get("filledRatio", 0.0))
+
+    def production_capacity(self) -> float:
+        return float((self.telemetry or {}).get("productionCapacity", 0.0))
+
     def current_output(self) -> float:
         return float((self.telemetry or {}).get("currentOutput", 0.0))
 
     def max_output(self) -> float:
         return float((self.telemetry or {}).get("maxOutput", 0.0))
 
-    def output_ratio(self) -> float:
-        return float((self.telemetry or {}).get("outputRatio", 0.0))
-
     def use_conveyor(self) -> bool:
         return bool((self.telemetry or {}).get("useConveyorSystem", False))
+
+    def auto_refill(self) -> bool:
+        return bool((self.telemetry or {}).get("autoRefill", False))
 
     def functional_status(self) -> Dict[str, Any]:
         data = self.telemetry or {}
@@ -44,5 +50,11 @@ class ReactorDevice(ContainerDevice):
     def set_use_conveyor(self, enabled: bool) -> int:
         return self.send_command({"cmd": "use_conveyor", "state": {"useConveyor": bool(enabled)}})
 
+    def set_auto_refill(self, enabled: bool) -> int:
+        return self.send_command({"cmd": "auto_refill", "state": {"autoRefill": bool(enabled)}})
 
-DEVICE_TYPE_MAP[ReactorDevice.device_type] = ReactorDevice
+    def refill_bottles(self) -> int:
+        return self.send_command({"cmd": "refill_bottles"})
+
+
+DEVICE_TYPE_MAP[GasGeneratorDevice.device_type] = GasGeneratorDevice

@@ -10,7 +10,7 @@ try:  # Python 3.10+
 except ImportError:  # pragma: no cover - Python <3.10 compatibility
     from importlib_metadata import entry_points  # type: ignore
 
-from sepy.base_device import DEVICE_TYPE_MAP
+from secontrol.base_device import DEVICE_TYPE_MAP
 
 __all__ = [
     "DEVICE_TYPE_MAP",
@@ -56,7 +56,7 @@ def load_builtin_devices() -> None:
 def load_external_plugins(groups: Iterable[str] | None = None) -> None:
     """Load additional device plugins via entry points."""
 
-    selected_groups = tuple(groups or ("sepy.devices",))
+    selected_groups = tuple(groups or ("secontrol.devices",))
     eps = entry_points()
     for group in selected_groups:
         for entry_point in eps.select(group=group):

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import time
 
-from sepy.common import close, prepare_grid, resolve_owner_id
-from sepy.devices.lamp_device import LampDevice
+from secontrol.common import close, prepare_grid, resolve_owner_id
+from secontrol.devices.lamp_device import LampDevice
 
 
 def main() -> None:

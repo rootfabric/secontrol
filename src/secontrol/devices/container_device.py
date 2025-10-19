@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Set
 
-from sepy.base_device import BaseDevice, DEVICE_TYPE_MAP
+from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
 
 
 class ContainerDevice(BaseDevice):

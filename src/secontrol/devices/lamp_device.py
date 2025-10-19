@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from sepy.base_device import BaseDevice, DEVICE_TYPE_MAP
+from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
 
 
 def _normalize_color_value(value: Any) -> float:

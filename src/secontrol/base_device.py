@@ -222,6 +222,12 @@ class Grid:
                 return
         if not isinstance(payload, dict):
             return
+        # Normalize nested layout: promote comp.devices to root devices when present
+        try:
+            if "devices" not in payload and isinstance(payload.get("comp"), dict) and "devices" in payload["comp"]:
+                payload["devices"] = payload["comp"]["devices"]
+        except Exception:
+            pass
         # Отладка: покажем, откуда берём устройства
         if "devices" not in payload:
             if isinstance(payload.get("comp"), dict) and "devices" in payload["comp"]:
@@ -618,21 +624,54 @@ class Grid:
         # собираем кандидатов из всех известных мест: payload['devices'] и payload['comp']['devices']
         candidates: list[Dict[str, Any]] = []
 
+        def _looks_like_device(d: Dict[str, Any]) -> bool:
+            if not isinstance(d, dict):
+                return False
+            has_id = any(k in d for k in ("deviceId", "entityId", "id"))
+            has_type = any(k in d for k in ("type", "deviceType", "subtype", "blockType"))
+            return bool(has_id or has_type)
+
+        def _collect_from_devices_section(section: Any) -> None:
+            if isinstance(section, dict):
+                if section and all(isinstance(k, str) and k.isdigit() for k in section.keys()):
+                    for v in section.values():
+                        if isinstance(v, dict) and _looks_like_device(v):
+                            candidates.append(v)
+                else:
+                    for v in section.values():
+                        if isinstance(v, list):
+                            for item in v:
+                                if isinstance(item, dict) and _looks_like_device(item):
+                                    candidates.append(item)
+                        elif isinstance(v, dict) and _looks_like_device(v):
+                            candidates.append(v)
+            elif isinstance(section, list):
+                for item in section:
+                    if isinstance(item, dict) and _looks_like_device(item):
+                        candidates.append(item)
+
+        def _search_recursively(obj: Any, depth: int = 0, limit: int = 4) -> None:
+            if depth > limit:
+                return
+            if isinstance(obj, dict):
+                if "devices" in obj:
+                    _collect_from_devices_section(obj.get("devices"))
+                for v in obj.values():
+                    _search_recursively(v, depth + 1, limit)
+            elif isinstance(obj, list):
+                for v in obj:
+                    _search_recursively(v, depth + 1, limit)
+
         # examples) корневой devices (если вдруг существует)
         root_devices = payload.get("devices")
-        if isinstance(root_devices, dict):
-            candidates.extend([d for d in root_devices.values() if isinstance(d, dict)])
-        elif isinstance(root_devices, list):
-            candidates.extend([d for d in root_devices if isinstance(d, dict)])
+        _collect_from_devices_section(root_devices)
 
         # 2) devices под comp
         comp = payload.get("comp")
         if isinstance(comp, dict):
-            comp_devices = comp.get("devices")
-            if isinstance(comp_devices, dict):
-                candidates.extend([d for d in comp_devices.values() if isinstance(d, dict)])
-            elif isinstance(comp_devices, list):
-                candidates.extend([d for d in comp_devices if isinstance(d, dict)])
+            _collect_from_devices_section(comp.get("devices"))
+            if not candidates:
+                _search_recursively(comp)
 
         # Отладка: если кандидатов нет — покажем, что есть
         if not candidates:

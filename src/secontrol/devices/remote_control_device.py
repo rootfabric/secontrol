@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sepy.base_device import BaseDevice, DEVICE_TYPE_MAP
+from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
 
 
 class RemoteControlDevice(BaseDevice):

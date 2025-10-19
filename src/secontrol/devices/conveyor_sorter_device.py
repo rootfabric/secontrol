@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List
 
-from sepy.base_device import DEVICE_TYPE_MAP
+from secontrol.base_device import DEVICE_TYPE_MAP
 from .container_device import ContainerDevice
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sepy.base_device import BaseDevice, DEVICE_TYPE_MAP
+from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
 
 
 class BatteryDevice(BaseDevice):

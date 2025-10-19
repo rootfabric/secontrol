@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from sepy.redis_client import RedisEventClient
-from sepy.common import resolve_owner_id
+from secontrol.redis_client import RedisEventClient
+from secontrol.common import resolve_owner_id
 
 
 def main() -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sepy.base_device import DEVICE_TYPE_MAP
+from secontrol.base_device import DEVICE_TYPE_MAP
 from .ship_tool_device import ShipToolDevice
 
 
