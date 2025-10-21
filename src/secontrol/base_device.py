@@ -182,6 +182,129 @@ class DeviceMetadata:
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class BlockInfo:
+    """Representation of a block reported by the Space Engineers grid bridge."""
+
+    block_id: int
+    block_type: str
+    subtype: Optional[str] = None
+    name: Optional[str] = None
+    state: Dict[str, Any] = field(default_factory=dict)
+    local_position: Optional[tuple[float, ...]] = None
+    relative_to_grid_center: Optional[tuple[float, ...]] = None
+    mass: Optional[float] = None
+    bounding_box: Optional[Dict[str, tuple[float, ...]]] = None
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def normalized_type(self) -> str:
+        base = self.subtype or self.block_type
+        if base is None:
+            return ""
+        return str(base).strip().lower()
+
+    @staticmethod
+    def _to_float_tuple(values: Any) -> Optional[tuple[float, ...]]:
+        if not isinstance(values, (list, tuple)):
+            return None
+        try:
+            return tuple(float(v) for v in values)
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def from_payload(cls, payload: Dict[str, Any]) -> "BlockInfo":
+        raw_id = payload.get("id") or payload.get("blockId") or payload.get("entityId")
+        if raw_id in (None, ""):
+            raise ValueError("Block payload is missing identifier")
+        block_id = int(raw_id)
+
+        block_type = (
+            payload.get("type")
+            or payload.get("blockType")
+            or payload.get("definition")
+            or payload.get("SubtypeName")
+            or payload.get("subtype")
+            or "generic"
+        )
+
+        subtype = payload.get("subtype") or payload.get("SubtypeName")
+        custom_name = payload.get("customName") or payload.get("CustomName")
+        display_name = payload.get("displayName") or payload.get("DisplayName")
+        raw_name = payload.get("name") or payload.get("Name")
+        name = custom_name or display_name or raw_name
+
+        state_payload = payload.get("state")
+        state = state_payload if isinstance(state_payload, dict) else {}
+
+        local_position = cls._to_float_tuple(
+            payload.get("local_pos")
+            or payload.get("localPos")
+            or payload.get("localPosition")
+        )
+        relative_to_center = cls._to_float_tuple(
+            payload.get("relative_to_grid_center")
+            or payload.get("relativeToGridCenter")
+        )
+
+        bounding_box_payload = payload.get("bounding_box") or payload.get("boundingBox")
+        bounding_box: Optional[Dict[str, tuple[float, ...]]] = None
+        if isinstance(bounding_box_payload, dict):
+            bounding_box = {}
+            for key, value in bounding_box_payload.items():
+                converted = cls._to_float_tuple(value)
+                if converted is not None:
+                    bounding_box[key] = converted
+
+        mass = payload.get("mass")
+        try:
+            mass_value = float(mass)
+        except (TypeError, ValueError):
+            mass_value = None
+
+        known_keys = {
+            "id",
+            "blockId",
+            "entityId",
+            "type",
+            "blockType",
+            "definition",
+            "SubtypeName",
+            "subtype",
+            "customName",
+            "CustomName",
+            "displayName",
+            "DisplayName",
+            "name",
+            "Name",
+            "state",
+            "local_pos",
+            "localPos",
+            "localPosition",
+            "relative_to_grid_center",
+            "relativeToGridCenter",
+            "bounding_box",
+            "boundingBox",
+            "mass",
+        }
+
+        extra = {k: v for k, v in payload.items() if k not in known_keys}
+
+        return cls(
+            block_id=block_id,
+            block_type=str(block_type),
+            subtype=str(subtype) if subtype else None,
+            name=str(name) if name else None,
+            state=state,
+            local_position=local_position,
+            relative_to_grid_center=relative_to_center,
+            mass=mass_value,
+            bounding_box=bounding_box,
+            extra=extra,
+        )
+
+
 class Grid:
     """Representation of a Space Engineers grid."""
 
@@ -203,6 +326,7 @@ class Grid:
         self.devices: Dict[str, BaseDevice] = {}
         # NEW: индекс по числовому id
         self.devices_by_num: Dict[int, BaseDevice] = {}
+        self.blocks: Dict[int, BlockInfo] = {}
 
         self._subscription = self.redis.subscribe_to_key(
             self.grid_key, self._on_grid_change
@@ -314,6 +438,10 @@ class Grid:
             except Exception as e:
                 print("[gridinfo] preview error:", e)
 
+        block_entries = list(self._extract_blocks(payload))
+        if block_entries or self.blocks:
+            self.blocks = {block.block_id: block for block in block_entries}
+
     # ------------------------------------------------------------------
     def get_device(self, device_id: str) -> Optional["BaseDevice"]:
         return self.devices.get(str(device_id))
@@ -357,6 +485,40 @@ class Grid:
             normalized = str(device_type).lower()
 
         return [d for d in self.devices.values() if getattr(d, "device_type", "").lower() == normalized]
+
+    # ------------------------------------------------------------------
+    def get_block(self, block_id: int | str) -> Optional[BlockInfo]:
+        """Возвращает блок по его ``EntityId``."""
+
+        try:
+            resolved = int(block_id)
+        except (TypeError, ValueError):
+            return None
+        return self.blocks.get(resolved)
+
+    def iter_blocks(self) -> Iterable[BlockInfo]:
+        """Итерируется по всем известным блокам грида."""
+
+        return self.blocks.values()
+
+    def find_blocks_by_type(self, block_type: str) -> list[BlockInfo]:
+        """Возвращает блоки указанного типа или подтипа."""
+
+        normalized = str(block_type or "").strip().lower()
+        if not normalized:
+            return []
+        return [block for block in self.blocks.values() if block.normalized_type == normalized]
+
+    def _normalize_block_id(self, block: int | str | BlockInfo) -> int:
+        if isinstance(block, BlockInfo):
+            block_id = block.block_id
+        else:
+            block_id = _safe_int(block)
+
+        if block_id is None or block_id <= 0:
+            raise ValueError("block identifier must be a positive integer")
+
+        return block_id
 
     # ------------------------------------------------------------------
     def _grid_command_channel(self) -> str:
@@ -477,7 +639,7 @@ class Grid:
     # ------------------------------------------------------------------
     def paint_block(
         self,
-        block_id: int | str,
+        block_id: int | str | BlockInfo,
         *,
         color: Any = None,
         hsv: Sequence[Any] | None = None,
@@ -487,9 +649,7 @@ class Grid:
     ) -> int:
         """Меняет цвет одного блока по его ``EntityId``."""
 
-        block_int = _safe_int(block_id)
-        if block_int is None or block_int <= 0:
-            raise ValueError("block_id must be a positive integer")
+        block_int = self._normalize_block_id(block_id)
 
         color_payload = _prepare_color_payload(color=color, hsv=hsv, rgb=rgb, space=space)
 
@@ -500,6 +660,46 @@ class Grid:
             payload["playSound"] = bool(play_sound)
 
         return self.send_grid_command("paint_block", payload=payload)
+
+    # ------------------------------------------------------------------
+    def paint_blocks(
+        self,
+        blocks: Iterable[int | str | BlockInfo],
+        *,
+        color: Any = None,
+        hsv: Sequence[Any] | None = None,
+        rgb: Sequence[Any] | None = None,
+        space: str | None = None,
+        play_sound: bool | None = None,
+    ) -> int:
+        """Меняет цвет нескольких блоков одним запросом."""
+
+        if isinstance(blocks, (BlockInfo, int, str)):
+            candidates = [blocks]
+        else:
+            candidates = list(blocks)
+
+        block_ids: list[int] = []
+        for item in candidates:
+            block_ids.append(self._normalize_block_id(item))
+
+        if not block_ids:
+            raise ValueError("blocks must contain at least one block identifier")
+
+        # сохраняем порядок и убираем дубликаты
+        unique_ids = list(dict.fromkeys(block_ids))
+
+        color_payload = _prepare_color_payload(color=color, hsv=hsv, rgb=rgb, space=space)
+
+        payload: Dict[str, Any] = {
+            **color_payload,
+            "blocks": [{"blockId": block_id} for block_id in unique_ids],
+        }
+
+        if play_sound is not None:
+            payload["playSound"] = bool(play_sound)
+
+        return self.send_grid_command("paint_blocks", payload=payload)
 
     # ------------------------------------------------------------------
     def create_gps_marker(
@@ -738,6 +938,33 @@ class Grid:
                 extra=extra,
             )
 
+    def _extract_blocks(self, payload: Dict[str, Any]) -> Iterable[BlockInfo]:
+        candidates: list[Dict[str, Any]] = []
+
+        root_blocks = payload.get("blocks")
+        if isinstance(root_blocks, dict):
+            candidates.extend([b for b in root_blocks.values() if isinstance(b, dict)])
+        elif isinstance(root_blocks, list):
+            candidates.extend([b for b in root_blocks if isinstance(b, dict)])
+
+        comp = payload.get("comp")
+        if isinstance(comp, dict):
+            comp_blocks = comp.get("blocks")
+            if isinstance(comp_blocks, dict):
+                candidates.extend([b for b in comp_blocks.values() if isinstance(b, dict)])
+            elif isinstance(comp_blocks, list):
+                candidates.extend([b for b in comp_blocks if isinstance(b, dict)])
+
+        seen: Dict[int, BlockInfo] = {}
+        for entry in candidates:
+            try:
+                block = BlockInfo.from_payload(entry)
+            except Exception:
+                continue
+            seen[block.block_id] = block
+
+        return seen.values()
+
     # ------------------------------------------------------------------
     def build_device_key(self, device_type: str, device_id: str) -> str:
         return f"se:{self.owner_id}:grid:{self.grid_id}:{device_type}:{device_id}:telemetry"
@@ -752,6 +979,7 @@ class Grid:
             device.close()
         self.devices.clear()
         self.devices_by_num.clear()
+        self.blocks.clear()
 
     def get_device_by_id(self, device_id: int) -> BaseDevice | None:
         """Быстрый поиск устройства по числовому ID."""
