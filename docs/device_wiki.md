@@ -34,15 +34,19 @@
 
 ### Батарея
 
-**Телеметрия:** базовый класс не добавляет специализированных полей — доступны стандартные флаги `enabled` и др. через `BaseDevice`.
+#### Телеметрия
 
-**Команды:**
+* Использует только базовые поля `BaseDevice` (`enabled`, `isWorking`, `isFunctional` и т. п.). Дополнительных показателей батарея не добавляет.【F:src/secontrol/devices/battery_device.py†L8-L19】
 
-* `battery_mode` — принимает `mode` (`"auto"`, `"recharge"`, `"discharge"`). При ошибке режим отклоняется валидатором клиента.【F:src/secontrol/devices/battery_device.py†L8-L19】
+#### Команды
+
+| Команда        | Параметры                              | Описание |
+| -------------- | --------------------------------------- | -------- |
+| `battery_mode` | `mode` ∈ {`"auto"`, `"recharge"`, `"discharge"`} | Переключает режим работы батареи; проверка допустимого значения выполняется на клиенте до отправки сообщения в Redis.【F:src/secontrol/devices/battery_device.py†L8-L19】|
 
 ### Кокпит
 
-**Телеметрия:**
+#### Телеметрия
 
 * `enabled`, `isUnderControl`, `hasPilot` — флаги включения и захвата управления.【F:src/secontrol/devices/cockpit_device.py†L29-L37】
 * `pilot` — словарь с `entityId`, `identityId`, именем и уровнями кислорода/энергии/водорода пилота, если он присутствует.【F:src/secontrol/devices/cockpit_device.py†L38-L48】
@@ -51,188 +55,254 @@
 * `gravity` — вложенные векторы `natural`, `artificial`, `total` для гравитации.【F:src/secontrol/devices/cockpit_device.py†L68-L77】
 * `inventories` — список инвентарей кокпита (каждый элемент — словарь из телеметрии).【F:src/secontrol/devices/cockpit_device.py†L79-L84】
 
-**Команды:**
+#### Команды
 
-* `enable`/`disable`/`toggle` — стандартное управление питанием.【F:src/secontrol/devices/cockpit_device.py†L87-L92】
-* `handbrake` с параметром `handBrake` (bool).【F:src/secontrol/devices/cockpit_device.py†L93-L95】
-* `dampeners` с параметром `dampeners` (bool).【F:src/secontrol/devices/cockpit_device.py†L96-L98】
-* `control_thrusters` (`controlThrusters`).【F:src/secontrol/devices/cockpit_device.py†L99-L101】
-* `control_wheels` (`controlWheels`).【F:src/secontrol/devices/cockpit_device.py†L102-L103】
-* `set_main` (`isMain`). Используется для назначения главного кокпита.【F:src/secontrol/devices/cockpit_device.py†L104-L106】
+| Команда             | Параметры                | Описание |
+| ------------------- | ------------------------- | -------- |
+| `enable` / `disable` / `toggle` | — | Включает или выключает питание кокпита, синхронизирует локальный кэш флагов.【F:src/secontrol/devices/cockpit_device.py†L87-L92】|
+| `handbrake`         | `handBrake`: bool         | Устанавливает состояние ручного тормоза.【F:src/secontrol/devices/cockpit_device.py†L93-L95】|
+| `dampeners`         | `dampeners`: bool         | Управляет инерционными демпферами.【F:src/secontrol/devices/cockpit_device.py†L96-L98】|
+| `control_thrusters` | `controlThrusters`: bool  | Разрешает или запрещает управление трастерами из кокпита.【F:src/secontrol/devices/cockpit_device.py†L99-L101】|
+| `control_wheels`    | `controlWheels`: bool     | Разрешает или запрещает управление колесами.【F:src/secontrol/devices/cockpit_device.py†L102-L103】|
+| `set_main`          | `isMain`: bool            | Назначает блок главным кокпитом грида.【F:src/secontrol/devices/cockpit_device.py†L104-L106】|
 
 ### Коннектор
 
-**Телеметрия:** стандартные флаги `enabled`, `locked` в теле устройства.
+#### Телеметрия
 
-**Команды:**
+* Стандартные флаги `enabled` и `locked` присутствуют в телеметрии устройства через `BaseDevice` и метаданные Redis.【F:src/secontrol/devices/connector_device.py†L13-L21】
 
-* `connector_state` — принимает `locked` и/или `enabled` в `state`. Обе опции необязательны и передаются как булевы значения.【F:src/secontrol/devices/connector_device.py†L13-L21】
+#### Команды
+
+| Команда           | Параметры                         | Описание |
+| ----------------- | ---------------------------------- | -------- |
+| `connector_state` | `enabled`: bool?, `locked`: bool?  | Переключает питание и/или замок коннектора; оба параметра необязательны и передаются только при необходимости изменить состояние.【F:src/secontrol/devices/connector_device.py†L13-L21】|
 
 ### Контейнер
 
-**Телеметрия:**
+#### Телеметрия
 
-* `items` — список предметов с полями `type`, `subtype`, `amount`, при наличии `displayName`; данные нормализуются клиентом.【F:src/secontrol/devices/container_device.py†L19-L49】
+* `items` — список предметов с полями `type`, `subtype`, `amount`, а при наличии `displayName`; данные нормализуются клиентом при разборе телеметрии.【F:src/secontrol/devices/container_device.py†L19-L49】
 * `capacity` — агрегированные показатели объёма и массы (`currentVolume`, `maxVolume`, `currentMass`, `fillRatio`).【F:src/secontrol/devices/container_device.py†L51-L64】
 
-**Команды переноса:**
+#### Команды переноса
 
-* `transfer_items` — `state` содержит JSON-строку с `fromId`, `toId`, `items`. Каждый элемент `items` может задавать `type`, `subtype`, `amount`. Команда используется во всех вспомогательных методах.【F:src/secontrol/devices/container_device.py†L66-L118】
-* `move_items` — переносит список предметов в другой инвентарь (составляет нагрузку для `transfer_items`).【F:src/secontrol/devices/container_device.py†L120-L133】
-* `move_subtype` — перенос одного сабтайпа с опциональным типом и количеством.【F:src/secontrol/devices/container_device.py†L134-L143】
-* `move_all` — переносит все предметы, кроме перечисленных в `blacklist`. Использует телеметрию контейнера для построения списка.【F:src/secontrol/devices/container_device.py†L145-L167】
-* `drain_to` — передаёт конкретные сабтайпы целиком.【F:src/secontrol/devices/container_device.py†L169-L193】
+| Команда          | Параметры | Описание |
+| ---------------- | ---------- | -------- |
+| `transfer_items` | `state`: JSON-строка с `fromId`, `toId`, `items[]` (`type`, `subtype`, `amount`) | Базовая команда Redis-плагина, используемая для любых операций перемещения инвентаря.【F:src/secontrol/devices/container_device.py†L66-L118】|
+| `move_items`     | `items`: Iterable, `from_id`, `to_id` | Высокоуровневый метод клиента: формирует полезную нагрузку для `transfer_items` по списку словарей или объектов телеметрии.【F:src/secontrol/devices/container_device.py†L120-L133】|
+| `move_subtype`   | `subtype`, `amount?`, `type?`, `from_id`, `to_id` | Перемещает один сабтайп с опциональным ограничением по количеству и типу предмета.【F:src/secontrol/devices/container_device.py†L134-L143】|
+| `move_all`       | `to_id`, `blacklist?`                | Переносит все предметы, кроме перечисленных в `blacklist`, автоматически читая телеметрию контейнера.【F:src/secontrol/devices/container_device.py†L145-L167】|
+| `drain_to`       | `to_id`, `subtypes`: Iterable        | Передает указанные сабтайпы полностью из исходного контейнера в целевой.【F:src/secontrol/devices/container_device.py†L169-L193】|
 
 ### Сортировщик конвейера
 
-**Телеметрия:**
+#### Телеметрия
 
-* Режим (`mode` и флаг `isWhitelist`), параметр `drainAll`, список фильтров `filters` (каждый содержит `type`, `subtype`, `allSubtypes`).【F:src/secontrol/devices/conveyor_sorter_device.py†L33-L57】
+* `mode`, `isWhitelist`, `drainAll` — режим работы, состояние списка и глобальное вытягивание ресурсов.【F:src/secontrol/devices/conveyor_sorter_device.py†L33-L57】
+* `filters[]` — список фильтров с полями `type`, `subtype`, `allSubtypes`, нормализованных клиентом.【F:src/secontrol/devices/conveyor_sorter_device.py†L1-L31】【F:src/secontrol/devices/conveyor_sorter_device.py†L33-L57】
 
-**Команды:**
+#### Команды
 
-* `enable`/`disable`/`toggle` — питание сортировщика.【F:src/secontrol/devices/conveyor_sorter_device.py†L60-L64】
-* `set_whitelist`, `set_blacklist` — переключение режима фильтрации (первый вариант принимает булев `whitelist`).【F:src/secontrol/devices/conveyor_sorter_device.py†L65-L69】
-* `set_drain_all` — управляет вытягиванием всех предметов (булев `drainAll`).【F:src/secontrol/devices/conveyor_sorter_device.py†L70-L72】
-* `clear_filters`, `add_filters`, `remove_filters`, `set_filters` — управление фильтрами; значения нормализуются функцией `_normalize_filter` и упаковываются в `state.filters`. Параметр `whitelist` в `set_filters` задаёт режим сразу.【F:src/secontrol/devices/conveyor_sorter_device.py†L73-L96】【F:src/secontrol/devices/conveyor_sorter_device.py†L1-L31】
+| Команда        | Параметры | Описание |
+| -------------- | ---------- | -------- |
+| `enable` / `disable` / `toggle` | — | Управляет питанием сортировщика, поддерживая локальный кэш состояния.【F:src/secontrol/devices/conveyor_sorter_device.py†L60-L64】|
+| `set_whitelist` / `set_blacklist` | `whitelist`: bool? | Переключают режим работы; `set_whitelist` принимает булев параметр, `set_blacklist` отправляет фиксированное значение.【F:src/secontrol/devices/conveyor_sorter_device.py†L65-L69】|
+| `set_drain_all` | `drainAll`: bool | Активирует или отключает вытягивание всех предметов через сеть конвейеров.【F:src/secontrol/devices/conveyor_sorter_device.py†L70-L72】|
+| `clear_filters` | — | Полностью очищает список фильтров блока.【F:src/secontrol/devices/conveyor_sorter_device.py†L73-L81】|
+| `add_filters` / `remove_filters` | `filters[]` | Добавляют или удаляют фильтры; значения нормализуются вспомогательной функцией клиента.【F:src/secontrol/devices/conveyor_sorter_device.py†L73-L96】【F:src/secontrol/devices/conveyor_sorter_device.py†L1-L31】|
+| `set_filters` | `filters[]`, `whitelist`? | Заменяет весь список фильтров и при необходимости переключает режим списка.【F:src/secontrol/devices/conveyor_sorter_device.py†L82-L96】【F:src/secontrol/devices/conveyor_sorter_device.py†L1-L31】|
 
 ### Генератор газа
 
-**Телеметрия:** коэффициент заполнения `filledRatio`, производительность (`productionCapacity`, `currentOutput`, `maxOutput`), флаги `useConveyorSystem`, `autoRefill`, а также сводная структура `functional_status` с флагами `enabled`, `isFunctional`, `isWorking`.【F:src/secontrol/devices/gas_generator_device.py†L12-L30】
+#### Телеметрия
 
-**Команды:**
+* `filledRatio` и производственные показатели `productionCapacity`, `currentOutput`, `maxOutput`.【F:src/secontrol/devices/gas_generator_device.py†L12-L30】
+* Флаги `useConveyorSystem`, `autoRefill`, а также агрегированная структура `functional_status` (`enabled`, `isFunctional`, `isWorking`).【F:src/secontrol/devices/gas_generator_device.py†L12-L30】
 
-* `enable`/`disable`/`toggle` — питание.【F:src/secontrol/devices/gas_generator_device.py†L33-L36】
-* `use_conveyor` (`useConveyor`).【F:src/secontrol/devices/gas_generator_device.py†L37-L38】
-* `auto_refill` (`autoRefill`).【F:src/secontrol/devices/gas_generator_device.py†L39-L40】
-* `refill_bottles` — немедленно пополняет баллоны в инвентаре.【F:src/secontrol/devices/gas_generator_device.py†L41-L42】
+#### Команды
+
+| Команда        | Параметры | Описание |
+| -------------- | ---------- | -------- |
+| `enable` / `disable` / `toggle` | — | Управляет питанием генератора и отражает новое состояние в кэше устройства.【F:src/secontrol/devices/gas_generator_device.py†L33-L36】|
+| `use_conveyor` | `useConveyor`: bool | Включает использование конвейерной сети для подачи льда.【F:src/secontrol/devices/gas_generator_device.py†L37-L38】|
+| `auto_refill`  | `autoRefill`: bool | Автоматически пополняет баллоны, подключенные к блоку.【F:src/secontrol/devices/gas_generator_device.py†L39-L40】|
+| `refill_bottles` | — | Мгновенно заправляет баллоны в инвентаре генератора.【F:src/secontrol/devices/gas_generator_device.py†L41-L42】|
 
 ### Гироскоп
 
-**Телеметрия:** базовые поля через `BaseDevice`.
+#### Телеметрия
 
-**Команды:**
+* Использует стандартные поля `BaseDevice` (`enabled`, `isFunctional`, `isWorking`). Специализированных показателей нет.【F:src/secontrol/devices/gyro_device.py†L12-L36】
 
-* `override` — строка CSV c тремя значениями (pitch, yaw, roll) в диапазоне `[-1;1]`, опционально дополняется `power`. Клиент сам нормализует значения и формирует строку. 【F:src/secontrol/devices/gyro_device.py†L12-L28】
-* `enable`, `disable`, `clear_override` — переключают режимы гироскопа.【F:src/secontrol/devices/gyro_device.py†L30-L36】
+#### Команды
+
+| Команда         | Параметры | Описание |
+| --------------- | ---------- | -------- |
+| `override`      | `pitch`, `yaw`, `roll` ∈ [-1;1], `power`? | Клиент нормализует значения и формирует CSV-строку для установки ручного управления гироскопом.【F:src/secontrol/devices/gyro_device.py†L12-L28】|
+| `enable` / `disable` | — | Включает или выключает блок; доступны обертки `enable` и `disable`.【F:src/secontrol/devices/gyro_device.py†L30-L36】|
+| `clear_override` | — | Сбрасывает ручные установки и возвращает гироскоп в автоматический режим.【F:src/secontrol/devices/gyro_device.py†L30-L36】|
 
 ### Лампа
 
-**Телеметрия:** флаги `enabled`, `intensity`, `radius`, текущий цвет `color` (RGB в формате 0–1). Клиент предоставляет геттеры с преобразованием типов.【F:src/secontrol/devices/lamp_device.py†L69-L115】
+#### Телеметрия
 
-**Команды:**
+* `enabled`, `intensity`, `radius` — стандартные поля состояния лампы.【F:src/secontrol/devices/lamp_device.py†L69-L115】
+* `color` — текущий RGB в диапазоне 0–1 с удобными геттерами для преобразования к целочисленному цвету.【F:src/secontrol/devices/lamp_device.py†L69-L115】
 
-* `enable`/`disable` и удобный `set_enabled`.【F:src/secontrol/devices/lamp_device.py†L43-L58】
-* `color` — принимает массив из трёх компонентов (0–1). Клиент умеет парсить строки, словари и последовательности, конвертируя их к нормализованному RGB.【F:src/secontrol/devices/lamp_device.py†L5-L41】【F:src/secontrol/devices/lamp_device.py†L59-L67】
+#### Команды
+
+| Команда      | Параметры | Описание |
+| ------------ | ---------- | -------- |
+| `enable` / `disable` / `set_enabled` | `enabled`: bool | Управление питанием лампы; `set_enabled` принимает булево значение и вызывает соответствующую команду.【F:src/secontrol/devices/lamp_device.py†L43-L58】|
+| `color`      | `color`: Sequence/str/dict | Принимает цвет в различных форматах, нормализует его к трем компонентам 0–1 перед отправкой в Redis.【F:src/secontrol/devices/lamp_device.py†L5-L41】【F:src/secontrol/devices/lamp_device.py†L59-L67】|
 
 ### Большая турель
 
-**Телеметрия:**
+#### Телеметрия
 
-* Флаги `enabled`, `aiEnabled`, `idleRotation`, дальность `range`, текущая цель `target` (словарь или `None`).【F:src/secontrol/devices/large_turret_device.py†L12-L28】
+* `enabled`, `aiEnabled`, `idleRotation`, `range` и `target` (структура с текущей целью или `null`).【F:src/secontrol/devices/large_turret_device.py†L12-L28】
 
-**Команды:**
+#### Команды
 
-* `enable`/`disable`/`toggle` — питание.【F:src/secontrol/devices/large_turret_device.py†L30-L33】
-* `idle_rotation` (`idleRotation`).【F:src/secontrol/devices/large_turret_device.py†L34-L35】
-* `set_range` (`range`).【F:src/secontrol/devices/large_turret_device.py†L36-L37】
-* `shoot_once`, `shoot_on`, `shoot_off`, `reset_target` — управление стрельбой и сбросом цели.【F:src/secontrol/devices/large_turret_device.py†L38-L43】
+| Команда      | Параметры | Описание |
+| ------------ | ---------- | -------- |
+| `enable` / `disable` / `toggle` | — | Управление питанием и синхронизация локального состояния турели.【F:src/secontrol/devices/large_turret_device.py†L30-L33】|
+| `idle_rotation` | `idleRotation`: bool | Включает пассивное вращение турели при отсутствии целей.【F:src/secontrol/devices/large_turret_device.py†L34-L35】|
+| `set_range`     | `range`: float      | Устанавливает дистанцию обнаружения и стрельбы.【F:src/secontrol/devices/large_turret_device.py†L36-L37】|
+| `shoot_once`    | — | Производит одиночный выстрел.【F:src/secontrol/devices/large_turret_device.py†L38-L43】|
+| `shoot_on` / `shoot_off` | — | Постоянно включает или выключает стрельбу турели.【F:src/secontrol/devices/large_turret_device.py†L38-L43】|
+| `reset_target` | — | Сбрасывает текущую цель, позволяя турели выбрать новую.【F:src/secontrol/devices/large_turret_device.py†L38-L43】|
 
 ### Проектор
 
-**Телеметрия:**
+#### Телеметрия
 
-* Количество оставшихся блоков (`remainingBlocks`), число собираемых блоков (`buildableBlocks`), название проецируемого грида (`projectedGridName`).【F:src/secontrol/devices/projector_device.py†L64-L84】
-* При экспорте блюпринта данные сохраняются в Redis-ключ, который вычисляется методом `blueprint_key`; клиент умеет читать снапшот и XML из этого ключа.【F:src/secontrol/devices/projector_device.py†L114-L155】
+* `remainingBlocks`, `buildableBlocks`, `projectedGridName` — ключевые показатели текущей проекции.【F:src/secontrol/devices/projector_device.py†L64-L84】
+* Методы `blueprint_key`, `load_blueprint_snapshot` и `load_blueprint_xml` позволяют считывать сохранённые префабы из Redis-ключа, который формируется самим устройством.【F:src/secontrol/devices/projector_device.py†L114-L155】
 
-**Команды:**
+#### Команды
 
-* `set_state` — переключение питания (`enabled`).【F:src/secontrol/devices/projector_device.py†L18-L23】
-* `projector_state` — флаги: `keepProjection`, `showOnlyBuildable`, `instantBuild`, `alignGrids`, `projectionLocked`, `useAdaptiveOffsets`, `useAdaptiveRotation`. Требует хотя бы один параметр.【F:src/secontrol/devices/projector_device.py†L24-L46】
-* `set_scale`, `set_offset`, `nudge_offset`, `set_rotation`, `nudge_rotation` — управление масштабом, смещением и вращением проекции.【F:src/secontrol/devices/projector_device.py†L47-L63】
-* `reset_projection`, `lock_projection`, `unlock_projection` — служебные действия с текущей проекцией.【F:src/secontrol/devices/projector_device.py†L59-L63】
-* `load_prefab` — загрузка префаба по идентификатору; опционально сохраняет текущую проекцию (`keep`).【F:src/secontrol/devices/projector_device.py†L86-L101】
-* `load_blueprint_xml` — загрузка блюпринта из XML (`ShipBlueprintDefinition`).【F:src/secontrol/devices/projector_device.py†L102-L113】
-* `export_grid_blueprint` — сериализация текущего грида в Redis (`includeConnected` управляет захватом присоединённых гридов).【F:src/secontrol/devices/projector_device.py†L118-L127】
+| Команда      | Параметры | Описание |
+| ------------ | ---------- | -------- |
+| `set_state`  | `enabled`: bool | Включает или выключает питание проектора.【F:src/secontrol/devices/projector_device.py†L18-L23】|
+| `projector_state` | Любая комбинация флагов `keepProjection`, `showOnlyBuildable`, `instantBuild`, `alignGrids`, `projectionLocked`, `useAdaptiveOffsets`, `useAdaptiveRotation` | Обновляет внутреннее состояние проекции; требуется хотя бы один параметр.【F:src/secontrol/devices/projector_device.py†L24-L46】|
+| `set_scale` / `set_offset` / `set_rotation` | `scale`: float, `offset`: Vector3, `rotation`: Vector3 | Полностью задают масштаб, смещение и ориентацию проекции.【F:src/secontrol/devices/projector_device.py†L47-L63】|
+| `nudge_offset` / `nudge_rotation` | Инкрементальные смещения/повороты | Добавляют указанные дельты к текущему положению или вращению.【F:src/secontrol/devices/projector_device.py†L47-L63】|
+| `reset_projection` / `lock_projection` / `unlock_projection` | — | Управляют сохранением и фиксацией текущей проекции.【F:src/secontrol/devices/projector_device.py†L59-L63】|
+| `load_prefab` | `prefabId`, `keep`? | Загружает заранее сохранённый префаб; опция `keep` сохраняет текущую проекцию в списке последних.【F:src/secontrol/devices/projector_device.py†L86-L101】|
+| `load_blueprint_xml` | `xml`: str | Поднимает проекцию из XML `ShipBlueprintDefinition`.【F:src/secontrol/devices/projector_device.py†L102-L113】|
+| `export_grid_blueprint` | `includeConnected`: bool? | Экспортирует текущий грид в Redis и возвращает ключ со снапшотом/блюпринтом.【F:src/secontrol/devices/projector_device.py†L118-L127】|
 
 ### Реактор
 
-**Телеметрия:** текущая и максимальная мощность (`currentOutput`, `maxOutput`), отношение загрузки (`outputRatio`), флаг использования конвейера и статус работы (`enabled`, `isFunctional`, `isWorking`).【F:src/secontrol/devices/reactor_device.py†L12-L28】
+#### Телеметрия
 
-**Команды:**
+* `currentOutput`, `maxOutput`, `outputRatio` — показатели мощности реактора.【F:src/secontrol/devices/reactor_device.py†L12-L28】
+* Флаги `useConveyorSystem`, `enabled`, `isFunctional`, `isWorking` — состояние подачи топлива и функциональности блока.【F:src/secontrol/devices/reactor_device.py†L12-L28】
 
-* `enable`/`disable`/`toggle` — питание.【F:src/secontrol/devices/reactor_device.py†L31-L34】
-* `use_conveyor` (`useConveyor`).【F:src/secontrol/devices/reactor_device.py†L35-L36】
+#### Команды
+
+| Команда      | Параметры | Описание |
+| ------------ | ---------- | -------- |
+| `enable` / `disable` / `toggle` | — | Управляет питанием реактора.【F:src/secontrol/devices/reactor_device.py†L31-L34】|
+| `use_conveyor` | `useConveyor`: bool | Включает или отключает использование конвейерной сети для подачи топлива.【F:src/secontrol/devices/reactor_device.py†L35-L36】|
 
 ### Перерабатывающий завод
 
-**Телеметрия:**
+#### Телеметрия
 
-* `useConveyorSystem`, `isProducing`, `isQueueEmpty`, `currentProgress` — основные флаги и прогресс.【F:src/secontrol/devices/refinery_device.py†L26-L39】
-* `inputInventory` и `outputInventory` — вложенные структуры с объёмом, массой и списком предметов; клиент нормализует их через `_parse_inventory`.【F:src/secontrol/devices/refinery_device.py†L8-L23】【F:src/secontrol/devices/refinery_device.py†L40-L48】
-* `queue` — текущее содержимое производственной очереди (список словарей).【F:src/secontrol/devices/refinery_device.py†L49-L52】
+* `useConveyorSystem`, `isProducing`, `isQueueEmpty`, `currentProgress` — состояние и прогресс переработки.【F:src/secontrol/devices/refinery_device.py†L26-L39】
+* `inputInventory`, `outputInventory` — вложенные структуры объема, массы и предметов, нормализованные `_parse_inventory`.【F:src/secontrol/devices/refinery_device.py†L8-L23】【F:src/secontrol/devices/refinery_device.py†L40-L48】
+* `queue` — список элементов очереди производства с типом, сабтайпом и количеством.【F:src/secontrol/devices/refinery_device.py†L49-L52】
 
-**Команды:**
+#### Команды
 
-* `enable`/`disable`/`toggle` — питание.【F:src/secontrol/devices/refinery_device.py†L55-L58】
-* `use_conveyor` — принимает `useConveyor`. Параметр опционален, команда отправляется даже без него для синхронизации состояний.【F:src/secontrol/devices/refinery_device.py†L59-L63】
-* `queue_clear` — очистка очереди.【F:src/secontrol/devices/refinery_device.py†L64-L65】
-* `queue_remove` — удаление элемента по индексу с опциональным `amount`.【F:src/secontrol/devices/refinery_device.py†L66-L70】
-* `queue_add` — добавление блюпринта (поддерживаются строки, словари, кортежи; нормализует `_normalize_queue_item`). Есть метод `add_queue_items` для массового добавления.【F:src/secontrol/devices/refinery_device.py†L24-L25】【F:src/secontrol/devices/refinery_device.py†L71-L80】
+| Команда      | Параметры | Описание |
+| ------------ | ---------- | -------- |
+| `enable` / `disable` / `toggle` | — | Управляет питанием перерабатывающего завода.【F:src/secontrol/devices/refinery_device.py†L55-L58】|
+| `use_conveyor` | `useConveyor`: bool? | Синхронизирует использование конвейерной сети, даже если параметр не передан (используется для актуализации состояния).【F:src/secontrol/devices/refinery_device.py†L59-L63】|
+| `queue_clear` | — | Полностью очищает очередь производства.【F:src/secontrol/devices/refinery_device.py†L64-L65】|
+| `queue_remove` | `index`: int, `amount`: int? | Удаляет элемент очереди по индексу, опционально уменьшая его количество.【F:src/secontrol/devices/refinery_device.py†L66-L70】|
+| `queue_add` | `blueprint`: str/tuple/dict, `amount`: int? | Добавляет чертёж в очередь; клиент нормализует запись `_normalize_queue_item`. Доступен метод `add_queue_items` для массовых операций.【F:src/secontrol/devices/refinery_device.py†L24-L25】【F:src/secontrol/devices/refinery_device.py†L71-L80】|
 
 ### Пульт дистанционного управления
 
-**Телеметрия:** стандартные поля состояния (включение, координаты, режим пилота) через `BaseDevice`.
+#### Телеметрия
 
-**Команды:**
+* Наследует базовые поля (`enabled`, `isWorking`, координаты) из `BaseDevice`; отдельная телеметрия реализована на стороне плагина и приходит в виде стандартных флагов.【F:src/secontrol/devices/remote_control_device.py†L12-L44】
 
-* `remote_control` — включает автопилот для блока (отправляет `targetId`, `targetName`).【F:src/secontrol/devices/remote_control_device.py†L12-L18】
-* `remote_goto` — строит GPS-строку и отправляет цель. Поддерживает строки формата `GPS:...` или три координаты, а также опцию `speed=` через `state`.【F:src/secontrol/devices/remote_control_device.py†L19-L44】
+#### Команды
+
+| Команда          | Параметры | Описание |
+| ---------------- | ---------- | -------- |
+| `remote_control` | `targetId`: int?, `targetName`: str? | Включает автопилот и назначает цель по идентификатору или имени.【F:src/secontrol/devices/remote_control_device.py†L12-L18】|
+| `remote_goto`    | `gps`: str / координаты, `speed`: float? | Строит GPS-строку (`GPS:...`) или принимает координаты и отправляет блок на указанную позицию; параметр `speed` задаётся в `state`.【F:src/secontrol/devices/remote_control_device.py†L19-L44】|
 
 ### Корабельный бур
 
-**Телеметрия:** `harvestRatio`, `cutOutDepth`, `drillRadius`, `drillPowerConsumption`, `collectStone`. Клиент возвращает числовые значения и булев флаг сбора камня.【F:src/secontrol/devices/ship_drill_device.py†L9-L21】
+#### Телеметрия
 
-**Команды:**
+* `harvestRatio`, `cutOutDepth`, `drillRadius`, `drillPowerConsumption`, `collectStone` — показатели добычи и настройки радиуса бурения.【F:src/secontrol/devices/ship_drill_device.py†L9-L21】
 
-* `collect_stone` (`collectStone`).【F:src/secontrol/devices/ship_drill_device.py†L22-L23】
-* `cut_depth` (`cutDepth`).【F:src/secontrol/devices/ship_drill_device.py†L24-L25】
-* `drill_radius` (`drillRadius`).【F:src/secontrol/devices/ship_drill_device.py†L26-L27】
+#### Команды
+
+| Команда        | Параметры | Описание |
+| -------------- | ---------- | -------- |
+| `collect_stone` | `collectStone`: bool | Управляет сбором камня буром.【F:src/secontrol/devices/ship_drill_device.py†L22-L23】|
+| `cut_depth`     | `cutDepth`: float   | Задает глубину реза инструмента.【F:src/secontrol/devices/ship_drill_device.py†L24-L25】|
+| `drill_radius`  | `drillRadius`: float | Изменяет радиус бурения.【F:src/secontrol/devices/ship_drill_device.py†L26-L27】|
 
 ### Корабельный гриндер
 
-**Телеметрия:** множители `grindingMultiplier`, `grindSpeedMultiplier`, флаг `helpOthers`. 【F:src/secontrol/devices/ship_grinder_device.py†L9-L17】
+#### Телеметрия
 
-**Команды:**
+* `grindingMultiplier`, `grindSpeedMultiplier`, `helpOthers` — параметры скорости разборки и помощи союзникам.【F:src/secontrol/devices/ship_grinder_device.py†L9-L17】
 
-* `help_others` (`helpOthers`).【F:src/secontrol/devices/ship_grinder_device.py†L18-L19】
+#### Команды
+
+| Команда      | Параметры | Описание |
+| ------------ | ---------- | -------- |
+| `help_others` | `helpOthers`: bool | Разрешает помогать союзным персонажам при разборке блоков.【F:src/secontrol/devices/ship_grinder_device.py†L18-L19】|
 
 ### Корабельный сварщик
 
-**Телеметрия:** множители `weldingMultiplier`, `weldSpeedMultiplier`, флаги `helpOthers`, `showArea`. 【F:src/secontrol/devices/ship_welder_device.py†L9-L20】
+#### Телеметрия
 
-**Команды:**
+* `weldingMultiplier`, `weldSpeedMultiplier`, `helpOthers`, `showArea` — настройки скорости сварки и визуализации зоны действия.【F:src/secontrol/devices/ship_welder_device.py†L9-L20】
 
-* `help_others` (`helpOthers`).【F:src/secontrol/devices/ship_welder_device.py†L21-L22】
-* `show_area` (`showArea`).【F:src/secontrol/devices/ship_welder_device.py†L23-L24】
+#### Команды
+
+| Команда      | Параметры | Описание |
+| ------------ | ---------- | -------- |
+| `help_others` | `helpOthers`: bool | Разрешает обслуживать союзников при сварке.【F:src/secontrol/devices/ship_welder_device.py†L21-L22】|
+| `show_area`   | `showArea`: bool   | Отображает область действия инструмента.【F:src/secontrol/devices/ship_welder_device.py†L23-L24】|
 
 ### Двигатель (трастер)
 
-**Телеметрия:** базовые флаги через `BaseDevice`.
+#### Телеметрия
 
-**Команды:**
+* Использует базовые поля `BaseDevice` (`enabled`, `isFunctional`, `isWorking`). Специфических показателей нет.【F:src/secontrol/devices/thruster_device.py†L11-L23】
 
-* `thruster_control` — поддерживает поля `override` (число тяги) и `enabled` (bool); оба параметра опциональны.【F:src/secontrol/devices/thruster_device.py†L11-L23】
+#### Команды
+
+| Команда            | Параметры | Описание |
+| ------------------ | ---------- | -------- |
+| `thruster_control` | `override`: float?, `enabled`: bool? | Устанавливает тягу и/или включает блок. Метод клиента `set_thrust` заполняет только переданные поля.【F:src/secontrol/devices/thruster_device.py†L11-L23】|
 
 ### Базовый корабельный инструмент
 
-Эту роль выполняет `ShipToolDevice`, от которого наследуются бур, гриндер и сварщик.
+`ShipToolDevice` — базовый класс для бора, гриндера и сварщика, предоставляющий общую логику.
 
-**Телеметрия:** `useConveyorSystem`, `requiredPowerInput`, `powerConsumptionMultiplier`, а также общий статус `enabled`/`isFunctional`/`isWorking`.【F:src/secontrol/devices/ship_tool_device.py†L9-L23】
+#### Телеметрия
 
-**Команды:**
+* `useConveyorSystem`, `requiredPowerInput`, `powerConsumptionMultiplier` и агрегированный статус `enabled`/`isFunctional`/`isWorking`.【F:src/secontrol/devices/ship_tool_device.py†L9-L23】
 
-* `enable`/`disable`/`toggle` — стандартные операции.【F:src/secontrol/devices/ship_tool_device.py†L24-L28】
-* `use_conveyor` (`useConveyor`).【F:src/secontrol/devices/ship_tool_device.py†L29-L30】
-* За счёт вспомогательных `_send_boolean_command` и `_send_float_command` наследники реализуют собственные дополнительные опции (см. разделы выше).【F:src/secontrol/devices/ship_tool_device.py†L31-L34】
+#### Команды
+
+| Команда      | Параметры | Описание |
+| ------------ | ---------- | -------- |
+| `enable` / `disable` / `toggle` | — | Управляют питанием любого корабельного инструмента.【F:src/secontrol/devices/ship_tool_device.py†L24-L28】|
+| `use_conveyor` | `useConveyor`: bool | Включает использование конвейеров для подачи ресурсов.【F:src/secontrol/devices/ship_tool_device.py†L29-L30】|
+| `_send_boolean_command`, `_send_float_command` | Внутренние параметры наследников | Вспомогательные методы, которые используют устройства-наследники для отправки специализированных команд (см. конкретные разделы).【F:src/secontrol/devices/ship_tool_device.py†L31-L34】|
 
