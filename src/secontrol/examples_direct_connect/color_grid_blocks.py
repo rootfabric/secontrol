@@ -21,7 +21,7 @@ def _normalize_bool(value: str | None) -> bool | None:
 
 def _parse_color_from_env() -> Dict[str, Any]:
 
-    return {"color": "0,200,200", "space": "rgb"}
+    return {"color": "0,128,0", "space": "rgb"}
     # hsv = os.getenv("GRID_BLOCK_COLOR_HSV")
     # if hsv:
     #     return {"color": hsv, "space": "hsv"}
@@ -72,14 +72,13 @@ def main() -> None:
     play_sound = _normalize_bool(os.getenv("GRID_BLOCK_PLAY_SOUND"))
     chunk_size = os.getenv("GRID_BLOCK_BATCH")
     try:
-        batch_size = int(chunk_size) if chunk_size is not None else 99999
+        batch_size = int(chunk_size) if chunk_size is not None else 50
     except ValueError:
-        batch_size = 500
+        batch_size = 50
 
     client, grid = prepare_grid()
     try:
         block_ids = _collect_block_ids(grid.iter_blocks())
-        print(block_ids)
         if not block_ids:
             raise SystemExit(
                 "Не удалось найти ни одного блока. Убедитесь, что Redis содержит обновлённые данные о гриде."
