@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Iterable, Iterator, Sequence
 
-from sepy.common import close, prepare_grid
+from secontrol.common import close, prepare_grid
 
 
 def _normalize_bool(value: str | None) -> bool | None:
@@ -20,25 +20,27 @@ def _normalize_bool(value: str | None) -> bool | None:
 
 
 def _parse_color_from_env() -> Dict[str, Any]:
-    hsv = os.getenv("GRID_BLOCK_COLOR_HSV")
-    if hsv:
-        return {"color": hsv, "space": "hsv"}
 
-    rgb = os.getenv("GRID_BLOCK_COLOR_RGB")
-    if rgb:
-        return {"color": rgb, "space": "rgb"}
-
-    color = os.getenv("GRID_BLOCK_COLOR")
-    if color:
-        space = os.getenv("GRID_BLOCK_COLOR_SPACE")
-        payload: Dict[str, Any] = {"color": color}
-        if space:
-            payload["space"] = space
-        return payload
-
-    raise SystemExit(
-        "Задайте один из GRID_BLOCK_COLOR, GRID_BLOCK_COLOR_RGB или GRID_BLOCK_COLOR_HSV"
-    )
+    return {"color": "0,128,0", "space": "rgb"}
+    # hsv = os.getenv("GRID_BLOCK_COLOR_HSV")
+    # if hsv:
+    #     return {"color": hsv, "space": "hsv"}
+    #
+    # rgb = os.getenv("GRID_BLOCK_COLOR_RGB")
+    # if rgb:
+    #     return {"color": rgb, "space": "rgb"}
+    #
+    # color = os.getenv("GRID_BLOCK_COLOR")
+    # if color:
+    #     space = os.getenv("GRID_BLOCK_COLOR_SPACE")
+    #     payload: Dict[str, Any] = {"color": color}
+    #     if space:
+    #         payload["space"] = space
+    #     return payload
+    #
+    # raise SystemExit(
+    #     "Задайте один из GRID_BLOCK_COLOR, GRID_BLOCK_COLOR_RGB или GRID_BLOCK_COLOR_HSV"
+    # )
 
 
 def _collect_block_ids(blocks: Iterable[Any]) -> list[int]:
