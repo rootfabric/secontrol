@@ -1,0 +1,4 @@
+repositories:
+  - name: se-grid-controller
+    url: git@github.com:rootfabric/se-grid-controller.git
+    branch: main
