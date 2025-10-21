@@ -23,6 +23,14 @@ def get_device_class(device_type: str):
 DEVICE_REGISTRY = {
     "MyObjectBuilder_Projector": "projector",  # будет разрешено через DEVICE_TYPE_MAP
     "MyObjectBuilder_BatteryBlock": "battery",  # будет разрешено через DEVICE_TYPE_MAP
+    "MyObjectBuilder_SmallGatlingGun": "weapon",
+    "MyObjectBuilder_SmallMissileLauncher": "weapon",
+    "MyObjectBuilder_SmallMissileLauncherReload": "weapon",
+    "MyObjectBuilder_LargeGatlingGun": "weapon",
+    "MyObjectBuilder_LargeMissileLauncher": "weapon",
+    "MyObjectBuilder_InteriorTurret": "interior_turret",
+    "weapon": "weapon",
+    "interior_turret": "interior_turret",
     # дополняй по мере надобности
 }
 
@@ -1346,6 +1354,11 @@ TYPE_ALIASES = {
     "MyObjectBuilder_LargeGatlingTurret": "large_turret",
     "MyObjectBuilder_LargeMissileTurret": "large_turret",
     "MyObjectBuilder_InteriorTurret": "interior_turret",
+    "MyObjectBuilder_SmallGatlingGun": "weapon",
+    "MyObjectBuilder_LargeGatlingGun": "weapon",
+    "MyObjectBuilder_SmallMissileLauncher": "weapon",
+    "MyObjectBuilder_LargeMissileLauncher": "weapon",
+    "MyObjectBuilder_SmallMissileLauncherReload": "weapon",
     "MyObjectBuilder_OreDetector": "ore_detector",
     "MyObjectBuilder_InteriorLight": "lamp",
     "MyObjectBuilder_ReflectorLight": "lamp",
@@ -1367,6 +1380,12 @@ TYPE_ALIASES = {
     "ship_drill": "ship_drill",
     "largeturret": "large_turret",
     "large_turret": "large_turret",
+    "interior_turret": "interior_turret",
+    "interiorturret": "interior_turret",
+    "weapon": "weapon",
+    "weapons": "weapon",
+    "usercontrollablegun": "weapon",
+    "user_controllable_gun": "weapon",
     "lamp": "lamp",
     "light": "lamp",
     "lighting_block": "lamp",
