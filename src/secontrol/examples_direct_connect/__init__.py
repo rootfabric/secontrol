@@ -5,4 +5,6 @@ __all__ = [
     "lamp_blind",
     "toggle_device",
     "color_grid_blocks",
+    "damage_listener",
 ]
+

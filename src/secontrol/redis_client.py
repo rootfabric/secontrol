@@ -266,24 +266,39 @@ class _PubSubSubscription:
             if self._events and raw_event not in self._events:
                 continue
 
-            payload: Optional[Any]
-            if self._is_keyspace and raw_event != "del":
-                try:
-                    payload = self._client.get(self._key)
-                except redis.RedisError:
+            if self._is_keyspace:
+                payload: Optional[Any]
+                if raw_event != "del":
+                    try:
+                        payload = self._client.get(self._key)
+                    except redis.RedisError:
+                        payload = None
+                else:
                     payload = None
-            else:
-                payload = None
 
-            if isinstance(payload, bytes):
-                try:
-                    decoded_payload: Optional[Any] = json.loads(payload.decode("utf-8"))
-                except json.JSONDecodeError:
-                    decoded_payload = payload.decode("utf-8", "replace")
+                if isinstance(payload, bytes):
+                    try:
+                        decoded_payload: Optional[Any] = json.loads(payload.decode("utf-8"))
+                    except json.JSONDecodeError:
+                        decoded_payload = payload.decode("utf-8", "replace")
+                else:
+                    decoded_payload = payload
+
+                event_name = str(raw_event)
             else:
-                decoded_payload = payload
+                decoded_payload = raw_event
+                if isinstance(decoded_payload, str):
+                    stripped = decoded_payload.strip()
+                    if stripped:
+                        try:
+                            decoded_payload = json.loads(stripped)
+                        except json.JSONDecodeError:
+                            decoded_payload = stripped
+                    else:
+                        decoded_payload = stripped
+                event_name = "message"
 
             try:
-                self._callback(self._key, decoded_payload, str(raw_event))
+                self._callback(self._key, decoded_payload, event_name)
             except Exception:
                 pass

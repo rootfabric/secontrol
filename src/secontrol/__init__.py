@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
-from .base_device import BaseDevice, BlockInfo, DeviceMetadata, Grid, get_device_class
+from .base_device import (
+    BaseDevice,
+    BlockInfo,
+    DamageDetails,
+    DamageEvent,
+    DamageSource,
+    DeviceMetadata,
+    Grid,
+    get_device_class,
+)
 from .common import close, prepare_grid, resolve_grid_id, resolve_owner_id, resolve_player_id
 from .redis_client import RedisEventClient
 
 __all__ = [
     "BaseDevice",
     "BlockInfo",
+    "DamageDetails",
+    "DamageEvent",
+    "DamageSource",
     "DeviceMetadata",
     "Grid",
     "RedisEventClient",

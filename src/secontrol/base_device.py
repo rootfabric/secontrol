@@ -11,7 +11,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, Optional, Sequence, Type
+from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Type
 
 # DEVICE_TYPE_MAP пополняется модулями устройств и внешними плагинами при импорте
 DEVICE_TYPE_MAP = {}
@@ -44,6 +44,22 @@ def _safe_int(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_bool(value: Any) -> bool:
+    """Преобразует произвольное значение к булеву типу."""
+
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "y", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "n", "off"}:
+            return False
+    return bool(value)
 
 
 def _clamp_unit(value: float) -> float:
@@ -313,6 +329,124 @@ class BlockInfo:
         )
 
 
+@dataclass
+class DamageDetails:
+    """Описание нанесённого урона."""
+
+    amount: float
+    damage_type: str
+    is_deformation: bool
+
+    @classmethod
+    def from_payload(cls, payload: Any) -> "DamageDetails":
+        if not isinstance(payload, dict):
+            return cls(amount=0.0, damage_type="Unknown", is_deformation=False)
+
+        raw_amount = payload.get("amount")
+        try:
+            amount = float(raw_amount)
+        except (TypeError, ValueError):
+            amount = 0.0
+
+        damage_type = payload.get("type") or payload.get("damageType") or "Unknown"
+        is_deformation = (
+            _coerce_bool(payload.get("isDeformation")) if "isDeformation" in payload else False
+        )
+
+        return cls(
+            amount=amount,
+            damage_type=str(damage_type),
+            is_deformation=is_deformation,
+        )
+
+
+@dataclass
+class DamageSource:
+    """Источник урона (нападавший)."""
+
+    entity_id: Optional[int]
+    name: Optional[str]
+    type: Optional[str]
+
+    @classmethod
+    def from_payload(cls, payload: Any) -> "DamageSource":
+        if not isinstance(payload, dict):
+            return cls(entity_id=None, name=None, type=None)
+
+        entity_id = _safe_int(payload.get("entityId") or payload.get("id"))
+        name = payload.get("name")
+        source_type = payload.get("type") or payload.get("definition") or payload.get("SubtypeName")
+
+        return cls(
+            entity_id=entity_id,
+            name=str(name) if isinstance(name, str) and name.strip() else None,
+            type=str(source_type) if isinstance(source_type, str) and source_type.strip() else None,
+        )
+
+
+@dataclass
+class DamageEvent:
+    """Событие нанесения урона по блоку грида."""
+
+    timestamp: str
+    grid_id: Optional[int]
+    grid_name: Optional[str]
+    grid_is_static: Optional[bool]
+    owner_id: Optional[int]
+    attacker_id: Optional[int]
+    block: Optional[BlockInfo]
+    damage: DamageDetails
+    attacker: DamageSource
+    raw: Dict[str, Any]
+
+    @classmethod
+    def from_payload(cls, payload: Dict[str, Any]) -> "DamageEvent":
+        if not isinstance(payload, dict):
+            raise TypeError("Damage event payload must be a dictionary")
+
+        timestamp_raw = payload.get("timestamp") or payload.get("time")
+        timestamp = str(timestamp_raw) if timestamp_raw is not None else ""
+
+        grid_id = _safe_int(payload.get("gridId"))
+        owner_id = _safe_int(payload.get("ownerId"))
+        attacker_id = _safe_int(payload.get("attackerId"))
+
+        grid_name = payload.get("gridName")
+        grid_is_static_raw = payload.get("gridIsStatic")
+        grid_is_static = (
+            None if grid_is_static_raw is None else _coerce_bool(grid_is_static_raw)
+        )
+
+        block_payload = payload.get("block")
+        block: Optional[BlockInfo] = None
+        if isinstance(block_payload, dict):
+            try:
+                block = BlockInfo.from_payload(block_payload)
+            except Exception:
+                block = None
+
+        damage_details = DamageDetails.from_payload(payload.get("damage"))
+        attacker = DamageSource.from_payload(payload.get("attacker"))
+
+        if attacker_id is None and attacker.entity_id is not None:
+            attacker_id = attacker.entity_id
+
+        raw_copy = dict(payload)
+
+        return cls(
+            timestamp=timestamp,
+            grid_id=grid_id,
+            grid_name=str(grid_name) if isinstance(grid_name, str) and grid_name.strip() else None,
+            grid_is_static=grid_is_static,
+            owner_id=owner_id,
+            attacker_id=attacker_id,
+            block=block,
+            damage=damage_details,
+            attacker=attacker,
+            raw=raw_copy,
+        )
+
+
 class Grid:
     """Representation of a Space Engineers grid."""
 
@@ -335,6 +469,8 @@ class Grid:
         # NEW: индекс по числовому id
         self.devices_by_num: Dict[int, BaseDevice] = {}
         self.blocks: Dict[int, BlockInfo] = {}
+        self._damage_channel = f"se:{owner_id}:grid:{grid_id}:damage"
+        self._damage_subscriptions: list[Any] = []
 
         self._subscription = self.redis.subscribe_to_key(
             self.grid_key, self._on_grid_change
@@ -983,6 +1119,12 @@ class Grid:
             self._subscription.close()
         except Exception:
             pass
+        for damage_subscription in list(self._damage_subscriptions):
+            try:
+                damage_subscription.close()
+            except Exception:
+                pass
+        self._damage_subscriptions.clear()
         for device in list(self.devices.values()):
             device.close()
         self.devices.clear()
@@ -1091,6 +1233,52 @@ class Grid:
             updated += 1
 
         return updated
+
+    # ------------------------------------------------------------------
+    def subscribe_to_damage(
+        self, callback: Callable[[DamageEvent | Dict[str, Any] | str], None]
+    ):
+        """Подписывается на события урона по текущему гриду.
+
+        Callback получает экземпляр :class:`DamageEvent` при успешном разборе
+        сообщения. Если полезную нагрузку не удалось разобрать, в callback
+        передаются исходные данные (dict или строка).
+        """
+
+        if not callable(callback):
+            raise TypeError("callback must be callable")
+
+        def _handle_damage(_channel: str, payload: Any, event_name: str) -> None:
+            message = payload if payload is not None else event_name
+            if message is None:
+                return
+
+            if isinstance(message, dict):
+                data = message
+            elif isinstance(message, str):
+                text = message.strip()
+                if not text:
+                    return
+                try:
+                    data = json.loads(text)
+                except json.JSONDecodeError:
+                    callback(text)
+                    return
+            else:
+                callback(message)
+                return
+
+            try:
+                damage_event = DamageEvent.from_payload(data)
+            except Exception:
+                callback(data)
+                return
+
+            callback(damage_event)
+
+        subscription = self.redis.subscribe_to_channel(self._damage_channel, _handle_damage)
+        self._damage_subscriptions.append(subscription)
+        return subscription
 
     def _refresh_device_telemetry(
         self, device: BaseDevice, dev_type: str, dev_id: int
