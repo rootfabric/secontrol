@@ -21,7 +21,7 @@ def _normalize_bool(value: str | None) -> bool | None:
 
 def _parse_color_from_env() -> Dict[str, Any]:
 
-    return {"color": "0,0,200", "space": "rgb"}
+    return {"color": "0,200,200", "space": "rgb"}
     # hsv = os.getenv("GRID_BLOCK_COLOR_HSV")
     # if hsv:
     #     return {"color": hsv, "space": "hsv"}
