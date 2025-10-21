@@ -228,6 +228,17 @@ class BlockInfo:
             return ""
         return str(base).strip().lower()
 
+    @property
+    def is_damaged(self) -> bool:
+        """True if the block is damaged, based on integrity < max integrity or damaged flag."""
+        if _coerce_bool(self.state.get("damaged")):
+            return True
+        integrity = self.state.get("integrity")
+        max_integrity = self.state.get("maxIntegrity")
+        if isinstance(integrity, (int, float)) and isinstance(max_integrity, (int, float)):
+            return integrity < max_integrity
+        return False
+
     @staticmethod
     def _to_float_tuple(values: Any) -> Optional[tuple[float, ...]]:
         if not isinstance(values, (list, tuple)):
@@ -503,14 +514,7 @@ class Grid:
         except Exception:
             pass
 
-        # Отладка: покажем, откуда берём устройства
-        if "devices" not in payload:
-            if isinstance(payload.get("comp"), dict) and "devices" in payload["comp"]:
-                print("[gridinfo] устройства найдены в comp.devices")
-            # else:
-            #     print(
-            #         f"[gridinfo] нет поля 'devices' ни в корне, ни в comp. Ключи: {list(payload.keys())}"
-            #     )
+        # Devices extraction handled below
 
         self.metadata = payload
         device_metadata = list(self._extract_devices(payload))
@@ -546,41 +550,10 @@ class Grid:
                 dev.close()
 
         if "devices" not in payload:
-            # print(f"[gridinfo] нет поля 'devices'. Ключи: {list(payload.keys())}")
             pass
         else:
-            print(f"[gridinfo] devices type: {type(payload['devices'])}")
-            # например, покажем первые examples_direct_connect-2 записи
-            try:
-                it = (
-                    payload["devices"].values()
-                    if isinstance(payload["devices"], dict)
-                    else payload["devices"]
-                )
-                preview = []
-                for i, d in enumerate(it):
-                    if i >= 2:
-                        break
-                    preview.append(
-                        {
-                            k: d.get(k)
-                            for k in (
-                                "type",
-                                "deviceType",
-                                "subtype",
-                                "deviceId",
-                                "entityId",
-                                "id",
-                                "telemetryKey",
-                                "key",
-                                "name",
-                                "customName",
-                            )
-                        }
-                    )
-                print("[gridinfo] devices preview:", preview)
-            except Exception as e:
-                print("[gridinfo] preview error:", e)
+            # Devices processing handled below
+            pass
 
         block_entries = list(self._extract_blocks(payload))
         if block_entries or self.blocks:
@@ -629,6 +602,57 @@ class Grid:
             normalized = str(device_type).lower()
 
         return [d for d in self.devices.values() if getattr(d, "device_type", "").lower() == normalized]
+
+    def find_devices_by_name(self, name_pattern: str) -> list["BaseDevice"]:
+        """
+        Возвращает список устройств, чьи имена совпадают с паттерном (регистр не чувствителен).
+        Поддерживает подстроки (contains) и регулярные выражения, если паттерн начинается/заканчивается '/' или содержит '.*'.
+        """
+
+        if not name_pattern:
+            return []
+        pattern_lower = name_pattern.lower()
+
+        devices: list["BaseDevice"] = []
+        for device in self.devices.values():
+            device_name = (device.name or "").lower()
+            # Проверяем на regex, если паттерн выглядит как regex
+            if name_pattern.startswith("^") or name_pattern.endswith("$") or ".*" in name_pattern or "[^" in name_pattern:
+                try:
+                    if re.search(name_pattern, device_name, re.IGNORECASE):
+                        devices.append(device)
+                except re.error:
+                    # Если regex неправильный, fallback на contains
+                    if pattern_lower in device_name:
+                        devices.append(device)
+            else:
+                # Иначе contains
+                if pattern_lower in device_name:
+                    devices.append(device)
+        return devices
+
+    def find_enabled_devices(self, device_type: Optional[str] = None) -> list["BaseDevice"]:
+        """
+        Возвращает список включенных устройств, опционально фильтруя по типу.
+        Если device_type=None, возвращает все включенные устройства.
+        """
+
+        enabled: list["BaseDevice"] = []
+        if device_type is not None:
+            type_devices = self.find_devices_by_type(device_type)
+        else:
+            type_devices = self.devices.values()
+
+        for device in type_devices:
+            if device.is_enabled():
+                enabled.append(device)
+        return enabled
+
+    def find_damaged_blocks(self) -> list[BlockInfo]:
+        """
+        Возвращает список поврежденных блоков, где integrity < maxIntegrity или damaged=True.
+        """
+        return [block for block in self.blocks.values() if block.is_damaged]
 
     # ------------------------------------------------------------------
     def get_block(self, block_id: int | str) -> Optional[BlockInfo]:
@@ -1009,12 +1033,8 @@ class Grid:
             elif isinstance(comp_devices, list):
                 candidates.extend([d for d in comp_devices if isinstance(d, dict)])
 
-        # Отладка: если кандидатов нет — покажем, что есть
         if not candidates:
-            print(f"[gridinfo] devices не найдены. Корневые ключи: {list(payload.keys())}")
-            if isinstance(comp, dict):
-                print(f"[gridinfo] comp-ключи: {list(comp.keys())}")
-            return []
+            return
 
         for entry in candidates:
             # из вашего JSON: поля называются id/type/subtype/name
@@ -1692,7 +1712,6 @@ class BaseDevice:
         sent = 0
         for ch in self._command_channels():
             sent += self.redis.publish(ch, command)
-            print(command)
         return sent
 
     # ------------------------------------------------------------------

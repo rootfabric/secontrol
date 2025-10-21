@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Iterable, Iterator, Sequence
 
-from sepy.common import close, prepare_grid
+from secontrol.common import close, prepare_grid
 
 
 def _normalize_bool(value: str | None) -> bool | None:
@@ -20,25 +20,27 @@ def _normalize_bool(value: str | None) -> bool | None:
 
 
 def _parse_color_from_env() -> Dict[str, Any]:
-    hsv = os.getenv("GRID_BLOCK_COLOR_HSV")
-    if hsv:
-        return {"color": hsv, "space": "hsv"}
 
-    rgb = os.getenv("GRID_BLOCK_COLOR_RGB")
-    if rgb:
-        return {"color": rgb, "space": "rgb"}
-
-    color = os.getenv("GRID_BLOCK_COLOR")
-    if color:
-        space = os.getenv("GRID_BLOCK_COLOR_SPACE")
-        payload: Dict[str, Any] = {"color": color}
-        if space:
-            payload["space"] = space
-        return payload
-
-    raise SystemExit(
-        "Задайте один из GRID_BLOCK_COLOR, GRID_BLOCK_COLOR_RGB или GRID_BLOCK_COLOR_HSV"
-    )
+    return {"color": "0,0,200", "space": "rgb"}
+    # hsv = os.getenv("GRID_BLOCK_COLOR_HSV")
+    # if hsv:
+    #     return {"color": hsv, "space": "hsv"}
+    #
+    # rgb = os.getenv("GRID_BLOCK_COLOR_RGB")
+    # if rgb:
+    #     return {"color": rgb, "space": "rgb"}
+    #
+    # color = os.getenv("GRID_BLOCK_COLOR")
+    # if color:
+    #     space = os.getenv("GRID_BLOCK_COLOR_SPACE")
+    #     payload: Dict[str, Any] = {"color": color}
+    #     if space:
+    #         payload["space"] = space
+    #     return payload
+    #
+    # raise SystemExit(
+    #     "Задайте один из GRID_BLOCK_COLOR, GRID_BLOCK_COLOR_RGB или GRID_BLOCK_COLOR_HSV"
+    # )
 
 
 def _collect_block_ids(blocks: Iterable[Any]) -> list[int]:
@@ -70,13 +72,14 @@ def main() -> None:
     play_sound = _normalize_bool(os.getenv("GRID_BLOCK_PLAY_SOUND"))
     chunk_size = os.getenv("GRID_BLOCK_BATCH")
     try:
-        batch_size = int(chunk_size) if chunk_size is not None else 50
+        batch_size = int(chunk_size) if chunk_size is not None else 99999
     except ValueError:
-        batch_size = 50
+        batch_size = 500
 
     client, grid = prepare_grid()
     try:
         block_ids = _collect_block_ids(grid.iter_blocks())
+        print(block_ids)
         if not block_ids:
             raise SystemExit(
                 "Не удалось найти ни одного блока. Убедитесь, что Redis содержит обновлённые данные о гриде."
