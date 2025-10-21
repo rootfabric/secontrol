@@ -55,6 +55,21 @@ print(", ".join((d.name or f"{d.device_type}:{d.device_id}") for d in grid.devic
 python -m secontrol.examples_direct_connect.list_grids
 ```
 
+## Подключение плагинов
+
+Для работы с дополнительными расширениями, такими как [se-grid-controller](https://github.com/rootfabric/se_grid_controller),
+в репозитории добавлен файл `repositories.yaml`. Он сообщает инструментам разработки, где искать внешние зависимости и
+на какой ветке они находятся.
+
+```yaml
+repositories:
+  - name: se-grid-controller
+    url: git@github.com:rootfabric/se-grid-controller.git
+    branch: main
+```
+
+При необходимости добавьте в этот файл другие плагины в том же формате.
+
 ## Лицензия
 
 Проект распространяется по лицензии MIT. См. файл [LICENSE](LICENSE).
