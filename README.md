@@ -74,3 +74,7 @@ repositories:
 
 Проект распространяется по лицензии MIT. См. файл [LICENSE](LICENSE).
 
+Публикация
+py -m build
+py -m twine upload dist\secontrol-*
+

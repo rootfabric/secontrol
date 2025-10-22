@@ -6,5 +6,6 @@ __all__ = [
     "toggle_device",
     "color_grid_blocks",
     "damage_listener",
+    "radar_telemetry",
 ]
 
