@@ -60,7 +60,14 @@ class RedisEventClient:
         self._client = redis.Redis.from_url(resolved_url, **connection_kwargs)
 
         self._db_index = int(self._client.connection_pool.connection_kwargs.get("db", 0))
-        print(self._db_index)
+        # Debug print only when explicitly enabled via env
+        try:
+            import os as _os
+            dbg = (_os.getenv("SECONTROL_DEBUG") or _os.getenv("SE_DEBUG") or _os.getenv("SEC_DEBUG") or "").strip().lower()
+            if dbg in {"1", "true", "yes", "on"}:
+                print(f"[redis] db_index={self._db_index}")
+        except Exception:
+            pass
         self._subscriptions: list[_PubSubSubscription] = []
 
     # ------------------------------------------------------------------

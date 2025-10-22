@@ -13,6 +13,24 @@ from .redis_client import RedisEventClient
 load_dotenv(find_dotenv(usecwd=True), override=False)
 
 
+def _is_debug_enabled() -> bool:
+    """Return True if debug prints should be enabled.
+
+    Controlled by any of the env vars: SECONTROL_DEBUG, SE_DEBUG, SEC_DEBUG.
+    Accepts 1/true/yes/on (case-insensitive).
+    """
+    import os as _os
+
+    for name in ("SECONTROL_DEBUG", "SE_DEBUG", "SEC_DEBUG"):
+        val = _os.getenv(name)
+        if val is None:
+            continue
+        v = val.strip().lower()
+        if v in {"1", "true", "yes", "on"}:
+            return True
+    return False
+
+
 def resolve_owner_id() -> str:
     owner_id = os.getenv("REDIS_USERNAME")
     if not owner_id:
@@ -40,10 +58,11 @@ def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
 
     first_grid = grids[0]
     grid_id = str(first_grid.get("id"))
-    print(
-        "[examples_direct_connect] SE_GRID_ID is not set; using the first available grid:",
-        f"{grid_id} ({first_grid.get('name', 'unnamed')})",
-    )
+    if _is_debug_enabled():
+        print(
+            "[examples_direct_connect] SE_GRID_ID is not set; using the first available grid:",
+            f"{grid_id} ({first_grid.get('name', 'unnamed')})",
+        )
     return grid_id
 
 
