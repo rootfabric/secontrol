@@ -7,6 +7,7 @@ that all specific devices build upon.
 from __future__ import annotations
 
 import colorsys
+import copy
 import json
 import re
 import time
@@ -630,6 +631,59 @@ class Grid:
                 if pattern_lower in device_name:
                     devices.append(device)
         return devices
+
+    def aggregate_device_load(self) -> Dict[str, float | int]:
+        """Агрегирует показатели нагрузки всех устройств на гриде."""
+
+        totals: Dict[str, float | int] = {
+            "devices": 0,
+            "spentMs": 0.0,
+            "totalAvgMs": 0.0,
+            "totalPeakMs": 0.0,
+            "updateAvgMs": 0.0,
+            "updatePeakMs": 0.0,
+            "commandsAvgMs": 0.0,
+            "commandsPeakMs": 0.0,
+        }
+
+        def _add(key: str, value: Any) -> None:
+            if value is None:
+                return
+            try:
+                totals[key] = float(totals[key]) + float(value)
+            except (TypeError, ValueError):
+                pass
+
+        for device in self.devices.values():
+            metrics = device.load_metrics()
+            if not metrics:
+                continue
+
+            totals["devices"] = int(totals["devices"]) + 1
+
+            _add("spentMs", metrics.get("spentMs"))
+
+            total_bucket = metrics.get("total")
+            if isinstance(total_bucket, dict):
+                _add("totalAvgMs", total_bucket.get("avgMs"))
+                _add("totalPeakMs", total_bucket.get("peakMs"))
+
+            update_bucket = metrics.get("update")
+            if isinstance(update_bucket, dict):
+                _add("updateAvgMs", update_bucket.get("avgMs"))
+                _add("updatePeakMs", update_bucket.get("peakMs"))
+
+            commands_bucket = metrics.get("commands")
+            if isinstance(commands_bucket, dict):
+                _add("commandsAvgMs", commands_bucket.get("avgMs"))
+                _add("commandsPeakMs", commands_bucket.get("peakMs"))
+
+        if totals["devices"]:
+            totals["avgSpentMsPerDevice"] = float(totals["spentMs"]) / int(totals["devices"])
+        else:
+            totals["avgSpentMsPerDevice"] = 0.0
+
+        return totals
 
     def find_enabled_devices(self, device_type: Optional[str] = None) -> list["BaseDevice"]:
         """
@@ -1361,6 +1415,8 @@ class BaseDevice:
         self._show_on_screen: bool = self._extract_optional_bool(metadata.extra, "showOnScreen") or False
         raw_custom = metadata.extra.get("customData")
         self._custom_data: str = "" if raw_custom is None else str(raw_custom)
+        self._load_metrics: Optional[Dict[str, Any]] = None
+        self._load_spent_ms: Optional[float] = None
 
         # examples_direct_connect) Подписка на «ожидаемый» ключ
         self._subscription = self.redis.subscribe_to_key(self.telemetry_key, self._on_telemetry_change)
@@ -1507,6 +1563,18 @@ class BaseDevice:
             return self._custom_data
         return self._custom_data
 
+    def load_spent_ms(self) -> Optional[float]:
+        """Возвращает среднее время выполнения логики устройства в миллисекундах."""
+
+        return self._load_spent_ms
+
+    def load_metrics(self) -> Optional[Dict[str, Any]]:
+        """Возвращает нормализованные метрики нагрузки из телеметрии устройства."""
+
+        if self._load_metrics is None:
+            return None
+        return copy.deepcopy(self._load_metrics)
+
     def set_custom_data(self, data: str) -> int:
         payload = {
             "cmd": "set_custom_data",
@@ -1600,6 +1668,9 @@ class BaseDevice:
             telemetry["customData"] = self._custom_data
             changed = True
 
+        if self._update_load_metrics(telemetry):
+            changed = True
+
         if self._sync_name_with_telemetry(telemetry):
             changed = True
 
@@ -1671,6 +1742,118 @@ class BaseDevice:
                     return True
                 if lowered in {"0", "false", "no", "off"}:
                     return False
+        return None
+
+    def _update_load_metrics(self, telemetry: Dict[str, Any]) -> bool:
+        """Обновляет кеш метрик нагрузки на основании телеметрии."""
+
+        raw_load = telemetry.get("load")
+        normalized = self._normalize_load_metrics(raw_load)
+        changed = False
+
+        if normalized is None:
+            if self._load_metrics is not None or self._load_spent_ms is not None:
+                self._load_metrics = None
+                self._load_spent_ms = None
+                changed = True
+            if "loadSpentMs" in telemetry:
+                telemetry.pop("loadSpentMs", None)
+                changed = True
+            return changed
+
+        # Вставляем агрегированное поле для быстрого доступа
+        spent = normalized.get("spentMs")
+        if spent is not None:
+            if telemetry.get("loadSpentMs") != spent:
+                telemetry["loadSpentMs"] = spent
+                changed = True
+        elif "loadSpentMs" in telemetry:
+            telemetry.pop("loadSpentMs", None)
+            changed = True
+
+        if self._load_metrics != normalized:
+            self._load_metrics = normalized
+            self._load_spent_ms = normalized.get("spentMs")
+            changed = True
+        else:
+            new_spent = normalized.get("spentMs")
+            if self._load_spent_ms != new_spent:
+                self._load_spent_ms = new_spent
+                changed = True
+
+        return changed
+
+    @staticmethod
+    def _normalize_load_metrics(load_payload: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(load_payload, dict):
+            return None
+
+        metrics: Dict[str, Any] = {}
+
+        window = load_payload.get("window")
+        if window is not None:
+            try:
+                metrics["window"] = int(window)
+            except (TypeError, ValueError):
+                pass
+
+        for bucket_name in ("update", "commands", "total"):
+            bucket = BaseDevice._normalize_load_bucket(load_payload.get(bucket_name))
+            if bucket:
+                metrics[bucket_name] = bucket
+
+        spent = BaseDevice._extract_spent_time(metrics)
+        if spent is not None:
+            metrics["spentMs"] = spent
+
+        return metrics or None
+
+    @staticmethod
+    def _normalize_load_bucket(bucket_payload: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(bucket_payload, dict):
+            return None
+
+        bucket: Dict[str, Any] = {}
+
+        for key in ("lastMs", "avgMs", "peakMs"):
+            if key not in bucket_payload:
+                continue
+            value = bucket_payload.get(key)
+            try:
+                bucket[key] = float(value)
+            except (TypeError, ValueError):
+                continue
+
+        samples = bucket_payload.get("samples")
+        if samples is not None:
+            try:
+                bucket["samples"] = int(samples)
+            except (TypeError, ValueError):
+                pass
+
+        return bucket or None
+
+    @staticmethod
+    def _extract_spent_time(metrics: Dict[str, Any]) -> Optional[float]:
+        candidates: list[Any] = []
+
+        total_bucket = metrics.get("total")
+        if isinstance(total_bucket, dict):
+            candidates.extend(
+                total_bucket.get(key) for key in ("avgMs", "lastMs", "peakMs")
+            )
+
+        update_bucket = metrics.get("update")
+        if isinstance(update_bucket, dict):
+            candidates.append(update_bucket.get("avgMs"))
+
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            try:
+                return float(candidate)
+            except (TypeError, ValueError):
+                continue
         return None
 
     # ------------------------------------------------------------------
