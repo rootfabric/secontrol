@@ -60,10 +60,13 @@ class App:
 
 
 if __name__ == "__main__":
+    # Для отладки, можно запустить локально
+    import time
     app = App()
     app.start()
     # Simple demo: perform a few steps
     for _ in range(6):
         app.step()
+        time.sleep(1)
     app.close()
 

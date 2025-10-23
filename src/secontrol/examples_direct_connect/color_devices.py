@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Iterable, Iterator, List, Sequence, Set
 
-from sepy.common import close, prepare_grid
+from secontrol.common import close, prepare_grid
 
 
 def _normalize_bool(value: str | None) -> bool | None:
@@ -143,7 +143,7 @@ def _chunked(values: Sequence[int], size: int = 50) -> Iterator[Sequence[int]]:
 
 def main() -> None:
     # color_payload = _parse_color_from_env()
-    color_payload = {"color": "0,128,0", "space": "rgb"}
+    color_payload = {"color": "250,0,0", "space": "rgb"}
     # color_payload = {"color": "246,0,142", "space": "rgb"}
     play_sound = _normalize_bool(os.getenv("GRID_BLOCK_PLAY_SOUND"))
 

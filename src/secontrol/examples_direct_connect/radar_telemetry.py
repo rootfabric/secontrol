@@ -54,9 +54,9 @@ CONFIG: Dict[str, Any] = {
 
     # Параметры сканирования
     # Пример: 200.0 (если устройство не отклонит/не заклампит)
-    "radius": 100,
+    "radius": 500,
     # Пример: 10.0
-    "cellSize": 10,
+    "cellSize": 1,
 
     # Растяжка вокселей и плотность
     # Пример: 0.2 (раз в 5 сек)
@@ -68,7 +68,7 @@ CONFIG: Dict[str, Any] = {
     # Альяс для совместимости
     "includeStoneCells": True,
     # Пример: 1.0 (мс на тик)
-    "budgetMsPerTick": 0.1,
+    "budgetMsPerTick": 5,
     # Пример: 1 (мягкая фильтрация границ)
     "voxelMinContent": None,
 
@@ -81,7 +81,7 @@ CONFIG: Dict[str, Any] = {
     "noDetectorCapMax": None,
 
     # Период повтора scan (секунды)
-    "scanIntervalSec": 2.0,
+    "scanIntervalSec": 1.0,
 
     # Выбор устройства: {"deviceId": 123} или {"deviceName": "Ore Detector"}
     "select": {},
@@ -89,27 +89,27 @@ CONFIG: Dict[str, Any] = {
 
 
 # без нагрузки
-CONFIG: Dict[str, Any] = {
-"includePlayers": True,
-"includeGrids": True,
-"includeVoxels": True,
-"radius": 75,
-"cellSize": 16,
-"voxelScanHz": 0.1,
-"voxelStep": 3,
-"fullSolidScan": False,
-"includeStoneCells": False,
-"budgetMsPerTick": 5.0,
-"voxelMinContent": 1,
-"contactsHz": 0.2,
-"fullScanHz": 0.5,
-"losScanHz": 10,
-"maxLosRaysPerTick": 8,
-"noDetectorCapMin": 150,
-"noDetectorCapMax": 200,
-"scanIntervalSec": 5.0,
-"select": {}
-}
+# CONFIG: Dict[str, Any] = {
+# "includePlayers": True,
+# "includeGrids": True,
+# "includeVoxels": True,
+# "radius": 75,
+# "cellSize": 16,
+# "voxelScanHz": 0.1,
+# "voxelStep": 3,
+# "fullSolidScan": False,
+# "includeStoneCells": False,
+# "budgetMsPerTick": 5.0,
+# "voxelMinContent": 1,
+# "contactsHz": 0.2,
+# "fullScanHz": 0.5,
+# "losScanHz": 10,
+# "maxLosRaysPerTick": 8,
+# "noDetectorCapMin": 150,
+# "noDetectorCapMax": 200,
+# "scanIntervalSec": 5.0,
+# "select": {}
+# }
 
 
 def _coerce_bool(x: Any, default: Optional[bool] = None) -> Optional[bool]:
@@ -520,6 +520,7 @@ def main() -> None:
             # Лёгкий цикл с периодическим повтором
             while True:
                 time.sleep(float(scan_interval))
+                print("scan")
                 _send_scan(
                     device,
                     include_players=bool(include_players if include_players is not None else True),
