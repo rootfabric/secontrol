@@ -1,11 +1,18 @@
-"""Пример покраски блоков грида с использованием данных ``grid.iter_blocks``."""
+"""
+Example: Random coloring of all grid blocks.
+
+This script assigns random colors to all blocks in a grid using RGB color space.
+Each block gets a unique random color.
+"""
 
 from __future__ import annotations
 
 import os
+
 from typing import Any, Dict, Iterable, Iterator, Sequence
 
 from secontrol.common import close, prepare_grid
+import random
 
 
 def _normalize_bool(value: str | None) -> bool | None:
@@ -17,39 +24,6 @@ def _normalize_bool(value: str | None) -> bool | None:
     if text in {"0", "false", "no", "off"}:
         return False
     return None
-
-import random
-def _generate_random_rgb() -> str:
-    """Generate a random RGB color string."""
-    r = random.randint(0, 255)
-    g = random.randint(0, 255)
-    b = random.randint(0, 255)
-    return f"{r},{g},{b}"
-
-def _parse_color_from_env() -> Dict[str, Any]:
-
-    return {"color": _generate_random_rgb(), "space": "rgb"}
-    # return {"color": "0,128,0", "space": "rgb"}
-
-    # hsv = os.getenv("GRID_BLOCK_COLOR_HSV")
-    # if hsv:
-    #     return {"color": hsv, "space": "hsv"}
-    #
-    # rgb = os.getenv("GRID_BLOCK_COLOR_RGB")
-    # if rgb:
-    #     return {"color": rgb, "space": "rgb"}
-    #
-    # color = os.getenv("GRID_BLOCK_COLOR")
-    # if color:
-    #     space = os.getenv("GRID_BLOCK_COLOR_SPACE")
-    #     payload: Dict[str, Any] = {"color": color}
-    #     if space:
-    #         payload["space"] = space
-    #     return payload
-    #
-    # raise SystemExit(
-    #     "Задайте один из GRID_BLOCK_COLOR, GRID_BLOCK_COLOR_RGB или GRID_BLOCK_COLOR_HSV"
-    # )
 
 
 def _collect_block_ids(blocks: Iterable[Any]) -> list[int]:
@@ -74,10 +48,17 @@ def _chunked(values: Sequence[int], size: int = 50) -> Iterator[Sequence[int]]:
         yield values[start : start + size]
 
 
-def main() -> None:
-    """Покрашивает все известные блоки выбранного грида."""
+def _generate_random_rgb() -> str:
+    """Generate a random RGB color string."""
+    r = random.randint(0, 255)
+    g = random.randint(0, 255)
+    b = random.randint(0, 255)
+    return f"{r},{g},{b}"
 
-    color_payload = _parse_color_from_env()
+
+def main() -> None:
+    """Paint all blocks in the selected grid with random colors."""
+
     play_sound = _normalize_bool(os.getenv("GRID_BLOCK_PLAY_SOUND"))
     chunk_size = os.getenv("GRID_BLOCK_BATCH")
     try:
@@ -93,17 +74,18 @@ def main() -> None:
                 "Не удалось найти ни одного блока. Убедитесь, что Redis содержит обновлённые данные о гриде."
             )
 
-        print(
-            f"Покраска {len(block_ids)} блоков грида {grid.grid_id} с цветом "
-            f"{', '.join(f'{k}={v}' for k, v in color_payload.items())}"
-        )
+        print(f"Раскраска {len(block_ids)} блоков грида {grid.grid_id} случайными цветами")
 
         total_commands = 0
         for chunk in _chunked(block_ids, batch_size):
+            # Create payload with random colors for each block
             payload: Dict[str, Any] = {
-                **color_payload,
-                "blocks": [{"blockId": block_id} for block_id in chunk],
+                "blocks": [
+                    {"blockId": block_id, "color": _generate_random_rgb(), "space": "rgb"}
+                    for block_id in chunk
+                ],
             }
+            print(payload)
             if play_sound is not None:
                 payload["playSound"] = play_sound
             sent = grid.send_grid_command("paint_blocks", payload=payload)
