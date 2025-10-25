@@ -13,7 +13,7 @@ def main() -> None:
 
     try:
         client = RedisEventClient()
-        grids = client.list_grids(owner_id)
+        grids = client.list_grids("144115188075855919")
         if not grids:
             print("No grids found. Ensure the owner id is correct and the Redis bridge is running.")
             return
