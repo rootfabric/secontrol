@@ -218,16 +218,16 @@ def _load_pixels_and_save_copies(
     resized_path = os.path.join(outdir, f"{base_name}.resized_{width}x{height}.png")
 
     # 1) Сохраняем исходник без конверсий (макс. сохранение профиля/EXIF)
-    with Image.open(src_path) as src:
-        icc = src.info.get("icc_profile")
-        exif = src.info.get("exif")
-        # PNG сам по себе не всегда хранит EXIF, но не мешает попробовать
-        save_kwargs = {}
-        if icc:
-            save_kwargs["icc_profile"] = icc
-        if exif:
-            save_kwargs["exif"] = exif
-        src.save(orig_path, format="PNG", **save_kwargs)
+    # with Image.open(src_path) as src:
+    #     icc = src.info.get("icc_profile")
+    #     exif = src.info.get("exif")
+    #     # PNG сам по себе не всегда хранит EXIF, но не мешает попробовать
+    #     save_kwargs = {}
+    #     if icc:
+    #         save_kwargs["icc_profile"] = icc
+    #     if exif:
+    #         save_kwargs["exif"] = exif
+    #     src.save(orig_path, format="PNG", **save_kwargs)
 
     # 2) Готовим уменьшенную RGB-версию, по которой красим блоки, и сохраняем её
     with Image.open(src_path).convert("RGB") as img_rgb:

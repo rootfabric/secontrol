@@ -65,7 +65,7 @@ def _color_payload_for_block(block: Any) -> Dict[str, Any]:
         color = _generate_random_rgb()
     else:
         # color = _sanitize_rgb_str(os.getenv("GRID_BLOCK_RGB", "255,255,255"))
-        color = _sanitize_rgb_str(os.getenv("GRID_BLOCK_RGB", "0,0,0"))
+        color = _sanitize_rgb_str(os.getenv("GRID_BLOCK_RGB", "50,250,50"))
 
     # Только чистый RGB, как просили
     return {"color": color, "space": "rgb"}
@@ -103,7 +103,7 @@ def main() -> None:
         batch_size = 50
 
     # Можно указать GRID_ID, иначе используйте свою логику выбора
-    grid_id = os.getenv("GRID_ID", "113577280102065701")
+    grid_id = os.getenv("GRID_ID", "143981447307572837")
 
     client, grid = prepare_grid(grid_id)
     try:

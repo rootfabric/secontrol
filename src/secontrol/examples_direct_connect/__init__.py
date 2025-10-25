@@ -4,7 +4,7 @@ __all__ = [
     "list_grids",
     "lamp_blind",
     "toggle_device",
-    "color_grid_blocks",
+    "paint_grid_blocks.py",
     "damage_listener",
     "radar_telemetry",
 ]
