@@ -29,27 +29,7 @@ def _generate_random_rgb() -> str:
 def _parse_color_from_env() -> Dict[str, Any]:
 
     return {"color": _generate_random_rgb(), "space": "rgb"}
-    # return {"color": "0,128,0", "space": "rgb"}
-
-    # hsv = os.getenv("GRID_BLOCK_COLOR_HSV")
-    # if hsv:
-    #     return {"color": hsv, "space": "hsv"}
-    #
-    # rgb = os.getenv("GRID_BLOCK_COLOR_RGB")
-    # if rgb:
-    #     return {"color": rgb, "space": "rgb"}
-    #
-    # color = os.getenv("GRID_BLOCK_COLOR")
-    # if color:
-    #     space = os.getenv("GRID_BLOCK_COLOR_SPACE")
-    #     payload: Dict[str, Any] = {"color": color}
-    #     if space:
-    #         payload["space"] = space
-    #     return payload
-    #
-    # raise SystemExit(
-    #     "Задайте один из GRID_BLOCK_COLOR, GRID_BLOCK_COLOR_RGB или GRID_BLOCK_COLOR_HSV"
-    # )
+    # return {"color": "0,0,256", "space": "rgb"}
 
 
 def _collect_block_ids(blocks: Iterable[Any]) -> list[int]:
@@ -85,7 +65,7 @@ def main() -> None:
     except ValueError:
         batch_size = 50
 
-    client, grid = prepare_grid()
+    client, grid = prepare_grid("141227696814392359")
     try:
         block_ids = _collect_block_ids(grid.iter_blocks())
         if not block_ids:

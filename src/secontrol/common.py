@@ -66,16 +66,46 @@ def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
     return grid_id
 
 
-def prepare_grid(existing_client: RedisEventClient | None = None) -> Tuple[RedisEventClient, Grid]:
-    """Create :class:`RedisEventClient` and :class:`Grid` instances for examples_direct_connect."""
+def prepare_grid(
+    existing_client: RedisEventClient | str | None = None,
+    grid_id: str | None = None,
+) -> Tuple[RedisEventClient, Grid]:
+    """Create :class:`RedisEventClient` and :class:`Grid` instances for examples_direct_connect.
 
-    client = existing_client or RedisEventClient()
-    owner_id = resolve_owner_id()
-    grid_id = resolve_grid_id(client, owner_id)
-    player_id = resolve_player_id(owner_id)
+    Parameters
+    - existing_client: Optional pre-initialized :class:`RedisEventClient` instance to reuse.
+      For convenience, you may also pass a ``str`` grid id here positionally, e.g.
+      ``prepare_grid("<grid_id>")``.
+    - grid_id: Optional grid id to target explicitly. When not provided, falls back to
+      :func:`resolve_grid_id`, which uses ``SE_GRID_ID`` if set, otherwise the first grid.
+    """
 
-    grid = Grid(client, owner_id, grid_id, player_id)
-    return client, grid
+    # Allow calling styles:
+    # - prepare_grid()                                 -> auto grid selection
+    # - prepare_grid(grid_id)                          -> first positional is grid id
+    # - prepare_grid(existing_client)                  -> reuse client
+    # - prepare_grid(existing_client, grid_id)         -> reuse client and explicit grid
+    # Normalize arguments accordingly.
+    if isinstance(existing_client, str) and grid_id is None:
+        grid_id = existing_client
+        existing_client = None
+
+    client = (existing_client if isinstance(existing_client, RedisEventClient) else None) or RedisEventClient()
+    try:
+        owner_id = resolve_owner_id()
+        resolved_grid_id = grid_id or resolve_grid_id(client, owner_id)
+        player_id = resolve_player_id(owner_id)
+
+        grid = Grid(client, owner_id, resolved_grid_id, player_id)
+        return client, grid
+    except Exception:
+        # Ensure we don't leak the client we created on failure
+        if existing_client is None:
+            try:
+                client.close()
+            except Exception:
+                pass
+        raise
 
 
 def close(client: RedisEventClient, grid: Grid) -> None:
