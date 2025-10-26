@@ -54,21 +54,21 @@ CONFIG: Dict[str, Any] = {
 
     # Параметры сканирования
     # Пример: 200.0 (если устройство не отклонит/не заклампит)
-    "radius": 100,
+    "radius": 10,
     # Пример: 10.0
-    "cellSize": 8,
+    "cellSize": 1,
 
     # Растяжка вокселей и плотность
     # Пример: 0.2 (раз в 5 сек)
     "voxelScanHz": 0.2,
     # Пример: 1 (плотная), 2/3 — грубее/быстрее
-    "voxelStep": None,
+    "voxelStep": 1,
     # Полный камень / мягкая фильтрация
-    "fullSolidScan": None,
+    "fullSolidScan": False,
     # Альяс для совместимости
     "includeStoneCells": False,
     # Пример: 1.0 (мс на тик)
-    "budgetMsPerTick": 5,
+    "budgetMsPerTick": 10,
     # Пример: 1 (мягкая фильтрация границ)
     "voxelMinContent": None,
 
@@ -81,7 +81,7 @@ CONFIG: Dict[str, Any] = {
     "noDetectorCapMax": None,
 
     # Период повтора scan (секунды)
-    "scanIntervalSec": 10.0,
+    "scanIntervalSec": 5.0,
 
     # Выбор устройства: {"deviceId": 123} или {"deviceName": "Ore Detector"}
     "select": {},

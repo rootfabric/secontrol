@@ -2,9 +2,53 @@
 
 from __future__ import annotations
 
+import json
+import time
 from typing import Any, Dict, List, Optional
 
 from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
+
+
+def _pick_radar_dict(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Выбирает словарь радара из телеметрии, учитывая разные схемы."""
+    rad = data.get("radar")
+    if isinstance(rad, dict):
+        return rad
+    root_keys = set(data.keys())
+    if {"contacts", "cellSize"} & root_keys:
+        return data
+    if {"contacts", "radius"} & root_keys:
+        return data
+    alt = data.get("voxel") or data.get("ore") or data.get("map")
+    if isinstance(alt, dict):
+        return alt
+    return None
+
+
+def _extract_ore_cells(radar: Dict[str, Any]) -> tuple[list[dict], int]:
+    """Извлекает список ячеек руды и флаг усечения."""
+    cells: list[dict] = []
+    truncated = 0
+    raw = radar.get("oreCells")
+    if isinstance(raw, list):
+        cells = [c for c in raw if isinstance(c, dict)]
+    elif isinstance(raw, dict) and isinstance(raw.get("cells"), list):
+        cells = [c for c in raw.get("cells", []) if isinstance(c, dict)]
+    if not cells:
+        for key in ("ore_cells", "cells", "ores"):
+            alt = radar.get(key)
+            if isinstance(alt, list):
+                cells = [c for c in alt if isinstance(c, dict)]
+                break
+            if isinstance(alt, dict) and isinstance(alt.get("cells"), list):
+                cells = [c for c in alt.get("cells", []) if isinstance(c, dict)]
+                break
+    trunc = radar.get("oreCellsTruncated")
+    try:
+        truncated = int(trunc) if trunc is not None else 0
+    except (TypeError, ValueError):
+        truncated = 0
+    return cells, truncated
 
 
 class OreDetectorDevice(BaseDevice):
@@ -102,8 +146,19 @@ class OreDetectorDevice(BaseDevice):
         include_voxels: bool = True,
         radius: Optional[float] = None,
         cell_size: Optional[float] = None,
+        voxel_scan_hz: Optional[float] = None,
+        voxel_step: Optional[int] = None,
+        include_stone_cells: Optional[bool] = None,
+        budget_ms_per_tick: Optional[float] = None,
+        voxel_min_content: Optional[int] = None,
+        contacts_hz: Optional[float] = None,
+        full_scan_hz: Optional[float] = None,
+        los_scan_hz: Optional[float] = None,
+        max_los_rays_per_tick: Optional[int] = None,
+        no_detector_cap_min: Optional[float] = None,
+        no_detector_cap_max: Optional[float] = None,
     ) -> int:
-        """Request a fresh radar scan from the ore detector."""
+        """Request a fresh radar scan from the ore detector with full config."""
 
         state: Dict[str, Any] = {
             "includePlayers": bool(include_players),
@@ -114,6 +169,38 @@ class OreDetectorDevice(BaseDevice):
             state["radius"] = float(radius)
         if cell_size is not None:
             state["cellSize"] = float(cell_size)
+        if voxel_scan_hz is not None:
+            state["voxelScanHz"] = float(voxel_scan_hz)
+        if voxel_step is not None:
+            try:
+                state["voxelStep"] = int(voxel_step)
+            except (TypeError, ValueError):
+                pass
+        if include_stone_cells is not None:
+            state["fullSolidScan"] = bool(include_stone_cells)
+            state["includeStoneCells"] = bool(include_stone_cells)
+        if budget_ms_per_tick is not None:
+            state["budgetMsPerTick"] = float(budget_ms_per_tick)
+        if voxel_min_content is not None:
+            try:
+                state["voxelMinContent"] = int(voxel_min_content)
+            except (TypeError, ValueError):
+                pass
+        if contacts_hz is not None:
+            state["contactsHz"] = float(contacts_hz)
+        if full_scan_hz is not None:
+            state["fullScanHz"] = float(full_scan_hz)
+        if los_scan_hz is not None:
+            state["losScanHz"] = float(los_scan_hz)
+        if max_los_rays_per_tick is not None:
+            try:
+                state["maxLosRaysPerTick"] = int(max_los_rays_per_tick)
+            except (TypeError, ValueError):
+                pass
+        if no_detector_cap_min is not None:
+            state["noDetectorCapMin"] = float(no_detector_cap_min)
+        if no_detector_cap_max is not None:
+            state["noDetectorCapMax"] = float(no_detector_cap_max)
 
         payload: Dict[str, Any] = {
             "cmd": "scan",
@@ -123,6 +210,93 @@ class OreDetectorDevice(BaseDevice):
         if self.name:
             payload["targetName"] = self.name
         return self.send_command(payload)
+
+    def monitor_ore(self, client, scan_interval: float = 10.0, config: Optional[Dict[str, Any]] = None):
+        """Subscribe to telemetry and monitor ore updates, printing changes."""
+        scan_config = config or {}
+
+        print(f"Monitoring ore detector {self.device_id} named {self.name!r}")
+        print(f"Telemetry key: {self.telemetry_key}")
+        print(f"Scan interval: {scan_interval}s (Ctrl+C to exit)")
+
+        last_rev: Optional[int] = None
+        last_ore_count: Optional[int] = None
+
+        def _on_update(_key: str, payload: Any, event: str) -> None:
+            nonlocal last_rev, last_ore_count
+            print("Telemetry update received")  # Debug
+            if event == "del":
+                print("[ore detector] telemetry deleted")
+                return
+
+            data: Dict[str, Any] | None = None
+            if isinstance(payload, dict):
+                data = payload
+            elif isinstance(payload, str):
+                text = payload.strip()
+                if text:
+                    try:
+                        data = json.loads(text)
+                    except json.JSONDecodeError:
+                        data = None
+
+            if not isinstance(data, dict):
+                return
+
+            radar = _pick_radar_dict(data)
+            ore_cells, _truncated = _extract_ore_cells(radar or {})
+
+            rev_val = radar.get("revision") if radar else None
+            try:
+                rev = int(rev_val) if rev_val is not None else None
+            except (TypeError, ValueError):
+                rev = None
+
+            ore_count_field = None
+            try:
+                ore_count_field = int(radar.get("oreCellCount")) if isinstance(radar, dict) and radar.get("oreCellCount") is not None else None
+            except (TypeError, ValueError):
+                ore_count_field = None
+
+            contacts_count = len(radar.get("contacts", [])) if isinstance(radar, dict) else 0
+            ore_effective = (ore_count_field if (ore_count_field is not None and not ore_cells) else len(ore_cells))
+
+            last_rev = rev
+            last_ore_count = ore_effective
+
+            print(
+                f"[ore detector] rev={rev}, contacts={contacts_count}, oreCells={ore_effective}"
+            )
+
+            if ore_cells:
+                preview = []
+                for c in ore_cells[:5]:
+                    ore = c.get("ore") or c.get("material") or "?"
+                    content = c.get("content")
+                    idx = c.get("index")
+                    preview.append(f"{ore}@{idx}:{content}")
+                print(f"  Ores: {', '.join(preview)}{' (truncated)' if len(ore_cells) > 5 else ''}")
+            elif ore_count_field:
+                print(f"[ore detector] note: oreCells list missing, but oreCellCount={ore_count_field}")
+
+        sub = client.subscribe_to_key(self.telemetry_key, _on_update)
+
+        try:
+            self.scan(**scan_config)
+            while True:
+                time.sleep(scan_interval)
+                self.scan(**scan_config)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            try:
+                sub.close()
+            except Exception:
+                pass
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
 def _to_float(value: Any) -> Optional[float]:
