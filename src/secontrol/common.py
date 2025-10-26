@@ -44,6 +44,41 @@ def resolve_player_id(owner_id: str) -> str:
     return os.getenv("SE_PLAYER_ID", owner_id)
 
 
+def _is_subgrid(grid_info: dict) -> bool:
+    """Best-effort detection whether a grid descriptor represents a sub-grid.
+
+    Different Space Engineers bridges expose slightly different fields. We try several
+    common markers and fall back to assuming it's a main grid when unsure.
+    """
+    if not isinstance(grid_info, dict):
+        return False
+
+    # 1) Explicit boolean flags
+    for key in ("isSubgrid", "isSubGrid", "is_subgrid", "is_sub_grid"):
+        val = grid_info.get(key)
+        if isinstance(val, bool):
+            return val is True
+        if isinstance(val, (int, float)):
+            return bool(val)
+
+    # 2) Inverse of "isMainGrid" if present
+    val = grid_info.get("isMainGrid")
+    if isinstance(val, bool):
+        return not val
+    if isinstance(val, (int, float)):
+        return not bool(val)
+
+    # 3) Relationship by id: if main/root/top grid id differs from own id -> sub-grid
+    own_id = grid_info.get("id")
+    for rel in ("mainGridId", "rootGridId", "topGridId", "parentGridId", "parentId"):
+        rel_id = grid_info.get(rel)
+        if rel_id is not None and own_id is not None and str(rel_id) != str(own_id):
+            return True
+
+    # If no markers matched, treat as main grid
+    return False
+
+
 def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
     grid_id = os.getenv("SE_GRID_ID")
     if grid_id:
@@ -56,12 +91,19 @@ def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
             "Run 'python -m secontrol.examples_direct_connect.list_grids' to inspect available grids."
         )
 
-    first_grid = grids[0]
+    # Prefer the first non-subgrid over any sub-grid
+    non_sub = [g for g in grids if not _is_subgrid(g)]
+    candidates = non_sub or grids
+    first_grid = candidates[0]
     grid_id = str(first_grid.get("id"))
     if _is_debug_enabled():
+        total = len(grids)
+        filtered = len(non_sub)
+        postfix = " (filtered sub-grids)" if non_sub else ""
         print(
-            "[examples_direct_connect] SE_GRID_ID is not set; using the first available grid:",
+            f"[examples_direct_connect] SE_GRID_ID is not set; using the first available grid{postfix}:",
             f"{grid_id} ({first_grid.get('name', 'unnamed')})",
+            f"— candidates: {filtered}/{total}" if non_sub else f"— total: {total}",
         )
     return grid_id
 
