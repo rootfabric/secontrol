@@ -14,6 +14,7 @@ from .base_device import (
 )
 from .common import close, prepare_grid, resolve_grid_id, resolve_owner_id, resolve_player_id
 from .redis_client import RedisEventClient
+from .grids import GridState, Grids
 
 __all__ = [
     "BaseDevice",
@@ -23,6 +24,8 @@ __all__ = [
     "DamageSource",
     "DeviceMetadata",
     "Grid",
+    "GridState",
+    "Grids",
     "RedisEventClient",
     "close",
     "get_device_class",
