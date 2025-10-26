@@ -54,19 +54,19 @@ CONFIG: Dict[str, Any] = {
 
     # Параметры сканирования
     # Пример: 200.0 (если устройство не отклонит/не заклампит)
-    "radius": 500,
+    "radius": 100,
     # Пример: 10.0
-    "cellSize": 1,
+    "cellSize": 8,
 
     # Растяжка вокселей и плотность
     # Пример: 0.2 (раз в 5 сек)
-    "voxelScanHz": None,
+    "voxelScanHz": 0.2,
     # Пример: 1 (плотная), 2/3 — грубее/быстрее
     "voxelStep": None,
     # Полный камень / мягкая фильтрация
     "fullSolidScan": None,
     # Альяс для совместимости
-    "includeStoneCells": True,
+    "includeStoneCells": False,
     # Пример: 1.0 (мс на тик)
     "budgetMsPerTick": 5,
     # Пример: 1 (мягкая фильтрация границ)
@@ -81,7 +81,7 @@ CONFIG: Dict[str, Any] = {
     "noDetectorCapMax": None,
 
     # Период повтора scan (секунды)
-    "scanIntervalSec": 1.0,
+    "scanIntervalSec": 10.0,
 
     # Выбор устройства: {"deviceId": 123} или {"deviceName": "Ore Detector"}
     "select": {},
@@ -301,7 +301,7 @@ def _extract_ore_cells(radar: Dict[str, Any]) -> tuple[list[dict], int]:
 
 
 def main() -> None:
-    client, grid = prepare_grid()
+    client, grid = prepare_grid("117014494109101689")
     try:
         # Загружаем конфиг и выбираем датчик
         cfg = _load_config()
@@ -427,14 +427,13 @@ def main() -> None:
             contacts_count = len(contacts) if isinstance(contacts, list) else 0
             ore_effective = (ore_count_field if (ore_count_field is not None and not ore_cells) else len(ore_cells))
 
-            # Кэшируем последнюю известную руду и используем кэш при contact-only ревизиях
+            # Кэшируем последнюю известную руду и используем кэш когда нет текущих данных
             used_cached = False
-            if isinstance(scan_include_voxels, bool) and not scan_include_voxels:
-                if ore_effective == 0 and cached_ore_count > 0:
-                    ore_effective = cached_ore_count
-                    if not ore_cells and cached_ore_cells:
-                        ore_cells = cached_ore_cells
-                    used_cached = True
+            if ore_effective == 0 and cached_ore_count > 0:
+                ore_effective = cached_ore_count
+                if not ore_cells and cached_ore_cells:
+                    ore_cells = cached_ore_cells
+                used_cached = True
             else:
                 # Если в этом снимке есть руда, обновим кэш
                 if ore_effective > 0:
@@ -515,7 +514,7 @@ def main() -> None:
         )
 
         print("Скан отправлен. Ждём обновления телеметрии... (Ctrl+C для выхода)")
-
+        # time.sleep(100)
         try:
             # Лёгкий цикл с периодическим повтором
             while True:

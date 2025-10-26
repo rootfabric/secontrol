@@ -1206,11 +1206,11 @@ class Grid:
 
                 # Parse key: se:{owner}:grid:{grid}:{device_type}:{device_id}:telemetry
                 parts = key.split(":")
-                if len(parts) < 6 or parts[5] != "telemetry":
+                if len(parts) != 7 or parts[6] != "telemetry":
                     continue
 
-                device_type_raw = parts[3]
-                device_id = parts[4]
+                device_type_raw = parts[4]
+                device_id = parts[5]
 
                 if device_id in existing_device_ids:
                     continue
@@ -1249,6 +1249,87 @@ class Grid:
 
         except Exception:
             # Ignore errors during discovery to avoid breaking initialization
+            pass
+
+    def _aggregate_devices_from_subgrids(self) -> None:
+        """
+        Scans telemetry keys for subgrids and creates devices for them.
+        """
+        if not self.metadata:
+            return
+        subgrids = self.metadata.get("subgrids") or []
+        if not isinstance(subgrids, list):
+            return
+        for sub in subgrids:
+            if isinstance(sub, dict) and "id" in sub:
+                sub_id = str(sub["id"])
+            elif isinstance(sub, str):
+                sub_id = sub
+            else:
+                continue
+            # Discover for this subgrid
+            self._discover_devices_from_telemetry_keys_for_grid(sub_id)
+
+    def _discover_devices_from_telemetry_keys_for_grid(self, sub_grid_id: str) -> None:
+        """
+        Scans for existing telemetry keys for a specific subgrid and adds devices that are not already known.
+        """
+        # se:{owner}:grid:{sub_grid_id}:*:*:telemetry but wait, no:
+        # For subgrids, if they have their own keys, the pattern is grid:{sub_grid_id}
+        pattern = f"se:{self.owner_id}:grid:{sub_grid_id}:*:*:telemetry"
+        existing_device_ids = set(self.devices.keys())
+
+        try:
+            keys_found = []
+            for key in self.redis.client.scan_iter(match=pattern, count=100):
+                if isinstance(key, bytes):
+                    key = key.decode("utf-8", "replace")
+
+                # Parse key: se:{owner}:grid:{grid}:{device_type}:{device_id}:telemetry
+                parts = key.split(":")
+                if len(parts) != 7 or parts[6] != "telemetry":
+                    continue
+
+                device_type_raw = parts[4]
+                device_id = parts[5]
+
+                if device_id in existing_device_ids:
+                    continue
+                keys_found.append(key)
+
+                device_type_normalized = normalize_device_type(device_type_raw)
+                telemetry_key = key
+
+                # Fetch snapshot to get name
+                snapshot = self.redis.get_json(telemetry_key)
+                name = None
+                if isinstance(snapshot, dict):
+                    for name_key in ("name", "customName", "displayName", "CustomName"):
+                        if snapshot.get(name_key):
+                            name = str(snapshot[name_key])
+                            break
+
+                metadata = DeviceMetadata(
+                    device_type=device_type_normalized,
+                    device_id=device_id,
+                    telemetry_key=telemetry_key,
+                    grid_id=sub_grid_id,  # use subgrid id as metadata.grid_id
+                    name=name or f"{device_type_normalized}:{device_id}",
+                    extra={},
+                )
+
+                device = create_device(self, metadata)  # grid=self, so commands will use self.grid_id, but for subgrids it might be wrong, but perhaps okay if using device.grid_id
+                self.devices[device_id] = device
+                try:
+                    num_id = int(device_id)
+                    self.devices_by_num[num_id] = device
+                except ValueError:
+                    pass
+
+            # print(f"Subgrid {sub_grid_id} keys found: {keys_found}")
+
+        except Exception:
+            # Ignore errors
             pass
 
     # ------------------------------------------------------------------

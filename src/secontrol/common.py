@@ -91,10 +91,14 @@ def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
             "Run 'python -m secontrol.examples_direct_connect.list_grids' to inspect available grids."
         )
 
-    # Prefer the first non-subgrid over any sub-grid
+    # Take the first basic grid (non-subgrid), never fall back to sub-grids
     non_sub = [g for g in grids if not _is_subgrid(g)]
-    candidates = non_sub or grids
-    first_grid = candidates[0]
+    if not non_sub:
+        raise RuntimeError(
+            "No basic grids (non-subgrids) were found for the provided owner id. "
+            "Run 'python -m secontrol.examples_direct_connect.list_grids' to inspect available grids."
+        )
+    first_grid = non_sub[0]
     grid_id = str(first_grid.get("id"))
     if _is_debug_enabled():
         total = len(grids)
