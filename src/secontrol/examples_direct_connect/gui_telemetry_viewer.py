@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import QObject, QTimer, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -42,9 +42,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..base_device import BaseDevice, Grid
-from ..common import close, prepare_grid, resolve_owner_id, resolve_player_id
-from ..redis_client import RedisEventClient
+from secontrol.base_device import BaseDevice, Grid
+from secontrol.common import close, prepare_grid, resolve_owner_id, resolve_player_id
+from secontrol.redis_client import RedisEventClient
 
 LOGGER = logging.getLogger("telemetry_gui")
 
@@ -313,6 +313,7 @@ class TelemetryWindow(QMainWindow):
         if not self._grid:
             return
         devices = list(self._grid.devices.values())
+        print(f"Devices for grid {self._grid.grid_id}: {len(devices)} - {[d.name or d.device_type for d in devices]}")
         if not devices and not self.device_combo.count():
             return
 
@@ -399,14 +400,15 @@ class TelemetryWindow(QMainWindow):
 
     def _apply_snapshot(self, payload: dict[str, Any], event: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
-        diff = self._calculate_diff(self._last_snapshot or {}, payload)
+        changes = self._calculate_changes(self._last_snapshot or {}, payload)
         self.telemetry_view.setPlainText(self._format_snapshot(payload))
 
-        if diff:
-            entry = f"{timestamp} ({event}) → {diff}"
+        for change in changes:
+            entry = f"{timestamp} ({event}) → {change}"
             self._append_log(entry)
             LOGGER.info("%s", entry)
-        else:
+
+        if not changes:
             entry = f"{timestamp} ({event}) — изменений нет"
             self._append_log(entry)
             LOGGER.info("%s", entry)
@@ -424,9 +426,9 @@ class TelemetryWindow(QMainWindow):
         self._last_snapshot = None
 
     # ------------------------------------------------------------------
-    def _calculate_diff(
+    def _calculate_changes(
         self, previous: dict[str, Any], current: dict[str, Any]
-    ) -> str:
+    ) -> list[str]:
         changes = []
         keys = sorted({*previous.keys(), *current.keys()})
         for key in keys:
@@ -434,6 +436,12 @@ class TelemetryWindow(QMainWindow):
             new = current.get(key, "<нет>")
             if old != new:
                 changes.append(f"{key}: {old!r} → {new!r}")
+        return changes
+
+    def _calculate_diff(
+        self, previous: dict[str, Any], current: dict[str, Any]
+    ) -> str:
+        changes = self._calculate_changes(previous, current)
         return "; ".join(changes)
 
     def _format_snapshot(self, payload: Optional[dict[str, Any]]) -> str:
@@ -447,7 +455,7 @@ class TelemetryWindow(QMainWindow):
     def _append_log(self, message: str) -> None:
         self.log_view.appendPlainText(message)
         cursor = self.log_view.textCursor()
-        cursor.movePosition(cursor.End)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
         self.log_view.setTextCursor(cursor)
 
     def _clear_device_state(self) -> None:

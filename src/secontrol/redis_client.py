@@ -15,6 +15,42 @@ from typing import Any, Callable, Dict, Iterable, Optional
 
 import redis
 
+
+def _is_subgrid(grid_info: dict) -> bool:
+    """Best-effort detection whether a grid descriptor represents a sub-grid.
+
+    Different Space Engineers bridges expose slightly different fields. We try several
+    common markers and fall back to assuming it's a main grid when unsure.
+    """
+    if not isinstance(grid_info, dict):
+        return False
+
+    # 1) Explicit boolean flags
+    for key in ("isSubgrid", "isSubGrid", "is_subgrid", "is_sub_grid"):
+        val = grid_info.get(key)
+        if isinstance(val, bool):
+            return val is True
+        if isinstance(val, (int, float)):
+            return bool(val)
+
+    # 2) Inverse of "isMainGrid" if present
+    val = grid_info.get("isMainGrid")
+    if isinstance(val, bool):
+        return not val
+    if isinstance(val, (int, float)):
+        return not bool(val)
+
+    # 3) Relationship by id: if main/root/top grid id differs from own id -> sub-grid
+    own_id = grid_info.get("id")
+    for rel in ("mainGridId", "rootGridId", "topGridId", "parentGridId", "parentId"):
+        rel_id = grid_info.get(rel)
+        if rel_id is not None and own_id is not None and str(rel_id) != str(own_id):
+            return True
+
+    # If no markers matched, treat as main grid
+    return False
+
+
 CallbackType = Callable[[str, Optional[Any], str], None]
 
 
@@ -90,7 +126,7 @@ class RedisEventClient:
         except json.JSONDecodeError:
             return value
 
-    def list_grids(self, owner_id: str | int, *, key: str | None = None) -> list[Dict[str, Any]]:
+    def list_grids(self, owner_id: str | int, *, key: str | None = None, exclude_subgrids: bool = True) -> list[Dict[str, Any]]:
         """Return all grid descriptors available for ``owner_id``.
 
         The Space Engineers Redis bridge stores the list of grids for an owner
@@ -115,7 +151,11 @@ class RedisEventClient:
                 f"Unexpected grids payload type for {redis_key!r}: {type(payload).__name__}"
             )
 
-        return [grid for grid in grids if isinstance(grid, dict)]
+        filtered_grids = grids
+        if exclude_subgrids:
+            filtered_grids = [grid for grid in grids if not _is_subgrid(grid)]
+
+        return [grid for grid in filtered_grids if isinstance(grid, dict)]
 
     def publish(self, channel: str, payload: Any) -> int:
         if not isinstance(payload, (str, bytes)):

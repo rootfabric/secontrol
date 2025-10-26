@@ -491,6 +491,12 @@ class Grid:
         if initial is not None:
             self._on_grid_change(self.grid_key, initial, "initial")
 
+        # Discover devices from telemetry keys if not already known
+        self._discover_devices_from_telemetry_keys()
+
+        # Aggregate devices from subgrids
+        self._aggregate_devices_from_subgrids()
+
     # ------------------------------------------------------------------
     def _on_grid_change(self, key: str, payload: Optional[Any], event: str) -> None:
         if payload is None:
@@ -1182,6 +1188,68 @@ class Grid:
             seen[block.block_id] = block
 
         return seen.values()
+
+    # ------------------------------------------------------------------
+    def _discover_devices_from_telemetry_keys(self) -> None:
+        """
+        Scans for existing telemetry keys and adds devices that are not already known.
+        This helps discover devices that exist in telemetry but not listed in gridinfo (e.g., for rovers).
+        """
+        pattern = f"se:{self.owner_id}:grid:{self.grid_id}:*:*:telemetry"
+        existing_device_ids = set(self.devices.keys())
+
+        try:
+            keys_found = []
+            for key in self.redis.client.scan_iter(match=pattern, count=100):
+                if isinstance(key, bytes):
+                    key = key.decode("utf-8", "replace")
+
+                # Parse key: se:{owner}:grid:{grid}:{device_type}:{device_id}:telemetry
+                parts = key.split(":")
+                if len(parts) < 6 or parts[5] != "telemetry":
+                    continue
+
+                device_type_raw = parts[3]
+                device_id = parts[4]
+
+                if device_id in existing_device_ids:
+                    continue
+                keys_found.append(key)
+
+                device_type_normalized = normalize_device_type(device_type_raw)
+                telemetry_key = key
+
+                # Fetch snapshot to get name
+                snapshot = self.redis.get_json(telemetry_key)
+                name = None
+                if isinstance(snapshot, dict):
+                    for name_key in ("name", "customName", "displayName", "CustomName"):
+                        if snapshot.get(name_key):
+                            name = str(snapshot[name_key])
+                            break
+
+                metadata = DeviceMetadata(
+                    device_type=device_type_normalized,
+                    device_id=device_id,
+                    telemetry_key=telemetry_key,
+                    grid_id=self.grid_id,
+                    name=name or f"{device_type_normalized}:{device_id}",
+                    extra={},
+                )
+
+                device = create_device(self, metadata)
+                self.devices[device_id] = device
+                try:
+                    num_id = int(device_id)
+                    self.devices_by_num[num_id] = device
+                except ValueError:
+                    pass
+
+            print(f"Keys found: {keys_found}")
+
+        except Exception:
+            # Ignore errors during discovery to avoid breaking initialization
+            pass
 
     # ------------------------------------------------------------------
     def build_device_key(self, device_type: str, device_id: str) -> str:
