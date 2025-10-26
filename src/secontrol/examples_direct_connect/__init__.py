@@ -7,5 +7,6 @@ __all__ = [
     "paint_grid_blocks.py",
     "damage_listener",
     "radar_telemetry",
+    "gui_telemetry_viewer",
 ]
 
