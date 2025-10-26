@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import time
 
-from ..common import resolve_owner_id, resolve_player_id
-from ..grids import GridState, Grids
-from ..redis_client import RedisEventClient
+from secontrol.common import resolve_owner_id, resolve_player_id
+from secontrol.grids import GridState, Grids
+from secontrol.redis_client import RedisEventClient
 
 
 def describe(state: GridState) -> str:
