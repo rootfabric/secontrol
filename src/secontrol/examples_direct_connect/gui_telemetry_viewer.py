@@ -22,9 +22,8 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from functools import partial
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QAction, QTextCursor
@@ -56,63 +55,56 @@ class TelemetryListener(QObject):
     telemetry_deleted = Signal(str)
     subscription_error = Signal(str)
 
-    def __init__(self, client: RedisEventClient) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self._client = client
-        self._subscription = None
-        self._current_key: str | None = None
+        self._device: BaseDevice | None = None
+        self._telemetry_handler: Optional[Callable[[BaseDevice, dict[str, Any], str], None]] = None
+        self._cleared_handler: Optional[Callable[[BaseDevice, dict[str, Any], str], None]] = None
 
     def subscribe(self, device: BaseDevice | None) -> None:
         """Переключает подписку на новое устройство."""
 
         self.unsubscribe()
         if device is None:
-            self._current_key = None
             return
 
-        key = getattr(device, "telemetry_key", None)
-        if not key:
-            self.subscription_error.emit("У выбранного устройства отсутствует ключ телеметрии")
-            return
+        self._device = device
 
-        self._current_key = str(key)
-        try:
-            self._subscription = self._client.subscribe_to_key(
-                self._current_key,
-                partial(self._handle_event, key=self._current_key),
-            )
-        except Exception as exc:  # pragma: no cover - сетевые ошибки
-            self.subscription_error.emit(str(exc))
-            self._current_key = None
-            return
+        def _on_telemetry(dev: BaseDevice, telemetry: dict[str, Any], event: str) -> None:
+            normalized = self._normalize_payload(telemetry)
+            if normalized is not None:
+                self.telemetry_received.emit(normalized, event)
 
-        snapshot = self._client.get_json(self._current_key)
+        def _on_cleared(dev: BaseDevice, _telemetry: dict[str, Any], event: str) -> None:
+            self.telemetry_deleted.emit(event)
+
+        self._telemetry_handler = _on_telemetry
+        self._cleared_handler = _on_cleared
+
+        device.on("telemetry", _on_telemetry)
+        device.on("telemetry_cleared", _on_cleared)
+
+        snapshot = device.telemetry
         if snapshot is not None:
             normalized = self._normalize_payload(snapshot)
             if normalized is not None:
                 self.telemetry_received.emit(normalized, "initial")
 
     def unsubscribe(self) -> None:
-        if self._subscription is not None:
-            try:
-                self._subscription.close()
-            except Exception:  # pragma: no cover - защитный код
-                pass
-        self._subscription = None
-        self._current_key = None
-
-    def _handle_event(self, _redis_key: str, payload: Optional[Any], event: str, *, key: str) -> None:
-        if key != self._current_key:
-            return
-
-        if event == "del" or payload is None:
-            self.telemetry_deleted.emit(event)
-            return
-
-        normalized = self._normalize_payload(payload)
-        if normalized is None:
-            return
-        self.telemetry_received.emit(normalized, event)
+        if self._device is not None:
+            if self._telemetry_handler is not None:
+                try:
+                    self._device.off("telemetry", self._telemetry_handler)
+                except Exception:  # pragma: no cover - защитный код
+                    pass
+            if self._cleared_handler is not None:
+                try:
+                    self._device.off("telemetry_cleared", self._cleared_handler)
+                except Exception:  # pragma: no cover
+                    pass
+        self._device = None
+        self._telemetry_handler = None
+        self._cleared_handler = None
 
     def _normalize_payload(self, payload: Any) -> Optional[dict[str, Any]]:
         if payload is None:
@@ -229,10 +221,10 @@ class TelemetryWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _initialize_connection(self) -> None:
         try:
-            client, grid = prepare_grid()
-            self._client = client
+            grid = prepare_grid()
             self._grid = grid
-            self._listener = TelemetryListener(client)
+            self._client = grid.redis
+            self._listener = TelemetryListener()
             self._listener.telemetry_received.connect(self._on_telemetry_update)
             self._listener.telemetry_deleted.connect(self._on_telemetry_deleted)
             self._listener.subscription_error.connect(self._show_error)
@@ -484,8 +476,8 @@ class TelemetryWindow(QMainWindow):
         self._device_refresh_timer.stop()
         if self._listener is not None:
             self._listener.unsubscribe()
-        if self._grid and self._client:
-            close(self._client, self._grid)
+        if self._grid:
+            close(self._grid)
             self._grid = None
             self._client = None
         elif self._client:

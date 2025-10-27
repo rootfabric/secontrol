@@ -61,7 +61,7 @@ def main() -> None:
     rows = image_to_rgb_rows(image_file, grid_w=grid_w, grid_h=grid_h)
     print(f"Prepared rows: {len(rows)} x {grid_w}")
 
-    client, grid = prepare_grid()
+    grid = prepare_grid()
 
     displays = grid.find_devices_by_type(DisplayDevice) or grid.find_devices_by_type("display")
     if not displays:

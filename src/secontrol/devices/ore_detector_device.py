@@ -211,9 +211,13 @@ class OreDetectorDevice(BaseDevice):
             payload["targetName"] = self.name
         return self.send_command(payload)
 
-    def monitor_ore(self, client, scan_interval: float = 10.0, config: Optional[Dict[str, Any]] = None):
+    def monitor_ore(self, scan_interval: float = 10.0, config: Optional[Dict[str, Any]] = None):
         """Subscribe to telemetry and monitor ore updates, printing changes."""
         scan_config = config or {}
+
+        client = getattr(self.grid, "redis", None)
+        if client is None:
+            raise RuntimeError("Redis client is not available for this device")
 
         print(f"Monitoring ore detector {self.device_id} named {self.name!r}")
         print(f"Telemetry key: {self.telemetry_key}")
@@ -250,25 +254,11 @@ class OreDetectorDevice(BaseDevice):
                 print(f"[ore detector] Scan response received for seq={response_seq}")
                 scan_answer_received = True
 
-        def _on_update(_key: str, payload: Any, event: str) -> None:
+        def _on_update(_device: "OreDetectorDevice", telemetry: Dict[str, Any], _source_event: str) -> None:
             nonlocal last_rev, last_ore_count, scan_answer_received
             print("Telemetry update received")  # Debug
-            if event == "del":
-                print("[ore detector] telemetry deleted")
-                return
 
-            data: Dict[str, Any] | None = None
-            if isinstance(payload, dict):
-                data = payload
-            elif isinstance(payload, str):
-                text = payload.strip()
-                if text:
-                    try:
-                        data = json.loads(text)
-                    except json.JSONDecodeError:
-                        data = None
-
-            if not isinstance(data, dict):
+            if not isinstance(telemetry, dict):
                 return
 
             # Wait for scan answer before processing results
@@ -276,7 +266,7 @@ class OreDetectorDevice(BaseDevice):
                 print("[ore detector] Ignoring telemetry update until scan response")
                 return
 
-            radar = _pick_radar_dict(data)
+            radar = _pick_radar_dict(telemetry)
             ore_cells, _truncated = _extract_ore_cells(radar or {})
 
             rev_val = radar.get("revision") if radar else None
@@ -312,7 +302,7 @@ class OreDetectorDevice(BaseDevice):
             elif ore_count_field:
                 print(f"[ore detector] note: oreCells list missing, but oreCellCount={ore_count_field}")
 
-        sub_telemetry = client.subscribe_to_key(self.telemetry_key, _on_update)
+        self.on("telemetry", _on_update)
         sub_answer = client.subscribe_to_key(answer_key, _on_answer)
 
         try:
@@ -335,15 +325,11 @@ class OreDetectorDevice(BaseDevice):
             pass
         finally:
             try:
-                sub_telemetry.close()
+                self.off("telemetry", _on_update)
             except Exception:
                 pass
             try:
                 sub_answer.close()
-            except Exception:
-                pass
-            try:
-                client.close()
             except Exception:
                 pass
 

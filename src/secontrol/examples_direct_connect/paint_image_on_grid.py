@@ -273,7 +273,7 @@ def main() -> None:
     pixels, saved_orig, saved_resized = _load_pixels_and_save_copies(image_file, width, height, outdir)
 
     try:
-        client, grid = prepare_grid(grid_id)
+        grid = prepare_grid(grid_id)
     except RuntimeError as exc:
         msg = str(exc)
         if "No grids were found" in msg:
@@ -339,7 +339,7 @@ def main() -> None:
         print(f"Saved original copy: {saved_orig}")
         print(f"Saved resized preview: {saved_resized}")
     finally:
-        close(client, grid)
+        close(grid)
 
 
 if __name__ == "__main__":

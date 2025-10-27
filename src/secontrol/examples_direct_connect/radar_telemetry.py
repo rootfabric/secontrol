@@ -37,6 +37,7 @@ import time
 from typing import Any, Dict, Optional
 
 from secontrol.common import close, prepare_grid
+from secontrol.devices.ore_detector_device import OreDetectorDevice
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "includePlayers": True,
@@ -301,7 +302,7 @@ def _extract_ore_cells(radar: Dict[str, Any]) -> tuple[list[dict], int]:
 
 
 def main() -> None:
-    client, grid = prepare_grid("117014494109101689")
+    grid = prepare_grid("117014494109101689")
     try:
         # Загружаем конфиг и выбираем датчик
         cfg = _load_config()
@@ -343,25 +344,13 @@ def main() -> None:
         cached_ore_cells: list[dict] = []
         cached_ore_count: int = 0
 
-        def _on_update(_key: str, payload: Any, event: str) -> None:
-            nonlocal last_rev
-            if event == "del":
-                print("[radar] telemetry deleted")
-                return
+        def _on_update(dev: OreDetectorDevice, telemetry: Dict[str, Any], source_event: str) -> None:
+            nonlocal last_rev, last_ore_count, last_truncated, last_done, last_contacts_count
 
-            data: Dict[str, Any] | None = None
-            if isinstance(payload, dict):
-                data = payload
-            elif isinstance(payload, str):
-                text = payload.strip()
-                if text:
-                    try:
-                        data = json.loads(text)
-                    except json.JSONDecodeError:
-                        data = None
-
-            if not isinstance(data, dict):
-                return
+            if not isinstance(telemetry, dict):
+                data: Dict[str, Any] = {}
+            else:
+                data = telemetry
 
             radar = _pick_radar_dict(data)
             contacts = radar.get("contacts", []) if isinstance(radar, dict) else []
@@ -490,7 +479,7 @@ def main() -> None:
             elif ore_count_field:
                 print("[radar] note: oreCells list отсутствует, но oreCellCount=", ore_count_field)
 
-        sub = client.subscribe_to_key(device.telemetry_key, _on_update)
+        device.on("telemetry", _on_update)
 
         # Отправляем первое сканирование и затем периодически повторяем
         _send_scan(
@@ -542,12 +531,9 @@ def main() -> None:
         except KeyboardInterrupt:
             pass
         finally:
-            try:
-                sub.close()
-            except Exception:
-                pass
+            device.off("telemetry", _on_update)
     finally:
-        close(client, grid)
+        close(grid)
 
 
 if __name__ == "__main__":

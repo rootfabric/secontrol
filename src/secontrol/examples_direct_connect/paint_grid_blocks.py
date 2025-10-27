@@ -105,7 +105,7 @@ def main() -> None:
     # Можно указать GRID_ID, иначе используйте свою логику выбора
     grid_id = os.getenv("GRID_ID", "143981447307572837")
 
-    client, grid = prepare_grid(grid_id)
+    grid = prepare_grid(grid_id)
     try:
         blocks_with_ids = _collect_blocks_with_ids(grid.iter_blocks())
         if not blocks_with_ids:
@@ -138,7 +138,7 @@ def main() -> None:
 
         print(f"Отправлено команд: {total_commands}")
     finally:
-        close(client, grid)
+        close(grid)
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ pip install .
 from secontrol.common import prepare_grid
 
 #Первый грид игрока
-client, grid = prepare_grid()
+grid = prepare_grid()
 #Устройства на гриде
 print(", ".join((d.name or f"{d.device_type}:{d.device_id}") for d in grid.devices.values()) or "(no devices)")
 
