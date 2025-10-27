@@ -66,7 +66,7 @@ def main() -> None:
     except ValueError:
         batch_size = 50
 
-    client, grid = prepare_grid()
+    grid = prepare_grid()
     try:
         block_ids = _collect_block_ids(grid.iter_blocks())
         if not block_ids:
@@ -93,7 +93,7 @@ def main() -> None:
 
         print(f"Отправлено команд: {total_commands}")
     finally:
-        close(client, grid)
+        close(grid)
 
 
 if __name__ == "__main__":

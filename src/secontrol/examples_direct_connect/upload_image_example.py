@@ -43,7 +43,7 @@ def main() -> None:
         print(f"Failed to load image: {e}")
         return
 
-    client, grid = prepare_grid()
+    grid = prepare_grid()
 
     # Find display devices
     displays = grid.find_devices_by_type(DisplayDevice)

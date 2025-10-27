@@ -12,7 +12,7 @@ def main() -> None:
     owner_id = resolve_owner_id()
     print(f"Using owner id: {owner_id}")
 
-    client, grid = prepare_grid()
+    grid = prepare_grid()
 
     try:
         device = next((device for device in grid.devices.values() if isinstance(device, BaseDevice)), None)
@@ -36,7 +36,7 @@ def main() -> None:
         print("Telemetry after enabling:", device.telemetry)
         print("Enabled state after enabling:", device.is_enabled())
     finally:
-        close(client, grid)
+        close(grid)
 
 
 if __name__ == "__main__":

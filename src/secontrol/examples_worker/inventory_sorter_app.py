@@ -106,7 +106,6 @@ class TaggedContainer:
 class App:
     def __init__(self, *, refresh_every: int = 10, max_transfers_per_step: int = 20):
         self.counter = 0
-        self._client = None
         self._grid: Optional[Grid] = None
         self._refresh_every = max(1, int(refresh_every))
         self._max_transfers = max(1, int(max_transfers_per_step))
@@ -114,7 +113,7 @@ class App:
         self._tag_index: Dict[str, List[ContainerDevice]] = {}
 
     def start(self):
-        self._client, self._grid = prepare_grid()
+        self._grid = prepare_grid()
         self._refresh_containers()
         print(
             "Sorter started: %d containers, %d tagged"
@@ -162,9 +161,9 @@ class App:
             print(f"Step {self.counter}: nothing to transfer")
 
     def close(self):
-        if self._client and self._grid:
+        if self._grid:
             try:
-                close(self._client, self._grid)
+                close(self._grid)
             except Exception:  # pragma: no cover - best effort cleanup
                 pass
 

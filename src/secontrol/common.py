@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from typing import Tuple
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -115,38 +114,43 @@ def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
 def prepare_grid(
     existing_client: RedisEventClient | str | None = None,
     grid_id: str | None = None,
-) -> Tuple[RedisEventClient, Grid]:
-    """Create :class:`RedisEventClient` and :class:`Grid` instances for examples_direct_connect.
+) -> Grid:
+    """Создаёт и возвращает :class:`Grid` с готовыми подписками.
 
-    Parameters
-    - existing_client: Optional pre-initialized :class:`RedisEventClient` instance to reuse.
-      For convenience, you may also pass a ``str`` grid id here positionally, e.g.
-      ``prepare_grid("<grid_id>")``.
-    - grid_id: Optional grid id to target explicitly. When not provided, falls back to
-      :func:`resolve_grid_id`, which uses ``SE_GRID_ID`` if set, otherwise the first grid.
+    Функция поддерживает несколько стилей вызова:
+
+    - ``prepare_grid()`` — автоматический выбор грида.
+    - ``prepare_grid("<grid_id>")`` — передача идентификатора грида первой позицией.
+    - ``prepare_grid(existing_client)`` — повторное использование готового :class:`RedisEventClient`.
+    - ``prepare_grid(existing_client, grid_id)`` — явное указание грида при повторном использовании клиента.
+
+    Возвращаемый объект ``Grid`` хранит ссылку на использованный ``RedisEventClient`` в поле
+    :attr:`Grid.redis`. Если клиент был создан внутри ``prepare_grid``, вызов :func:`close`
+    также закроет и Redis-подключение. При переданном внешнем клиенте ответственность за его
+    закрытие остаётся на вызывающем коде.
     """
 
-    # Allow calling styles:
-    # - prepare_grid()                                 -> auto grid selection
-    # - prepare_grid(grid_id)                          -> first positional is grid id
-    # - prepare_grid(existing_client)                  -> reuse client
-    # - prepare_grid(existing_client, grid_id)         -> reuse client and explicit grid
-    # Normalize arguments accordingly.
     if isinstance(existing_client, str) and grid_id is None:
         grid_id = existing_client
         existing_client = None
 
-    client = (existing_client if isinstance(existing_client, RedisEventClient) else None) or RedisEventClient()
+    owns_client = False
+    if isinstance(existing_client, RedisEventClient):
+        client = existing_client
+    else:
+        client = RedisEventClient()
+        owns_client = True
+
     try:
         owner_id = resolve_owner_id()
         resolved_grid_id = grid_id or resolve_grid_id(client, owner_id)
         player_id = resolve_player_id(owner_id)
 
         grid = Grid(client, owner_id, resolved_grid_id, player_id)
+        setattr(grid, "_owns_redis_client", owns_client)
         return grid
     except Exception:
-        # Ensure we don't leak the client we created on failure
-        if existing_client is None:
+        if owns_client:
             try:
                 client.close()
             except Exception:
@@ -154,11 +158,16 @@ def prepare_grid(
         raise
 
 
-def close(client: RedisEventClient, grid: Grid) -> None:
-    """Close both the grid subscription and the Redis connection."""
+def close(grid: Grid) -> None:
+    """Закрывает подписки грида и, при необходимости, Redis-подключение."""
 
     grid.close()
-    client.close()
+    owns_client = getattr(grid, "_owns_redis_client", True)
+    if owns_client:
+        try:
+            grid.redis.close()
+        except Exception:
+            pass
 
 
 __all__ = [

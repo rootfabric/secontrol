@@ -48,7 +48,7 @@ def handle_event(payload: DamageEvent | dict[str, Any] | str) -> None:
 
 
 def main() -> None:
-    client, grid = prepare_grid()
+    grid = prepare_grid()
     subscription = grid.subscribe_to_damage(handle_event)
     print(
         "Ожидаем события урона для грида",
@@ -65,6 +65,6 @@ def main() -> None:
             subscription.close()
         except Exception:
             pass
-        close(client, grid)
+        close(grid)
 if __name__ == "__main__":
     main()

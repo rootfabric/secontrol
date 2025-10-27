@@ -242,7 +242,7 @@ def main() -> None:
     owner_id = resolve_owner_id()
     print(f"Owner ID: {owner_id}")
 
-    client, grid = prepare_grid()
+    grid = prepare_grid()
 
     try:
         # Find display devices
@@ -278,7 +278,7 @@ def main() -> None:
 
     finally:
         from secontrol.common import close
-        close(client, grid)
+        close(grid)
 
 
 

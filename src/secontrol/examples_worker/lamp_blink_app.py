@@ -16,14 +16,13 @@ from secontrol.devices.lamp_device import LampDevice
 class App:
     def __init__(self):
         self.counter: int = 0
-        self._client = None
         self._grid: Optional[Grid] = None
         self._lamps: List[LampDevice] = []
         self._on: bool = False
 
     def start(self):
         # Create Redis client and Grid, then collect all lamps
-        self._client, self._grid = prepare_grid()
+        self._grid = prepare_grid()
 
         # Prefer type-based search if available, otherwise isinstance fallback
         lamps = []
@@ -52,9 +51,9 @@ class App:
 
     # Optional: allow external cleanup
     def close(self):
-        if self._client and self._grid:
+        if self._grid:
             try:
-                close(self._client, self._grid)
+                close(self._grid)
             except Exception:
                 pass
 

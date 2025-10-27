@@ -12,7 +12,7 @@ def main() -> None:
     owner_id = resolve_owner_id()
     print(f"Using owner id: {owner_id}")
 
-    client, grid = prepare_grid()
+    grid = prepare_grid()
 
     # lamp = next((device for device in grid.devices.values() if isinstance(device, LampDevice)), None)
     # if lamp is None:
