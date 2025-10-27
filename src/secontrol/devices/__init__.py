@@ -24,6 +24,7 @@ _BUILTIN_MODULES = [
     "connector_device",
     "container_device",
     "conveyor_sorter_device",
+    "display_device",
     "gas_generator_device",
     "gyro_device",
     "lamp_device",

@@ -594,19 +594,24 @@ class Grid:
             return None
 
     # NEW: поиск устройств по типу
-    def find_devices_by_type(self, device_type: str) -> list["BaseDevice"]:
+    def find_devices_by_type(self, device_type: str | Type[BaseDevice]) -> list["BaseDevice"]:
         """
         Возвращает список устройств указанного типа.
 
         Принимает как нормализованные типы (например, "battery", "projector"),
-        так и исходные имена из Space Engineers (например, "MyObjectBuilder_BatteryBlock").
+        как исходные имена из Space Engineers (например, "MyObjectBuilder_BatteryBlock"),
+        так и классы устройств (например, DisplayDevice).
         Тип приводится к нормализованному виду через ``normalize_device_type``.
         """
 
-        try:
-            normalized = normalize_device_type(device_type)
-        except Exception:
-            normalized = str(device_type).lower()
+        if isinstance(device_type, type):
+            # if passed a class like DisplayDevice
+            normalized = getattr(device_type, "device_type", "generic").lower()
+        else:
+            try:
+                normalized = normalize_device_type(device_type)
+            except Exception:
+                normalized = str(device_type).lower()
 
         return [d for d in self.devices.values() if getattr(d, "device_type", "").lower() == normalized]
 
@@ -1334,7 +1339,9 @@ class Grid:
 
     # ------------------------------------------------------------------
     def build_device_key(self, device_type: str, device_id: str) -> str:
-        return f"se:{self.owner_id}:grid:{self.grid_id}:{device_type}:{device_id}:telemetry"
+        # Normalize type to the snake_case form used in telemetry keys
+        type_key = self._normalize_type_for_telemetry(str(device_type))
+        return f"se:{self.owner_id}:grid:{self.grid_id}:{type_key}:{device_id}:telemetry"
 
     # ------------------------------------------------------------------
     def close(self) -> None:
@@ -2130,6 +2137,7 @@ TYPE_ALIASES = {
     "MyObjectBuilder_InteriorLight": "lamp",
     "MyObjectBuilder_ReflectorLight": "lamp",
     "MyObjectBuilder_LightingBlock": "lamp",
+    "MyObjectBuilder_TextPanel": "textpanel",
     "cargo_container": "container",
     "container": "container",
     "MyObjectBuilder_Projector": "projector",
@@ -2158,6 +2166,10 @@ TYPE_ALIASES = {
     "lighting_block": "lamp",
     "interior_light": "lamp",
     "reflector_light": "lamp",
+    "textpanel": "textpanel",
+    "display": "textpanel",
+    "panel": "textpanel",
+    "text_panel": "textpanel",
 }
 
 
