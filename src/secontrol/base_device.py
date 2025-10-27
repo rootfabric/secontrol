@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Type
 
+
 # DEVICE_TYPE_MAP пополняется модулями устройств и внешними плагинами при импорте
 DEVICE_TYPE_MAP = {}
 
@@ -483,6 +484,11 @@ class Grid:
         self.blocks: Dict[int, BlockInfo] = {}
         self._damage_channel = f"se:{owner_id}:grid:{grid_id}:damage"
         self._damage_subscriptions: list[Any] = []
+
+        # Event listeners: event name -> list of callbacks
+        # Callback signature: (device: BaseDevice, telemetry: Dict[str, Any], source_event: str) -> None
+        self._listeners: dict[str, list[Callable[["BaseDevice", Dict[str, Any], str], None]]] = {}
+
 
         self._subscription = self.redis.subscribe_to_key(
             self.grid_key, self._on_grid_change
@@ -1558,6 +1564,10 @@ class BaseDevice:
     device_type: str = "generic"
 
     def __init__(self, grid: Grid, metadata: DeviceMetadata) -> None:
+        # Слушатели событий устройства: {event_name: [callback, ...]}
+        # callback(device, telemetry_dict, source_event_str) -> None
+        self._listeners: dict[str, list[Callable[["BaseDevice", Dict[str, Any], str], None]]] = {}
+
         self.grid = grid
         self.redis = grid.redis
         self.device_id = metadata.device_id
@@ -1573,6 +1583,7 @@ class BaseDevice:
         )
         self.metadata = metadata
         self.telemetry: Optional[Dict[str, Any]] = None
+
         self._enabled: bool = self._extract_optional_bool(
             metadata.extra,
             "enabled",
@@ -1583,26 +1594,33 @@ class BaseDevice:
         self._show_in_terminal: bool = self._extract_optional_bool(metadata.extra, "showInTerminal") or False
         self._show_in_toolbar: bool = self._extract_optional_bool(metadata.extra, "showInToolbar") or False
         self._show_on_screen: bool = self._extract_optional_bool(metadata.extra, "showOnScreen") or False
+
         raw_custom = metadata.extra.get("customData")
         self._custom_data: str = "" if raw_custom is None else str(raw_custom)
+
         self._load_metrics: Optional[Dict[str, Any]] = None
         self._load_spent_ms: Optional[float] = None
 
-        # examples_direct_connect) Подписка на «ожидаемый» ключ
-        self._subscription = self.redis.subscribe_to_key(self.telemetry_key, self._on_telemetry_change)
+        # Подписка на ключ телеметрии устройства
+        self._subscription = self.redis.subscribe_to_key(
+            self.telemetry_key,
+            self._on_telemetry_change,
+        )
         snapshot = self.redis.get_json(self.telemetry_key)
 
-        # 2) Если по ожидаемому ключу ничего нет — попробуем обнаружить реальный ключ через SCAN
+        # fallback: попытка найти реальный ключ телеметрии по шаблону
         if snapshot is None:
             resolved = self._resolve_existing_telemetry_key()
             if resolved and resolved != self.telemetry_key:
-                # переедем на найденный ключ
                 try:
                     self._subscription.close()
                 except Exception:
                     pass
                 self.telemetry_key = resolved
-                self._subscription = self.redis.subscribe_to_key(self.telemetry_key, self._on_telemetry_change)
+                self._subscription = self.redis.subscribe_to_key(
+                    self.telemetry_key,
+                    self._on_telemetry_change,
+                )
                 snapshot = self.redis.get_json(self.telemetry_key)
 
         if self.name:
@@ -1611,23 +1629,55 @@ class BaseDevice:
         if snapshot is not None:
             self._on_telemetry_change(self.telemetry_key, snapshot, "initial")
 
-    # --- новый метод: ищем точный ключ в Redis по device_id ---
+    # ------------------------------------------------------------------
+    # Публичный событийный API
+    # ------------------------------------------------------------------
+
+    def on(
+        self,
+        event: str,
+        callback: Callable[["BaseDevice", Dict[str, Any], str], None],
+    ) -> None:
+        if not isinstance(event, str) or not event:
+            raise ValueError("event must be a non-empty string")
+        if not callable(callback):
+            raise TypeError("callback must be callable")
+        self._listeners.setdefault(event, []).append(callback)
+
+    def off(
+        self,
+        event: str,
+        callback: Callable[["BaseDevice", Dict[str, Any], str], None],
+    ) -> None:
+        listeners = self._listeners.get(event)
+        if not listeners:
+            return
+        try:
+            listeners.remove(callback)
+        except ValueError:
+            pass
+        if not listeners:
+            self._listeners.pop(event, None)
+
+    def _emit(self, event: str, telemetry: Dict[str, Any], source_event: str) -> None:
+        listeners = list(self._listeners.get(event, []))
+        for cb in listeners:
+            try:
+                cb(self, telemetry, source_event)
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------
     def _resolve_existing_telemetry_key(self) -> Optional[str]:
-        """
-        Ищет существующий ключ телеметрии по шаблону:
-        se:{owner}:grid:{grid}:*:{device_id}:telemetry
-        Возвращает точное имя ключа либо None.
-        """
         owner = self.grid.owner_id
         grid_id = self.grid.grid_id
         did = self.device_id
         pattern = f"se:{owner}:grid:{grid_id}:*:{did}:telemetry"
         try:
-            # используем SCAN, чтобы не блокировать Redis
             for key in self.redis.client.scan_iter(match=pattern, count=100):
                 if isinstance(key, bytes):
                     key = key.decode("utf-8", "replace")
-                return key  # берём первый найденный
+                return key
         except Exception:
             pass
         return None
@@ -1652,26 +1702,37 @@ class BaseDevice:
     # ------------------------------------------------------------------
     def _on_telemetry_change(self, key: str, payload: Optional[Any], event: str) -> None:
         if payload is None:
+            self._emit("telemetry_cleared", {}, event)
             return
+
         if isinstance(payload, str):
             try:
                 payload = json.loads(payload)
             except json.JSONDecodeError:
                 payload = {"raw": payload}
-        if isinstance(payload, dict):
-            telemetry_payload = dict(payload)
-            changed = self._merge_common_telemetry(telemetry_payload)
-            self.telemetry = telemetry_payload
-            if changed:
-                self._persist_common_telemetry()
-            self.handle_telemetry(telemetry_payload)
+
+        if not isinstance(payload, dict):
+            return
+
+        telemetry_payload = dict(payload)
+
+        changed = self._merge_common_telemetry(telemetry_payload)
+        self.telemetry = telemetry_payload
+
+        if changed:
+            self._persist_common_telemetry()
+
+        # Хук дочерних классов
+        self.handle_telemetry(telemetry_payload)
+
+        # Сообщаем наружу
+        self._emit("telemetry", telemetry_payload, event)
 
     # ------------------------------------------------------------------
     def handle_telemetry(self, telemetry: Dict[str, Any]) -> None:
-        """Hook for subclasses to parse telemetry."""
+        return
 
     # ------------------------------------------------------------------
-
     def is_enabled(self) -> bool:
         if isinstance(self.telemetry, dict) and "enabled" in self.telemetry:
             return bool(self.telemetry["enabled"])
@@ -1701,7 +1762,6 @@ class BaseDevice:
         return result
 
     # ------------------------------------------------------------------
-
     def show_in_terminal(self) -> Optional[bool]:
         return self._read_bool_flag("showInTerminal")
 
@@ -1734,13 +1794,9 @@ class BaseDevice:
         return self._custom_data
 
     def load_spent_ms(self) -> Optional[float]:
-        """Возвращает среднее время выполнения логики устройства в миллисекундах."""
-
         return self._load_spent_ms
 
     def load_metrics(self) -> Optional[Dict[str, Any]]:
-        """Возвращает нормализованные метрики нагрузки из телеметрии устройства."""
-
         if self._load_metrics is None:
             return None
         return copy.deepcopy(self._load_metrics)
@@ -1756,7 +1812,6 @@ class BaseDevice:
         return result
 
     # ------------------------------------------------------------------
-
     def _read_bool_flag(self, key: str) -> Optional[bool]:
         if isinstance(self.telemetry, dict) and key in self.telemetry:
             return bool(self.telemetry[key])
@@ -1851,13 +1906,27 @@ class BaseDevice:
         changed = False
 
         if self.name:
-            for key in ("name", "customName", "displayName", "displayNameText", "CustomName", "DisplayName"):
+            for key in (
+                "name",
+                "customName",
+                "displayName",
+                "displayNameText",
+                "CustomName",
+                "DisplayName",
+            ):
                 if target.get(key) != self.name:
                     target[key] = self.name
                     changed = True
             self._cache_name_in_metadata()
         else:
-            for key in ("customName", "name", "displayName", "displayNameText", "CustomName", "DisplayName"):
+            for key in (
+                "customName",
+                "name",
+                "displayName",
+                "displayNameText",
+                "CustomName",
+                "DisplayName",
+            ):
                 value = target.get(key)
                 if value:
                     text_value = str(value)
@@ -1876,6 +1945,7 @@ class BaseDevice:
                 self.metadata.name = self.name
             except Exception:
                 pass
+
         extra = getattr(self.metadata, "extra", None)
         if not isinstance(extra, dict):
             extra = {}
@@ -1883,8 +1953,10 @@ class BaseDevice:
                 self.metadata.extra = extra  # type: ignore[assignment]
             except Exception:
                 return
+
         if not self.name:
             return
+
         for key in ("customName", "name", "displayName", "displayNameText"):
             extra[key] = self.name
 
@@ -1915,8 +1987,6 @@ class BaseDevice:
         return None
 
     def _update_load_metrics(self, telemetry: Dict[str, Any]) -> bool:
-        """Обновляет кеш метрик нагрузки на основании телеметрии."""
-
         raw_load = telemetry.get("load")
         normalized = self._normalize_load_metrics(raw_load)
         changed = False
@@ -1931,7 +2001,6 @@ class BaseDevice:
                 changed = True
             return changed
 
-        # Вставляем агрегированное поле для быстрого доступа
         spent = normalized.get("spentMs")
         if spent is not None:
             if telemetry.get("loadSpentMs") != spent:
@@ -2009,9 +2078,7 @@ class BaseDevice:
 
         total_bucket = metrics.get("total")
         if isinstance(total_bucket, dict):
-            candidates.extend(
-                total_bucket.get(key) for key in ("avgMs", "lastMs", "peakMs")
-            )
+            candidates.extend(total_bucket.get(key) for key in ("avgMs", "lastMs", "peakMs"))
 
         update_bucket = metrics.get("update")
         if isinstance(update_bucket, dict):
@@ -2027,19 +2094,18 @@ class BaseDevice:
         return None
 
     # ------------------------------------------------------------------
-
     def command_channel(self) -> str:
-        # было: return f"se.commands.device.{self.device_id}"
         return f"se.{self.grid.player_id}.commands.device.{self.device_id}"
 
     def _command_channels(self) -> list[str]:
-        # используем только один канал, чтобы не дублировать команды
         return [self.command_channel()]
 
     def send_command(self, command: Dict[str, Any]) -> int:
         def to_int(x):
-            try: return int(x)
-            except Exception: return None
+            try:
+                return int(x)
+            except Exception:
+                return None
 
         did = to_int(self.device_id)
         gid = to_int(self.grid_id)
@@ -2069,7 +2135,16 @@ class BaseDevice:
 
     # ------------------------------------------------------------------
     def close(self) -> None:
-        self._subscription.close()
+        """Отписываемся от Redis и чистим слушателей."""
+        try:
+            self._subscription.close()
+        except Exception:
+            pass
+        try:
+            self._listeners.clear()
+        except Exception:
+            pass
+
 
 
 class TakeGrid:

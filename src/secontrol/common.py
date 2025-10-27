@@ -143,7 +143,7 @@ def prepare_grid(
         player_id = resolve_player_id(owner_id)
 
         grid = Grid(client, owner_id, resolved_grid_id, player_id)
-        return client, grid
+        return grid
     except Exception:
         # Ensure we don't leak the client we created on failure
         if existing_client is None:
