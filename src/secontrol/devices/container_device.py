@@ -8,9 +8,39 @@ including transferring items between containers.
 from __future__ import annotations
 
 import json
-from typing import Set
+from typing import Any, Dict, List, Set, Tuple
 
 from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
+
+
+class Item:
+    """
+    Represents an item in the container.
+    """
+    def __init__(self, type: str, subtype: str, amount: float, display_name: str | None = None):
+        self.type = type
+        self.subtype = subtype
+        self.amount = amount
+        self.display_name = display_name
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Item:
+        return cls(
+            type=data.get("type", ""),
+            subtype=data.get("subtype", ""),
+            amount=data.get("amount", 0.0),
+            display_name=data.get("displayName")
+        )
+
+    def to_dict(self) -> dict:
+        d = {
+            "type": self.type,
+            "subtype": self.subtype,
+            "amount": self.amount
+        }
+        if self.display_name:
+            d["displayName"] = self.display_name
+        return d
 
 
 class ContainerDevice(BaseDevice):
@@ -23,7 +53,7 @@ class ContainerDevice(BaseDevice):
     device_type = "container"
 
     # Кэш для разобранных полей телеметрии
-    _items_cache: list[dict] | None = None
+    _items_cache: list[Item] | None = None
     _current_volume: float | None = None
     _max_volume: float | None = None
     _current_mass: float | None = None
@@ -49,26 +79,22 @@ class ContainerDevice(BaseDevice):
 
         # Кэш предметов
         items = telemetry.get("items") if isinstance(telemetry, dict) else None
-        normalized: list[dict] = []
+        normalized: list[Item] = []
         if isinstance(items, list):
             for it in items:
                 if not isinstance(it, dict):
                     continue
-                normalized.append(
-                    {
-                        "type": it.get("type") or it.get("Type") or "",
-                        "subtype": it.get("subtype")
-                        or it.get("subType")
-                        or it.get("name")
-                        or "",
-                        "amount": float(it.get("amount", 0.0)),
-                        **(
-                            {"displayName": it["displayName"]}
-                            if it.get("displayName")
-                            else {}
-                        ),
-                    }
-                )
+                item_dict = {
+                    "type": it.get("type") or it.get("Type") or "",
+                    "subtype": it.get("subtype")
+                    or it.get("subType")
+                    or it.get("name")
+                    or "",
+                    "amount": float(it.get("amount", 0.0)),
+                }
+                if it.get("displayName"):
+                    item_dict["displayName"] = it["displayName"]
+                normalized.append(Item.from_dict(item_dict))
         self._items_cache = normalized
 
         # Кэш ёмкости/массы
@@ -88,10 +114,9 @@ class ContainerDevice(BaseDevice):
             self._fill_ratio = float(telemetry.get("fillRatio", 0.0))
         except Exception:
             self._fill_ratio = None
-    def items(self) -> list[dict]:
+    def items(self) -> list[Item]:
         """
-        Возвращает список предметов из текущей телеметрии:
-        [{type, subtype, amount, displayName?}, ...]
+        Возвращает список предметов из текущей телеметрии как объекты Item.
         """
         # отдаём из кэша, если уже приходила телеметрия
         if isinstance(self._items_cache, list):
@@ -102,22 +127,18 @@ class ContainerDevice(BaseDevice):
         items = telemetry.get("items") if isinstance(telemetry, dict) else None
         if not isinstance(items, list):
             return []
-        normalized: list[dict] = []
+        normalized: list[Item] = []
         for it in items:
             if not isinstance(it, dict):
                 continue
-            normalized.append(
-                {
-                    "type": it.get("type") or it.get("Type") or "",
-                    "subtype": it.get("subtype") or it.get("subType") or it.get("name") or "",
-                    "amount": float(it.get("amount", 0.0)),
-                    **(
-                        {"displayName": it["displayName"]}
-                        if it.get("displayName")
-                        else {}
-                    ),
-                }
-            )
+            item_dict = {
+                "type": it.get("type") or it.get("Type") or "",
+                "subtype": it.get("subtype") or it.get("subType") or it.get("name") or "",
+                "amount": float(it.get("amount", 0.0)),
+            }
+            if it.get("displayName"):
+                item_dict["displayName"] = it["displayName"]
+            normalized.append(Item.from_dict(item_dict))
         self._items_cache = normalized
         return list(normalized)
 
@@ -163,7 +184,7 @@ class ContainerDevice(BaseDevice):
         }
 
     # --------------------- Команды переноса -----------------------------------
-    def _send_transfer(self, *, from_id: int | str, to_id: int | str, items: list[dict], cmd: str = "transfer_items") -> int:
+    def _send_transfer(self, *, from_id: int | str, to_id: int | str, items: list[Item] | list[dict], cmd: str = "transfer_items") -> int:
         """
         Низкоуровневый отправитель команды переноса.
         ВАЖНО: payload/state должен быть именно JSON-строкой — так ожидает C#.
@@ -171,19 +192,23 @@ class ContainerDevice(BaseDevice):
         # Нормализация полей items
         norm_items: list[dict] = []
         for it in items:
-            if not isinstance(it, dict):
+            if isinstance(it, Item):
+                it_dict = it.to_dict()
+            elif isinstance(it, dict):
+                it_dict = it
+            else:
                 continue
-            subtype = it.get("subtype") or it.get("subType") or it.get("name")
+            subtype = it_dict.get("subtype") or it_dict.get("subType") or it_dict.get("name")
             if not subtype:
                 # без сабтайпа переносить нечего
                 continue
             entry = {"subtype": str(subtype)}
             # type — опционален (wildcard по типу в C# коде)
-            if it.get("type"):
-                entry["type"] = str(it["type"])
+            if it_dict.get("type"):
+                entry["type"] = str(it_dict["type"])
             # amount — опционален, отсутствие == перенести стек целиком
-            if it.get("amount") is not None:
-                entry["amount"] = float(it["amount"])
+            if it_dict.get("amount") is not None:
+                entry["amount"] = float(it_dict["amount"])
             norm_items.append(entry)
 
         if not norm_items:
@@ -203,11 +228,11 @@ class ContainerDevice(BaseDevice):
             "state": state_str,
         })
 
-    def move_items(self, destination: int | str, items: list[dict]) -> int:
+    def move_items(self, destination: int | str, items: list[Item] | list[dict]) -> int:
         """
         Перенести список предметов по сабтайпу (и при желании type/amount) в другой контейнер.
 
-        items: [{ "subtype": "IronIngot", "type": "MyObjectBuilder_Ingot", "amount": 50 }, ...]
+        items: [{ "subtype": "IronIngot", "type": "MyObjectBuilder_Ingot", "amount": 50 }, ...] или [Item(...), ...]
         - type     (опционально): точный TypeId (как в телеметрии/SE), можно не указывать.
         - amount   (опционально): если не задан — будет перенесён весь стек найденного айтема.
         """
@@ -232,11 +257,11 @@ class ContainerDevice(BaseDevice):
         bl = {s.lower() for s in (blacklist or set())}
         batch = []
         for it in self.items():
-            sb = (it.get("subtype") or "").lower()
+            sb = it.subtype.lower()
             if not sb or sb in bl:
                 continue
             # amount опускаем — на стороне плагина это значит "весь стек"
-            batch.append({"subtype": it["subtype"]})
+            batch.append({"subtype": it.subtype})
         if not batch:
             return 0
         return self.move_items(destination, batch)
@@ -249,6 +274,80 @@ class ContainerDevice(BaseDevice):
         if not batch:
             return 0
         return self.move_items(destination, batch)
+
+    # --------------------- Поиск предметов -----------------------------------
+
+    def find_items_by_type(self, item_type: str) -> list[Item]:
+        """
+        Найти предметы по типу (type).
+        """
+        return [it for it in self.items() if it.type == item_type]
+
+    def find_items_by_subtype(self, subtype: str) -> list[Item]:
+        """
+        Найти предметы по сабтайпу (subtype).
+        """
+        return [it for it in self.items() if it.subtype == subtype]
+
+    def find_items_by_display_name(self, display_name: str) -> list[Item]:
+        """
+        Найти предметы по отображаемому имени (displayName).
+        """
+        return [it for it in self.items() if it.display_name == display_name]
+
+    @staticmethod
+    def _normalize_items(payload: Dict[str, Any] | None) -> List[Dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return []
+        items = payload.get("items")
+        if not isinstance(items, list):
+            return []
+        out: List[Dict[str, Any]] = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            out.append(
+                {
+                    "type": it.get("type") or it.get("Type") or "",
+                    "subtype": it.get("subtype") or it.get("subType") or it.get("name") or "",
+                    "amount": float(it.get("amount", 0.0)),
+                    **(
+                        {"displayName": it["displayName"]}
+                        if it.get("displayName")
+                        else {}
+                    ),
+                }
+            )
+        return out
+
+    @staticmethod
+    def _items_signature(items: List[Any]) -> Tuple[Tuple[str, float], ...]:
+        # Stable signature to detect changes without noisy formatting differences
+        sig: List[Tuple[str, float]] = []
+        for it in items:
+            if hasattr(it, 'display_name'):  # Item object
+                name = str(it.display_name or it.subtype or "").strip()
+                amount = it.amount
+            else:  # dict
+                name = str(it.get("displayName") or it.get("subtype") or "").strip()
+                amount = float(it.get("amount") or 0.0)
+            sig.append((name, amount))
+        return tuple(sig)
+
+    @staticmethod
+    def _format_items(items: List[Any]) -> str:
+        if not items:
+            return "[]"
+        parts = []
+        for it in items:
+            if hasattr(it, 'display_name'):  # Item object
+                name = it.display_name or it.subtype or "?"
+                amount = it.amount
+            else:  # dict
+                name = it.get("displayName") or it.get("subtype") or "?"
+                amount = it.get("amount")
+            parts.append(f"{amount} x {name}")
+        return "[" + ", ".join(parts) + "]"
 
 
 DEVICE_TYPE_MAP[ContainerDevice.device_type] = ContainerDevice
