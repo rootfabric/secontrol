@@ -22,40 +22,144 @@ class ContainerDevice(BaseDevice):
     # Можно назвать "container" или "cargo_container". Главное — согласованная нормализация.
     device_type = "container"
 
+    # Кэш для разобранных полей телеметрии
+    _items_cache: list[dict] | None = None
+    _current_volume: float | None = None
+    _max_volume: float | None = None
+    _current_mass: float | None = None
+    _fill_ratio: float | None = None
+
     # --------------------- Телеметрия (удобные геттеры) -----------------------
+    def handle_telemetry(self, telemetry: dict) -> None:  # noqa: D401 - sync cache
+        """
+        Подписка на телеметрию устройства: обновляет кэш предметов и ёмкости.
+
+        Ожидаемый формат (пример):
+        {
+            "currentVolume": 0.008,
+            "maxVolume": 15.625,
+            "currentMass": 5,
+            "fillRatio": 0.000512,
+            "items": [{"type": "…", "subtype": "…", "amount": 1, "displayName": "…"}],
+            ...
+        }
+        """
+        # сохраним снапшот в родителе (BaseDevice уже сделал это, но продублируем для ясности)
+        self.telemetry = telemetry
+
+        # Кэш предметов
+        items = telemetry.get("items") if isinstance(telemetry, dict) else None
+        normalized: list[dict] = []
+        if isinstance(items, list):
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                normalized.append(
+                    {
+                        "type": it.get("type") or it.get("Type") or "",
+                        "subtype": it.get("subtype")
+                        or it.get("subType")
+                        or it.get("name")
+                        or "",
+                        "amount": float(it.get("amount", 0.0)),
+                        **(
+                            {"displayName": it["displayName"]}
+                            if it.get("displayName")
+                            else {}
+                        ),
+                    }
+                )
+        self._items_cache = normalized
+
+        # Кэш ёмкости/массы
+        try:
+            self._current_volume = float(telemetry.get("currentVolume", 0.0))
+        except Exception:
+            self._current_volume = None
+        try:
+            self._max_volume = float(telemetry.get("maxVolume", 0.0))
+        except Exception:
+            self._max_volume = None
+        try:
+            self._current_mass = float(telemetry.get("currentMass", 0.0))
+        except Exception:
+            self._current_mass = None
+        try:
+            self._fill_ratio = float(telemetry.get("fillRatio", 0.0))
+        except Exception:
+            self._fill_ratio = None
     def items(self) -> list[dict]:
         """
         Возвращает список предметов из текущей телеметрии:
         [{type, subtype, amount, displayName?}, ...]
         """
-        if not self.telemetry:
+        # отдаём из кэша, если уже приходила телеметрия
+        if isinstance(self._items_cache, list):
+            return list(self._items_cache)
+
+        # если кэша нет, попробуем взять напрямую из сырых данных (одноразово)
+        telemetry = self.telemetry or {}
+        items = telemetry.get("items") if isinstance(telemetry, dict) else None
+        if not isinstance(items, list):
             return []
-        items = self.telemetry.get("items")
-        if isinstance(items, list):
-            # нормализуем ключи/типы
-            out = []
-            for it in items:
-                if not isinstance(it, dict):
-                    continue
-                out.append({
+        normalized: list[dict] = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            normalized.append(
+                {
                     "type": it.get("type") or it.get("Type") or "",
                     "subtype": it.get("subtype") or it.get("subType") or it.get("name") or "",
                     "amount": float(it.get("amount", 0.0)),
-                    **({"displayName": it["displayName"]} if "displayName" in it and it["displayName"] else {}),
-                })
-            return out
-        return []
+                    **(
+                        {"displayName": it["displayName"]}
+                        if it.get("displayName")
+                        else {}
+                    ),
+                }
+            )
+        self._items_cache = normalized
+        return list(normalized)
 
     def capacity(self) -> dict:
         """
         Возвращает сводку по объёму/массе/заполнению из телеметрии.
         """
+        if self._current_volume is not None or self._max_volume is not None or self._current_mass is not None or self._fill_ratio is not None:
+            return {
+                "currentVolume": float(self._current_volume or 0.0),
+                "maxVolume": float(self._max_volume or 0.0),
+                "currentMass": float(self._current_mass or 0.0),
+                "fillRatio": float(self._fill_ratio or 0.0),
+            }
+
         t = self.telemetry or {}
+        try:
+            current_volume = float(t.get("currentVolume", 0.0))
+        except Exception:
+            current_volume = 0.0
+        try:
+            max_volume = float(t.get("maxVolume", 0.0))
+        except Exception:
+            max_volume = 0.0
+        try:
+            current_mass = float(t.get("currentMass", 0.0))
+        except Exception:
+            current_mass = 0.0
+        try:
+            fill_ratio = float(t.get("fillRatio", 0.0))
+        except Exception:
+            fill_ratio = 0.0
+        # заполним кэш, чтобы последующие вызовы были быстрыми
+        self._current_volume = current_volume
+        self._max_volume = max_volume
+        self._current_mass = current_mass
+        self._fill_ratio = fill_ratio
         return {
-            "currentVolume": float(t.get("currentVolume", 0.0)),
-            "maxVolume": float(t.get("maxVolume", 0.0)),
-            "currentMass": float(t.get("currentMass", 0.0)),
-            "fillRatio": float(t.get("fillRatio", 0.0)),
+            "currentVolume": current_volume,
+            "maxVolume": max_volume,
+            "currentMass": current_mass,
+            "fillRatio": fill_ratio,
         }
 
     # --------------------- Команды переноса -----------------------------------

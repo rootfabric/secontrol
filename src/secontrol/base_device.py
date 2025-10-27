@@ -1529,14 +1529,28 @@ class Grid:
 
     def _normalize_type_for_telemetry(self, dev_type: str) -> str:
         """
-        Приведение типа к части ключа телеметрии.
-        Например: 'MyObjectBuilder_BatteryBlock' -> 'battery_block'
+        Приведение типа к сегменту ключа телеметрии.
+        Пример: 'MyObjectBuilder_BatteryBlock' -> 'battery_block'.
+
+        Также учитывает различия между нормализованным типом устройства и
+        фактическим сегментом ключа телеметрии. Например, для контейнеров
+        нормализованный тип — 'container', а в ключе используется 'cargo_container'.
         """
 
-        if dev_type.startswith("MyObjectBuilder_"):
-            dev_type = dev_type.removeprefix("MyObjectBuilder_")
+        # Частные соответствия "тип устройства" -> "тип в ключе"
+        special: dict[str, str] = {
+            # Cargo containers публикуют телеметрию как 'cargo_container'
+            "container": "cargo_container",
+        }
+
+        key = dev_type
+        if key in special:
+            return special[key]
+
+        if key.startswith("MyObjectBuilder_"):
+            key = key.removeprefix("MyObjectBuilder_")
         # Простейшая snake_case нормализация
-        return "".join([("_" + c.lower() if c.isupper() else c) for c in dev_type]).lstrip("_")
+        return "".join([("_" + c.lower() if c.isupper() else c) for c in key]).lstrip("_")
 
 class BaseDevice:
     """Base class for all telemetry driven devices."""
