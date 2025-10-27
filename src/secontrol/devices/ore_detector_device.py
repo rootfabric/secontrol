@@ -221,9 +221,37 @@ class OreDetectorDevice(BaseDevice):
 
         last_rev: Optional[int] = None
         last_ore_count: Optional[int] = None
+        pending_scan_seq: Optional[int] = None
+        scan_answer_received = False
+
+        answer_key = f"se:{self.grid.owner_id}:answer"
+
+        def _on_answer(_key: str, payload: Any, event: str) -> None:
+            nonlocal scan_answer_received, pending_scan_seq
+            if event == "del":
+                return
+            data: Dict[str, Any] | None = None
+            if isinstance(payload, dict):
+                data = payload
+            elif isinstance(payload, str):
+                text = payload.strip()
+                if text:
+                    try:
+                        data = json.loads(text)
+                    except json.JSONDecodeError:
+                        data = None
+
+            if not isinstance(data, dict):
+                return
+
+            response_seq = data.get("seq")
+            ok = data.get("ok", False)
+            if response_seq == pending_scan_seq and ok:
+                print(f"[ore detector] Scan response received for seq={response_seq}")
+                scan_answer_received = True
 
         def _on_update(_key: str, payload: Any, event: str) -> None:
-            nonlocal last_rev, last_ore_count
+            nonlocal last_rev, last_ore_count, scan_answer_received
             print("Telemetry update received")  # Debug
             if event == "del":
                 print("[ore detector] telemetry deleted")
@@ -241,6 +269,11 @@ class OreDetectorDevice(BaseDevice):
                         data = None
 
             if not isinstance(data, dict):
+                return
+
+            # Wait for scan answer before processing results
+            if not scan_answer_received:
+                print("[ore detector] Ignoring telemetry update until scan response")
                 return
 
             radar = _pick_radar_dict(data)
@@ -279,18 +312,34 @@ class OreDetectorDevice(BaseDevice):
             elif ore_count_field:
                 print(f"[ore detector] note: oreCells list missing, but oreCellCount={ore_count_field}")
 
-        sub = client.subscribe_to_key(self.telemetry_key, _on_update)
+        sub_telemetry = client.subscribe_to_key(self.telemetry_key, _on_update)
+        sub_answer = client.subscribe_to_key(answer_key, _on_answer)
 
         try:
-            self.scan(**scan_config)
             while True:
+                scan_answer_received = False
+                pending_scan_seq = self.scan(**scan_config)
+                print(f"[ore detector] Sent scan command with seq={pending_scan_seq}, waiting for response...")
+                # Wait for answer with timeout
+                answer_timeout = 10.0  # seconds
+                start_wait = time.time()
+                while not scan_answer_received and (time.time() - start_wait) < answer_timeout:
+                    time.sleep(0.1)
+                if not scan_answer_received:
+                    print(f"[ore detector] Timeout waiting for scan response, proceeding anyway")
+                    scan_answer_received = True  # Continue anyway to not block indefinitely
+                else:
+                    print(f"[ore detector] Scan response confirmed, processing results")
                 time.sleep(scan_interval)
-                self.scan(**scan_config)
         except KeyboardInterrupt:
             pass
         finally:
             try:
-                sub.close()
+                sub_telemetry.close()
+            except Exception:
+                pass
+            try:
+                sub_answer.close()
             except Exception:
                 pass
             try:

@@ -22,8 +22,8 @@ def main() -> None:
 
     # Config for scan, example values
     config = {
-        "radius": 10,
-        "cell_size": 1,
+        "radius": 100,
+        "cell_size": 16,
     }
 
     # Short call: monitor with default 10s interval
