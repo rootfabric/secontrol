@@ -8,5 +8,6 @@ __all__ = [
     "damage_listener",
     "radar_telemetry",
     "gui_telemetry_viewer",
+    "container_display_sync",
 ]
 
