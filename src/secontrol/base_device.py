@@ -12,7 +12,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, Optional, Sequence, Type
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Type
 
 
 # DEVICE_TYPE_MAP пополняется модулями устройств и внешними плагинами при импорте
@@ -62,6 +62,29 @@ def _coerce_bool(value: Any) -> bool:
         if lowered in {"false", "0", "no", "n", "off"}:
             return False
     return bool(value)
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    """Преобразует значение к ``float`` или возвращает ``None``."""
+
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _approx_equal(a: Optional[float], b: Optional[float], *, rel_tol: float = 1e-3) -> bool:
+    """Сравнивает два числа с учётом относительной погрешности."""
+
+    if a is None or b is None:
+        return a == b
+    if a == b:
+        return True
+    diff = abs(a - b)
+    scale = max(abs(a), abs(b), 1.0)
+    return diff <= rel_tol * scale
 
 
 def _clamp_unit(value: float) -> float:
@@ -460,6 +483,40 @@ class DamageEvent:
         )
 
 
+@dataclass
+class RemovedDeviceInfo:
+    """Сведения об устройстве, удалённом из состава грида."""
+
+    device_id: str
+    device_type: Optional[str]
+    name: Optional[str]
+
+
+@dataclass
+class GridDevicesEvent:
+    """Набор изменений в составе устройств грида."""
+
+    added: List["BaseDevice"]
+    removed: List[RemovedDeviceInfo]
+
+
+@dataclass
+class GridIntegrityChange:
+    """Изменение целостности отдельного блока."""
+
+    block_id: int
+    block: BlockInfo
+    name: Optional[str]
+    block_type: str
+    subtype: Optional[str]
+    previous_integrity: Optional[float]
+    current_integrity: Optional[float]
+    previous_max_integrity: Optional[float]
+    current_max_integrity: Optional[float]
+    was_damaged: bool
+    is_damaged: bool
+
+
 class Grid:
     """Representation of a Space Engineers grid."""
 
@@ -486,8 +543,8 @@ class Grid:
         self._damage_subscriptions: list[Any] = []
 
         # Event listeners: event name -> list of callbacks
-        # Callback signature: (device: BaseDevice, telemetry: Dict[str, Any], source_event: str) -> None
-        self._listeners: dict[str, list[Callable[["BaseDevice", Dict[str, Any], str], None]]] = {}
+        # Callback signature: (grid: Grid, payload: Any, source_event: str) -> None
+        self._listeners: dict[str, list[Callable[["Grid", Any, str], None]]] = {}
 
 
         self._subscription = self.redis.subscribe_to_key(
@@ -502,6 +559,49 @@ class Grid:
 
         # Aggregate devices from subgrids
         self._aggregate_devices_from_subgrids()
+
+    # ------------------------------------------------------------------
+    def on(
+        self,
+        event: str,
+        callback: Callable[["Grid", Any, str], None],
+    ) -> None:
+        """Регистрирует обработчик событий грида."""
+
+        if not isinstance(event, str) or not event:
+            raise ValueError("event must be a non-empty string")
+        if not callable(callback):
+            raise TypeError("callback must be callable")
+        self._listeners.setdefault(event, []).append(callback)
+
+    # ------------------------------------------------------------------
+    def off(
+        self,
+        event: str,
+        callback: Callable[["Grid", Any, str], None],
+    ) -> None:
+        """Удаляет обработчик событий грида."""
+
+        listeners = self._listeners.get(event)
+        if not listeners:
+            return
+        try:
+            listeners.remove(callback)
+        except ValueError:
+            return
+        if not listeners:
+            self._listeners.pop(event, None)
+
+    # ------------------------------------------------------------------
+    def _emit(self, event: str, payload: Any, source_event: str) -> None:
+        listeners = list(self._listeners.get(event, []))
+        if not listeners:
+            return
+        for callback in listeners:
+            try:
+                callback(self, payload, source_event)
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     def _on_grid_change(self, key: str, payload: Optional[Any], event: str) -> None:
@@ -527,50 +627,115 @@ class Grid:
         except Exception:
             pass
 
-        # Devices extraction handled below
+        previous_blocks = dict(self.blocks)
 
         self.metadata = payload
         device_metadata = list(self._extract_devices(payload))
+        metadata_ids = {meta.device_id for meta in device_metadata}
 
-        # добавление/обновление
+        added_devices: List[BaseDevice] = []
+        removed_devices: List[RemovedDeviceInfo] = []
+
+        # добавление/обновление устройств
         for metadata in device_metadata:
             device = self.devices.get(metadata.device_id)
             if device is None:
                 device = create_device(self, metadata)
                 self.devices[metadata.device_id] = device
+                added_devices.append(device)
             else:
                 device.update_metadata(metadata)
 
-            # NEW: индексируем числовой ID (если конвертится)
             try:
                 did_int = int(metadata.device_id)
             except Exception:
-                # иногда device_id может быть нечисловой строкой — просто пропустим
                 pass
             else:
                 self.devices_by_num[did_int] = device
 
-        # удаление исчезнувших
-        existing_ids = {meta.device_id for meta in device_metadata}
+        # удаление исчезнувших устройств
         for device_id in list(self.devices):
-            if device_id not in existing_ids:
-                dev = self.devices.pop(device_id)
-                # NEW: очистим числовой индекс, если был
-                try:
-                    self.devices_by_num.pop(int(device_id), None)
-                except Exception:
-                    pass
-                dev.close()
+            if device_id in metadata_ids:
+                continue
+            device = self.devices.pop(device_id)
+            removed_devices.append(
+                RemovedDeviceInfo(
+                    device_id=device_id,
+                    device_type=getattr(device, "device_type", None),
+                    name=getattr(device, "name", None),
+                )
+            )
+            try:
+                self.devices_by_num.pop(int(device_id), None)
+            except Exception:
+                pass
+            try:
+                device.close()
+            except Exception:
+                pass
 
-        if "devices" not in payload:
-            pass
-        else:
-            # Devices processing handled below
-            pass
+        if added_devices or removed_devices:
+            self._emit(
+                "devices",
+                GridDevicesEvent(added=added_devices, removed=removed_devices),
+                event,
+            )
 
         block_entries = list(self._extract_blocks(payload))
+        new_blocks = {block.block_id: block for block in block_entries}
         if block_entries or self.blocks:
-            self.blocks = {block.block_id: block for block in block_entries}
+            integrity_changes = self._detect_integrity_changes(previous_blocks, new_blocks)
+            self.blocks = new_blocks
+            if integrity_changes:
+                self._emit("integrity", {"changes": integrity_changes}, event)
+
+    # ------------------------------------------------------------------
+    def _detect_integrity_changes(
+        self,
+        previous_blocks: Dict[int, BlockInfo],
+        current_blocks: Dict[int, BlockInfo],
+    ) -> List[GridIntegrityChange]:
+        changes: List[GridIntegrityChange] = []
+        for block_id, current in current_blocks.items():
+            previous = previous_blocks.get(block_id)
+            if previous is None:
+                continue
+
+            prev_state = previous.state if isinstance(previous.state, dict) else {}
+            curr_state = current.state if isinstance(current.state, dict) else {}
+
+            prev_integrity = _safe_float(prev_state.get("integrity"))
+            curr_integrity = _safe_float(curr_state.get("integrity"))
+            prev_max = _safe_float(prev_state.get("maxIntegrity"))
+            curr_max = _safe_float(curr_state.get("maxIntegrity"))
+
+            was_damaged = previous.is_damaged
+            is_damaged = current.is_damaged
+
+            if (
+                _approx_equal(prev_integrity, curr_integrity)
+                and _approx_equal(prev_max, curr_max)
+                and was_damaged == is_damaged
+            ):
+                continue
+
+            changes.append(
+                GridIntegrityChange(
+                    block_id=block_id,
+                    block=current,
+                    name=current.name,
+                    block_type=current.block_type,
+                    subtype=current.subtype,
+                    previous_integrity=prev_integrity,
+                    current_integrity=curr_integrity,
+                    previous_max_integrity=prev_max,
+                    current_max_integrity=curr_max,
+                    was_damaged=was_damaged,
+                    is_damaged=is_damaged,
+                )
+            )
+
+        return changes
 
     # ------------------------------------------------------------------
     def get_device(self, device_id: str) -> Optional["BaseDevice"]:
