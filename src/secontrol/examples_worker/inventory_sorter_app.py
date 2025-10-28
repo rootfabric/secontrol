@@ -15,12 +15,13 @@ subtype/type identifiers.
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Set
 
 from secontrol.base_device import Grid
 from secontrol.common import close, prepare_grid
-from secontrol.devices.container_device import ContainerDevice
+from secontrol.devices.container_device import ContainerDevice, Item
 
 
 _TAG_IN_NAME = re.compile(r"\[(?P<tags>[^\[\]]+)\]")
@@ -66,18 +67,18 @@ def _extract_tags_from_custom_data(device: ContainerDevice) -> Set[str]:
     return tags
 
 
-def _derive_item_tags(item: Dict[str, object]) -> Set[str]:
+def _derive_item_tags(item: Item) -> Set[str]:
     tags: Set[str] = set()
-    subtype = item.get("subtype")
+    subtype = item.subtype
     if isinstance(subtype, str):
         tags.add(_normalize_tag(subtype))
-    type_id = item.get("type")
+    type_id = item.type
     if isinstance(type_id, str):
         tags.add(_normalize_tag(type_id))
         if type_id.startswith("MyObjectBuilder_"):
             tail = type_id.removeprefix("MyObjectBuilder_")
             tags.add(_normalize_tag(tail))
-    display = item.get("displayName")
+    display = item.display_name
     if isinstance(display, str):
         tags.add(_normalize_tag(display))
     # Derive generic categories (ingot, ore, component, ammo, tool, gas)
@@ -94,6 +95,9 @@ def _derive_item_tags(item: Dict[str, object]) -> Set[str]:
             tags.add("tool")
         if candidate.endswith("bottle") or candidate.endswith("gas"):
             tags.add("gas")
+    # Add tool tag for physical gun objects (welders, grinders, drills, etc.)
+    if "physicalgunobject" in tags:
+        tags.add("tool")
     return tags
 
 
@@ -140,7 +144,7 @@ class App:
                 destination = self._select_destination(container.device, desired_tags)
                 if not destination:
                     continue
-                subtype = item.get("subtype")
+                subtype = item.subtype
                 if not isinstance(subtype, str) or not subtype:
                     continue
                 try:
@@ -208,6 +212,14 @@ class App:
                 if candidate.device_id == source.device_id:
                     continue
                 return candidate
+        # Fallback for tools: also consider ore containers
+        if "tool" in desired_tags:
+            candidates = self._tag_index.get("ore")
+            if candidates:
+                for candidate in candidates:
+                    if candidate.device_id == source.device_id:
+                        continue
+                    return candidate
         return None
 
 
@@ -217,6 +229,7 @@ if __name__ == "__main__":
     try:
         while True:
             app.step()
+            time.sleep(1)
     except KeyboardInterrupt:
         pass
     finally:

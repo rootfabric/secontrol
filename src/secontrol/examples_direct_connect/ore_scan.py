@@ -10,12 +10,13 @@ def main() -> None:
     owner_id = resolve_owner_id()
     print(owner_id)
 
-    grid = prepare_grid("117014494109101689")
+    grid = prepare_grid()
 
     ore_detector = next(
         (device for device in grid.devices.values() if isinstance(device, OreDetectorDevice)),
         None,
     )
+
     if ore_detector is None:
         print("No ore_detector detected on the selected grid.")
         return
@@ -27,7 +28,9 @@ def main() -> None:
     }
 
     # Short call: monitor with default 10s interval
-    ore_detector.monitor_ore(config=config)
+
+
+    ore_detector[0].monitor_ore(config=config)
 
 
 if __name__ == "__main__":

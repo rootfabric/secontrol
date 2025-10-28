@@ -7,16 +7,6 @@ from secontrol.devices.container_device import ContainerDevice, Item
 from secontrol.common import resolve_owner_id, prepare_grid
 
 
-def _items_signature(items: List[Item]) -> Tuple[Tuple[str, float], ...]:
-    """Stable signature by (display_name or subtype, amount)."""
-    sig = []
-    for it in items:
-        # Item API is public, avoid calling private helpers
-        name = (it.display_name or it.subtype or "").strip()
-        sig.append((name, float(it.amount)))
-    return tuple(sig)
-
-
 def main() -> None:
     owner_id = resolve_owner_id()
     print(f"Owner ID: {owner_id}")
@@ -30,11 +20,11 @@ def main() -> None:
     last_sig: Dict[str, Tuple[Tuple[str, float], ...]] = {}
 
     for i, container in enumerate(containers, 1):
-        print(f"{i}. {container.name or 'Container'} (ID: {container.device_id})")
+        print(f"{i}. {container.name or 'Container'} (ID: {container.device_id}) {container.capacity()}")
 
         # Initial snapshot from device cache
         init_items = container.items()
-        sig = _items_signature(init_items)
+        sig = ContainerDevice._items_signature(init_items)
         last_sig[str(container.device_id)] = sig
 
         if init_items:
@@ -55,7 +45,7 @@ def main() -> None:
 
             # текущее содержимое (ContainerDevice.items() уже кэширует items из handle_telemetry)
             items_now = dev.items()
-            sig_now = _items_signature(items_now)
+            sig_now = ContainerDevice._items_signature(items_now)
 
             if last_sig.get(cid) != sig_now:
                 last_sig[cid] = sig_now
