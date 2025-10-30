@@ -6,20 +6,21 @@ create_restricted_redis_user.py
 
 Создаёт/обновляет Redis-пользователя с доступом только к своим ключам и каналам.
 
-Берёт значения из существующих переменных окружения проекта:
-  - REDIS_URL          — адрес Redis (например, redis://host:port/db)
-  - REDIS_PORT         — порт Redis (переопределяет порт из URL, если задан)
-  - REDIS_DB           — номер БД (переопределяет номер из URL, если задан)
-  - REDIS_USERNAME     — UID/логин создаваемого пользователя (также ownerId)
-  - REDIS_PASSWORD     — пароль создаваемого пользователя
+Переменные окружения:
+  - REDIS_URL             — адрес Redis (напр., redis://host:port/db)
+  - REDIS_PORT            — порт Redis (переопределяет порт из URL, если задан)
+  - REDIS_DB              — номер БД (переопределяет номер из URL, если задан)
+  - REDIS_USERNAME        — UID/логин создаваемого пользователя (также ownerId)
+  - REDIS_PASSWORD        — пароль создаваемого пользователя
 
-Отдельно читает админские креденшелы:
-  - REDIS_ADMIN_PASSWORD — пароль админского пользователя (обычно для «default»)
-  - REDIS_ADMIN_USERNAME — (необязательно) имя админского пользователя, по умолчанию «default»
+Админские креденшелы:
+  - REDIS_ADMIN_PASSWORD  — пароль админ-пользователя Redis (обычно «default»)
+  - REDIS_ADMIN_USERNAME  — имя админ-пользователя (по умолчанию «default»)
 
 Политика доступа:
   keys:     se:<UID>:*
-  channels: se:<UID>:*, se.<UID>.* и связанные служебные keyspace/keyevent каналы в заданной БД и во всех БД.
+  channels: se:<UID>:*, se.<UID>.*, keyspace по ключам в заданной/всех БД,
+            keyevent по событиям (разрешено «:*» в заданной/всех БД).
 
 Ограничивает опасные команды и разрешает необходимый минимум для клиента.
 """
@@ -43,7 +44,6 @@ def _resolve_url_with_overrides() -> tuple[str, int]:
     Возвращает (resolved_url, effective_db).
     Учитывает REDIS_URL и переопределения REDIS_PORT / REDIS_DB.
     """
-
     url = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
     port_env = os.getenv("REDIS_PORT")
     db_env = os.getenv("REDIS_DB")
@@ -79,10 +79,10 @@ def _resolve_url_with_overrides() -> tuple[str, int]:
     except (TypeError, ValueError):
         pass
 
-    # Если DB не задана явным образом — возьмём из URL
+    # Если DB не задана явно — возьмём из URL
     if effective_db is None:
         try:
-            path = pu.path.lstrip("/")
+            path = pu.path.strip("/ ")
             effective_db = int(path) if path else 0
         except (TypeError, ValueError):
             effective_db = 0
@@ -91,7 +91,7 @@ def _resolve_url_with_overrides() -> tuple[str, int]:
 
 
 def _supports(feature: str, r: redis.Redis) -> bool:
-    """Проверка возможности ACL-фишек (sanitize-payload, каналов)."""
+    """Проверка возможности ACL-фич (sanitize-payload, каналов)."""
     tmp = "__tmp_acl_probe__"
     try:
         r.execute_command("ACL", "DELUSER", tmp)
@@ -101,6 +101,7 @@ def _supports(feature: str, r: redis.Redis) -> bool:
         if feature == "sanitize":
             r.execute_command("ACL", "SETUSER", tmp, "reset", "on", "sanitize-payload", ">x")
         elif feature == "channels":
+            # Проверим, что сервер понимает маски для &каналов
             r.execute_command(
                 "ACL",
                 "SETUSER",
@@ -110,7 +111,7 @@ def _supports(feature: str, r: redis.Redis) -> bool:
                 ">x",
                 "&foo:*",
                 "&__keyspace@0__:foo:*",
-                "&__keyevent@0__:foo:*",
+                "&__keyevent@0__:*",
             )
         return True
     except redis.ResponseError:
@@ -159,11 +160,13 @@ def main() -> None:
 
     key_pattern = f"se:{uid}:*"
 
-    # Шаблоны keyspace/keyevent для конкретной БД и для всех БД
+    # keyspace (канал содержит имя ключа)
     ks_db = f"__keyspace@{effective_db}__:{key_pattern}"
-    ke_db = f"__keyevent@{effective_db}__:{key_pattern}"
     ks_any = f"__keyspace@*__:{key_pattern}"
-    ke_any = f"__keyevent@*__:{key_pattern}"
+
+    # keyevent (канал содержит тип события, НЕ ключ) — разрешаем события целиком
+    ke_db_all = f"__keyevent@{effective_db}__:*"
+    ke_any_all = f"__keyevent@*__:*"
 
     # Удаляем прежнего пользователя (если есть)
     try:
@@ -171,7 +174,7 @@ def main() -> None:
     except redis.ResponseError:
         pass
 
-    tokens = [
+    tokens: list[str] = [
         "ACL",
         "SETUSER",
         uid,
@@ -185,25 +188,27 @@ def main() -> None:
 
     # Разрешённые ключи
     tokens.append(f"~{key_pattern}")
+    # Если нужны системные ключи — можно добавить:
+    # tokens.append("~se:system:*")
 
     # Разрешённые каналы (если ACL каналов поддерживаются)
     if has_channels:
         tokens.extend(
             [
-                # «Двоеточечная» схема
+                # Пользовательские каналы
                 f"&se:{uid}:*",
-                # «Точечная» схема
                 f"&se.{uid}.*",
-                # Частые команды
                 f"&se.{uid}.commands.*",
                 f"&se.{uid}.commands.device.*",
                 f"&se.{uid}.commands.entity.*",
-                # keyspace/keyevent в текущей БД
+
+                # keyspace по ключам (допустимо фильтровать)
                 f"&{ks_db}",
-                f"&{ke_db}",
-                # и во всех БД (если на сервере включены уведомления в нескольких БД)
                 f"&{ks_any}",
-                f"&{ke_any}",
+
+                # keyevent по событиям (фильтрация по ключам невозможна)
+                f"&{ke_db_all}",
+                f"&{ke_any_all}",
             ]
         )
 
@@ -230,7 +235,7 @@ def main() -> None:
         ]
     )
 
-    # Запрещённые команды/группы
+    # Запрещённые команды/группы (оставлено строго)
     tokens.extend(
         [
             "-keys",
@@ -260,6 +265,7 @@ def main() -> None:
             "-persist",
         ]
     )
+    # Если вашему коду нужны TTL-операции — уберите их из списка «-...» и/или явно добавьте «+expire ...».
 
     try:
         r_admin.execute_command(*tokens)
@@ -271,14 +277,13 @@ def main() -> None:
         print(f"❌ Ошибка ACL SETUSER: {e}", file=sys.stderr)
         sys.exit(4)
 
-    # Зафиксируем права в системном ключе
+    # Зафиксируем права в системном ключе (информационно)
     try:
         meta_key = f"se:system:players:{uid}:redis"
         meta_payload = {
             "username": uid,
             "password": u_pass,
             "key_pattern": key_pattern,
-            # Отражаем основные разрешённые категории команд
             "commands": ["@read", "@write", "@pubsub"],
         }
         r_admin.set(meta_key, json.dumps(meta_payload, ensure_ascii=False))
