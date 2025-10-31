@@ -16,6 +16,54 @@ from typing import Any, Callable, Dict, Iterable, Optional
 import redis
 
 
+def _coerce_bytes(value: Any) -> Optional[bytes]:
+    """Return ``value`` as bytes when possible."""
+
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, bytearray):
+        return bytes(value)
+    if isinstance(value, str):
+        return value.encode("utf-8")
+    try:
+        return json.dumps(value, ensure_ascii=False).encode("utf-8")
+    except Exception:
+        return str(value).encode("utf-8")
+
+
+def _read_key_value(
+    client: redis.Redis,
+    key: str,
+    *,
+    raise_on_error: bool = False,
+) -> Optional[bytes]:
+    """Fetch raw key value handling RedisJSON documents."""
+
+    try:
+        result = client.get(key)
+    except redis.ResponseError as exc:
+        message = str(exc)
+        if "WRONGTYPE" not in message.upper():
+            if raise_on_error:
+                raise RuntimeError(f"Failed to read key {key!r}: {exc}") from exc
+            return None
+        try:
+            json_result = client.execute_command("JSON.GET", key)
+        except redis.RedisError as json_exc:
+            if raise_on_error:
+                raise RuntimeError(f"Failed to read JSON key {key!r}: {json_exc}") from json_exc
+            return None
+        return _coerce_bytes(json_result)
+    except redis.RedisError as exc:
+        if raise_on_error:
+            raise RuntimeError(f"Failed to read key {key!r}: {exc}") from exc
+        return None
+
+    return _coerce_bytes(result)
+
+
 def _is_subgrid(grid_info: dict) -> bool:
     """Best-effort detection whether a grid descriptor represents a sub-grid.
 
@@ -110,13 +158,10 @@ class RedisEventClient:
     # Basic Redis helpers
     # ------------------------------------------------------------------
     def get_value(self, key: str) -> Optional[bytes]:
-        try:
-            return self._client.get(key)
-        except redis.RedisError as exc:  # pragma: no cover - defensive logging
-            raise RuntimeError(f"Failed to read key {key!r}: {exc}") from exc
+        return _read_key_value(self._client, key, raise_on_error=True)
 
     def get_json(self, key: str) -> Optional[Any]:
-        value = self.get_value(key)
+        value = _read_key_value(self._client, key)
         if value is None:
             return None
         try:
@@ -359,10 +404,7 @@ class _PubSubSubscription:
             if self._is_keyspace:
                 payload: Optional[Any]
                 if raw_event not in delete_events:
-                    try:
-                        payload = self._client.get(self._key)
-                    except redis.RedisError:
-                        payload = None
+                    payload = _read_key_value(self._client, self._key)
                 else:
                     payload = None
 
