@@ -178,15 +178,49 @@ class RedisEventClient:
     # ------------------------------------------------------------------
     # Subscription handling
     # ------------------------------------------------------------------
-    def subscribe_to_key(self, key: str, callback: CallbackType, *,
-                         events: Iterable[str] | None = None) -> "_PubSubSubscription":
+    def subscribe_to_key(
+        self,
+        key: str,
+        callback: CallbackType,
+        *,
+        events: Iterable[str] | None = None,
+    ) -> "_PubSubSubscription":
         channel = f"__keyspace@{self._db_index}__:{key}"
+        if events is None:
+            events_tuple: Optional[tuple[str, ...]] = (
+                "set",
+                "setrange",
+                "append",
+                "hset",
+                "hmset",
+                "hdel",
+                "del",
+                "unlink",
+                "expired",
+                "evicted",
+                "json.set",
+                "json.mset",
+                "json.merge",
+                "json.clear",
+                "json.arrappend",
+                "json.arrinsert",
+                "json.arrpop",
+                "json.arrtrim",
+                "json.toggle",
+                "json.numincrby",
+                "json.nummultby",
+                "json.strappend",
+                "json.del",
+                "json.forget",
+            )
+        else:
+            events_tuple = tuple(events)
         subscription = _PubSubSubscription(
             self._client,
             channel,
             key,
             callback,
-            tuple(events) if events else ("set", "del"),
+            events_tuple,
             is_pattern=False,   # <<--- ВАЖНО: точный канал, не паттерн
             is_keyspace=True,
         )
@@ -271,6 +305,15 @@ class _PubSubSubscription:
 
     def _run(self) -> None:
         backoff = 0.5
+        delete_events = {
+            "del",
+            "expired",
+            "unlink",
+            "evicted",
+            "json.del",
+            "json.forget",
+        }
+
         while not self._stop_event.is_set():
             try:
                 msg = self._pubsub.get_message(timeout=1.0)
@@ -315,7 +358,7 @@ class _PubSubSubscription:
 
             if self._is_keyspace:
                 payload: Optional[Any]
-                if raw_event != "del":
+                if raw_event not in delete_events:
                     try:
                         payload = self._client.get(self._key)
                     except redis.RedisError:
