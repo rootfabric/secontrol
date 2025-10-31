@@ -91,23 +91,25 @@ def run_for_grid(client: RedisEventClient, owner_id: str, player_id: str, grid_i
             if i == target_idx:
                 continue
             items = source.items()
+            batch = []
             for item in items:
                 subtype = item.subtype
                 if not subtype:
                     continue
+                batch.append({"subtype": subtype})
+            if batch:
                 try:
-                    source.move_subtype(target.device_id, subtype)
-                    # print(f"[{grid_name}] Moved {item.amount} x {subtype} from {source.name or 'Container'} to {target.name or 'Container'}")
+                    source.move_items(target.device_id, batch)
+                    # print(f"[{grid_name}] Moved batch from {source.name or 'Container'} to {target.name or 'Container'}")
                     # Update telemetry for source and target to speed up info
 
-                    time.sleep(0.05)
-                    source.send_command({"cmd": "update"})
-                    target.send_command({"cmd": "update"})
-
+                    time.sleep(0.5)
+                    # source.send_command({"cmd": "update"})
+                    # target.send_command({"cmd": "update"})
 
                     moved_any = True
                 except Exception as exc:
-                    print(f"[{grid_name}] Failed to move {subtype} from {source.name or 'Container'}: {exc}")
+                    print(f"[{grid_name}] Failed to move batch from {source.name or 'Container'}: {exc}")
         return moved_any
 
     # On any telemetry change, check and move
@@ -148,10 +150,11 @@ def run_for_grid(client: RedisEventClient, owner_id: str, player_id: str, grid_i
 
     try:
         while True:
-            time.sleep(0.1)
+            time.sleep(0.5)
             for i, source in enumerate(containers):
                 source.send_command({"cmd": "update"})
-                # target.send_command({"cmd": "update"})
+            # Also update the current target to detect changes
+            containers[current_target_idx].send_command({"cmd": "update"})
     except KeyboardInterrupt:
         pass
 

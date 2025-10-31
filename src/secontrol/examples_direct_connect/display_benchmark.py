@@ -58,8 +58,9 @@ def benchmark_display(client: RedisEventClient, owner_id: str, player_id: str, g
             timeout = time.time() + 20.0  # 2 second timeout
             while time.time() < timeout:
                 # display.refresh_telemetry()
+                display.send_command({"cmd": "update"})
                 current_text = display.get_text()
-                print(current_text)
+                # print(current_text)
                 if current_text == str(local_num):
                     break
                 time.sleep(0.01)  # Small delay
