@@ -148,7 +148,10 @@ def run_for_grid(client: RedisEventClient, owner_id: str, player_id: str, grid_i
 
     try:
         while True:
-            time.sleep(1.0)
+            time.sleep(0.1)
+            for i, source in enumerate(containers):
+                source.send_command({"cmd": "update"})
+                # target.send_command({"cmd": "update"})
     except KeyboardInterrupt:
         pass
 

@@ -27,7 +27,7 @@ def main() -> None:
 
     for i, display in enumerate(displays, 1):
         print(f"  {i}. {display.name} (ID: {display.device_id})")
-        display.set_text("Hello World!")
+        display.set_text("Hello Mars!")
 
 
 
