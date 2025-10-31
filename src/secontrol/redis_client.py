@@ -281,6 +281,124 @@ class RedisEventClient:
         self._subscriptions.append(subscription)
         return subscription
 
+    def subscribe_to_key_resilient(self, key: str, callback: CallbackType, *,
+                                   events: Iterable[str] | None = None) -> object:
+        """Subscribe to a key with multiple fallbacks.
+
+        Combines keyspace notifications, a direct channel subscribe to ``key``
+        (for setups that PUBLISH telemetry to the same name), and a lightweight
+        polling loop. A small de-duplication window prevents double-calling
+        when multiple paths deliver the same payload close in time.
+        """
+
+        # Initialize shared last payload
+        last_payload = {"ts": 0.0, "payload": None}
+
+        def _dispatch(_key: str, payload: Optional[Any], event_name: str) -> None:
+            import time as _t, json as _json
+            ts = _t.monotonic()
+            try:
+                # Normalize payload for comparison
+                norm = payload
+                if isinstance(payload, (dict, list)):
+                    try:
+                        norm = _json.dumps(payload, sort_keys=True, ensure_ascii=False)
+                    except Exception:
+                        pass
+                elif isinstance(payload, (bytes, bytearray)):
+                    norm = bytes(payload).decode("utf-8", "replace")
+                elif payload is None:
+                    norm = None
+
+                # Skip duplicates within 100ms having the same normalized payload
+                if last_payload["payload"] == norm and (ts - float(last_payload["ts"])) < 0.1:
+                    return
+
+                last_payload["payload"] = norm
+                last_payload["ts"] = ts
+            except Exception:
+                # On any issue, still forward the event
+                pass
+
+            try:
+                callback(_key, payload, event_name)
+            except Exception:
+                pass
+
+        # Preferred: keyspace subscription
+        if events:
+            kept_events = tuple(events)
+        else:
+            kept_events = (
+                "set",
+                "setrange",
+                "append",
+                "hset",
+                "hmset",
+                "hdel",
+                "del",
+                "unlink",
+                "expired",
+                "evicted",
+                "json.set",
+                "json.mset",
+                "json.merge",
+                "json.clear",
+                "json.arrappend",
+                "json.arrinsert",
+                "json.arrpop",
+                "json.arrtrim",
+                "json.toggle",
+                "json.numincrby",
+                "json.nummultby",
+                "json.strappend",
+                "json.del",
+                "json.forget",
+            )
+
+        ks_channel = f"__keyspace@{self._db_index}__:{key}"
+        ks_sub = _PubSubSubscription(
+            self._client,
+            ks_channel,
+            key,
+            _dispatch,
+            kept_events,
+            is_pattern=False,
+            is_keyspace=True,
+        )
+        ks_sub.start()
+
+        subs = [ks_sub]
+
+        # Also subscribe to the direct channel named as the key itself.
+        # Some Space Engineers bridges publish telemetry frames via PUBLISH
+        # into the telemetry key channel without touching the key value.
+        try:
+            ch_sub = _PubSubSubscription(
+                self._client,
+                key,        # channel name equals the telemetry key
+                key,
+                _dispatch,
+                None,
+                is_pattern=False,
+                is_keyspace=False,
+            )
+            ch_sub.start()
+            subs.append(ch_sub)
+        except Exception:
+            # Channel subscribe may be denied by ACL; continue with other paths
+            pass
+
+        # Fallback: polling
+        # Safety net to catch missed notifications or disabled keyspace events
+        poller = _PollingSubscription(self._client, key, _dispatch, interval=0.01)
+        poller.start()
+        subs.append(poller)
+
+        composite = _CompositeSubscription(subs)
+        self._subscriptions.append(composite)
+        return composite
+
     def close(self) -> None:
         # закрываем все активные подписки
         for sub in list(self._subscriptions):
@@ -434,3 +552,78 @@ class _PubSubSubscription:
                 self._callback(self._key, decoded_payload, event_name)
             except Exception:
                 pass
+
+
+class _PollingSubscription:
+    """Periodic GET of a key to detect changes when notifications are delayed/missing.
+
+    Calls the provided callback with event_name "poll" when a change is detected.
+    """
+
+    def __init__(self, client: redis.Redis, key: str, callback: CallbackType, *, interval: float = 0.01) -> None:
+        self._client = client
+        self._key = key
+        self._callback = callback
+        self._interval = max(0.001, float(interval))
+        self._thread = threading.Thread(target=self._run, name=f"redis-poll-{key}", daemon=True)
+        self._stop_event = threading.Event()
+        self._last_norm: Any = object()
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def close(self) -> None:
+        self._stop_event.set()
+        self._thread.join(timeout=2.0)
+
+    def _run(self) -> None:
+        import time as _t
+        while not self._stop_event.is_set():
+            try:
+                raw = self._client.get(self._key)
+            except Exception:
+                raw = None
+
+            if isinstance(raw, (bytes, bytearray)):
+                try:
+                    decoded: Optional[Any] = json.loads(bytes(raw).decode("utf-8"))
+                except Exception:
+                    decoded = bytes(raw).decode("utf-8", "replace")
+            else:
+                decoded = raw
+
+            # Normalize for comparison
+            norm = decoded
+            if isinstance(decoded, (dict, list)):
+                try:
+                    norm = json.dumps(decoded, sort_keys=True, ensure_ascii=False)
+                except Exception:
+                    pass
+
+            if norm != self._last_norm:
+                self._last_norm = norm
+                try:
+                    self._callback(self._key, decoded, "poll")
+                except Exception:
+                    pass
+
+            self._stop_event.wait(self._interval)
+
+
+class _CompositeSubscription:
+    """A simple wrapper that closes multiple subscriptions at once."""
+
+    def __init__(self, subs: list[object]) -> None:
+        self._subs = list(subs)
+
+    def close(self) -> None:
+        for s in list(self._subs):
+            try:
+                # Each sub exposes .close()
+                s.close()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        self._subs.clear()
+
+
+    

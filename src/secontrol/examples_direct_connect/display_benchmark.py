@@ -57,7 +57,7 @@ def benchmark_display(client: RedisEventClient, owner_id: str, player_id: str, g
             # Wait for telemetry to reflect the new number
             timeout = time.time() + 20.0  # 2 second timeout
             while time.time() < timeout:
-                display.refresh_telemetry()
+                # display.refresh_telemetry()
                 current_text = display.get_text()
                 print(current_text)
                 if current_text == str(local_num):

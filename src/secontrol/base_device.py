@@ -1712,6 +1712,8 @@ class Grid:
         special: dict[str, str] = {
             # Cargo containers публикуют телеметрию как 'cargo_container'
             "container": "cargo_container",
+            # Text panels (LCD) используют сегмент 'text_panel'
+            "textpanel": "text_panel",
         }
 
         key = dev_type
@@ -1766,8 +1768,8 @@ class BaseDevice:
         self._load_metrics: Optional[Dict[str, Any]] = None
         self._load_spent_ms: Optional[float] = None
 
-        # Подписка на ключ телеметрии устройства
-        self._subscription = self.redis.subscribe_to_key(
+        # Подписка на телеметрию устройства (устойчивая: keyspace + channel + polling)
+        self._subscription = self.redis.subscribe_to_key_resilient(
             self.telemetry_key,
             self._on_telemetry_change,
         )
@@ -1782,7 +1784,7 @@ class BaseDevice:
                 except Exception:
                     pass
                 self.telemetry_key = resolved
-                self._subscription = self.redis.subscribe_to_key(
+                self._subscription = self.redis.subscribe_to_key_resilient(
                     self.telemetry_key,
                     self._on_telemetry_change,
                 )
