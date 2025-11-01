@@ -18,6 +18,7 @@ if not resolved_username:
 
 # твой реальный ключ телеметрии
 key_name = "se:144115188075855919:grid:127168092107255649:text_panel:99187922852764730:telemetry"
+key_name = "se:144115188075855919:grid:127168092107255649:damage"
 
 # каналы:
 DB=1

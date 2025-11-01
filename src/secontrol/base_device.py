@@ -1677,7 +1677,7 @@ class Grid:
 
             callback(damage_event)
 
-        subscription = self.redis.subscribe_to_channel(self._damage_channel, _handle_damage)
+        subscription = self.redis.subscribe_to_key(self._damage_channel, _handle_damage)
         self._damage_subscriptions.append(subscription)
         return subscription
 
