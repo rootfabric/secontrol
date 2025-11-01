@@ -1697,6 +1697,11 @@ class Grid:
         if isinstance(snap, dict):
             # под свою модель: device.telemetry / device.state / device.cache …
             setattr(device, "telemetry", snap)
+            # Обновляем ключ с expire=180
+            try:
+                self.redis.set_json(tkey, snap, expire=180)
+            except Exception:
+                pass
 
     def _normalize_type_for_telemetry(self, dev_type: str) -> str:
         """
@@ -2131,7 +2136,7 @@ class BaseDevice:
         if not isinstance(self.telemetry, dict):
             return
         try:
-            self.redis.set_json(self.telemetry_key, self.telemetry)
+            self.redis.set_json(self.telemetry_key, self.telemetry, expire=180)
         except Exception:
             pass
 

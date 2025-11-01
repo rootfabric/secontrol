@@ -1,3 +1,4 @@
+import datetime
 import os
 import redis
 import json
@@ -31,7 +32,7 @@ r = redis.Redis.from_url(
 )
 
 def handle_telemetry(payload):
-    print("TELEMETRY:", payload)
+    print(datetime.datetime.now(), "TELEMETRY:", payload)
 
 pubsub = r.pubsub()
 
@@ -42,7 +43,7 @@ pubsub.subscribe(keyspace_channel)
 
 print("Listening:")
 print(" - keyspace:", keyspace_channel)
-print(" - channel :", telemetry_channel)
+# print(" - channel :", telemetry_channel)
 
 for msg in pubsub.listen():
     mtype = msg["type"]

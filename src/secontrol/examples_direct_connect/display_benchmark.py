@@ -33,53 +33,78 @@ def benchmark_display(client: RedisEventClient, owner_id: str, player_id: str, g
     display.set_mode("text")
     time.sleep(0.1)  # Wait for mode change
 
-    # Set initial number
+    # Set initial number (like in working code)
     num = 0
     display.set_text(str(num))
     display.send_command({"cmd": "update"})
     time.sleep(0.1)  # Wait for update
 
-    local_num = 0
+    # Prime telemetry with continuous activity (like in working code)
+    print("Priming telemetry...")
+    while True:  # Infinite loop like in working code
+        display.set_text(str(num))
+        # display.send_command({"cmd": "update"})  # Commented like in working code
+        num += 1
+        time.sleep(0.01)
+        current = display.get_text()
+        print(current)
+        if num > 10:  # Exit after some iterations
+            break
+    print("Priming complete")
 
+    # Keep telemetry active with continuous loop (like in working code)
+    print("Keeping telemetry active...")
+    num = 0
+    while True:  # Infinite loop like in working code
+        display.set_text(str(num))
+        # display.send_command({"cmd": "update"})
+        num += 1
+        time.sleep(0.01)
+        print(display.get_text())
+        if num > 50:  # Exit after more iterations
+            break
+    print("Telemetry active, starting benchmark")
+
+    print("Starting benchmark: send number -> wait for confirmation -> measure confirmed ops/sec")
+    print("Press Ctrl+C to stop")
+
+    local_num = 0
     start_time = time.time()
     operations = 0
 
     try:
         while True:
-            # Increment local counter
+            # Increment counter
             local_num += 1
 
-            # Set new number
+            # Send number to display
             display.set_text(str(local_num))
-            time.sleep(0.1)  # Small delay
             display.send_command({"cmd": "update"})
 
-            # Wait for telemetry to reflect the new number
-            timeout = time.time() + 20.0  # 2 second timeout
+            # Wait for telemetry to confirm the new value
+            timeout = time.time() + 5.0  # 5 second timeout per operation
             while time.time() < timeout:
-                # display.refresh_telemetry()
-                display.send_command({"cmd": "update"})
                 current_text = display.get_text()
-                # print(current_text)
                 if current_text == str(local_num):
+                    # Success - telemetry confirmed the update
+                    operations += 1
                     break
-                time.sleep(0.01)  # Small delay
+                time.sleep(0.001)  # Small polling delay
             else:
-                print(f"Timeout waiting for telemetry update to {local_num}")
+                # Timeout - couldn't confirm this update
+                print(f"Timeout waiting for confirmation of {local_num}")
                 break
 
-            operations += 1
-
-            # Print rate per second
+            # Print stats every second
             elapsed = time.time() - start_time
             if elapsed >= 1.0:
                 rate = operations / elapsed
-                print(f"{datetime.datetime.now()} Benchmark: {rate:.2f} increments/sec, last num: {local_num}")
+                print(f"{datetime.datetime.now()} | Confirmed ops/sec: {rate:.2f} | Last num: {local_num}")
                 start_time = time.time()
                 operations = 0
 
     except KeyboardInterrupt:
-        pass
+        print("\nBenchmark stopped")
 
 
 def main() -> None:

@@ -35,52 +35,38 @@ def benchmark_display(client: RedisEventClient, owner_id: str, player_id: str, g
 
     # Set initial number
     num = 0
-    time.sleep(0.1)  # Wait for update
+    # time.sleep(0.1)  # Wait for update
+
+    # Initialize benchmark variables
+    start_time = time.time()
+    match_count = 0
+
+    # while 1:
+    #     num += 1
+    #     display.set_text(str(num))
+    #     # display.send_command({"cmd": "update"})
+    #     time.sleep(0.1)
+    #     print(display.get_text())
 
     while 1:
+        num += 1
+        # display.set_text(num)
         display.set_text(str(num))
-        # display.send_command({"cmd": "update"})
-        num+=1
-        time.sleep(0.01)
-        print(display.get_text())
+        while 1:
 
 
-    local_num = 0
+            # time.sleep(0.1)
+            n = display.get_text()
+            # print(n, num)
+            if int(n) == num:
+                match_count += 1
+                # Calculate and print rate every 10 matches
+                if match_count % 2 == 0:
+                    elapsed = time.time() - start_time
+                    rate = match_count / elapsed
+                    print(f"Match rate: {rate:.2f} matches per second")
+                break
 
-    start_time = time.time()
-    operations = 0
-
-    try:
-        while True:
-            # Increment local counter
-            local_num += 1
-
-            # Set new number
-            display.set_text(str(local_num))
-            time.sleep(0.1)  # Small delay
-            display.send_command({"cmd": "update"})
-
-            # Wait for telemetry to reflect the new number
-            timeout = time.time() + 2.0  # 2 second timeout
-            while time.time() < timeout:
-                current_text = display.get_text()
-                display.send_command({"cmd": "update"})
-                if current_text == str(local_num):
-                    break
-                time.sleep(0.001)  # Small delay
-
-            operations += 1
-
-            # Print rate per second
-            elapsed = time.time() - start_time
-            if elapsed >= 1.0:
-                rate = operations / elapsed
-                print(f"{datetime.datetime.now()} Benchmark: {rate:.2f} increments/sec, last num: {local_num}")
-                start_time = time.time()
-                operations = 0
-
-    except KeyboardInterrupt:
-        pass
 
 
 def main() -> None:

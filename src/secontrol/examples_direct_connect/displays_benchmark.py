@@ -16,7 +16,7 @@ def benchmark_display(display: DisplayDevice) -> None:
     # Set initial number
     local_num = 0
     display.set_text(str(local_num))
-    display.send_command({"cmd": "update"})
+    # display.send_command({"cmd": "update"})
     time.sleep(0.1)  # Wait for update
 
     start_time = time.time()
@@ -29,8 +29,8 @@ def benchmark_display(display: DisplayDevice) -> None:
 
             # Set new number
             display.set_text(str(local_num))
-            display.send_command({"cmd": "update"})
-            time.sleep(0.01)  # Small delay
+            # display.send_command({"cmd": "update"})
+            # time.sleep(0.01)  # Small delay
 
             operations += 1
 

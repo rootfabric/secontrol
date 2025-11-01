@@ -104,8 +104,8 @@ def run_for_grid(client: RedisEventClient, owner_id: str, player_id: str, grid_i
                     # Update telemetry for source and target to speed up info
 
                     time.sleep(0.5)
-                    # source.send_command({"cmd": "update"})
-                    # target.send_command({"cmd": "update"})
+                    source.send_command({"cmd": "update"})
+                    target.send_command({"cmd": "update"})
 
                     moved_any = True
                 except Exception as exc:
@@ -150,11 +150,11 @@ def run_for_grid(client: RedisEventClient, owner_id: str, player_id: str, grid_i
 
     try:
         while True:
-            time.sleep(0.5)
-            for i, source in enumerate(containers):
-                source.send_command({"cmd": "update"})
+            time.sleep(0.1)
+            # for i, source in enumerate(containers):
+            #     source.send_command({"cmd": "update"})
             # Also update the current target to detect changes
-            containers[current_target_idx].send_command({"cmd": "update"})
+            # containers[current_target_idx].send_command({"cmd": "update"})
     except KeyboardInterrupt:
         pass
 

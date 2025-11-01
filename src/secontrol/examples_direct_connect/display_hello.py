@@ -27,8 +27,13 @@ def main() -> None:
 
     for i, display in enumerate(displays, 1):
         print(f"  {i}. {display.name} (ID: {display.device_id})")
-        display.set_text("Hello Mars!")
+        display.set_text("Hello world!111")
 
+    # time.sleep(1)
+    #
+    # for i, display in enumerate(displays, 1):
+    #     print(f"  {i}. {display.name} (ID: {display.device_id})")
+    #     display.set_text("Hello Mars!11")
 
 
 
