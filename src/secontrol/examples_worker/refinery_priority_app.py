@@ -31,7 +31,7 @@ from secontrol.devices.container_device import ContainerDevice
 
 # Приоритетные руды для обработки (от высшего к низшему приоритету)
 PRIORITY_ORES = [
-    "Uranium",    # Уран - критический ресурс
+    # "Uranium",    # Уран - критический ресурс
     "Gold",       # Золото - ценный ресурс
     "Platinum",   # Платина - ценный ресурс
     "Silver",     # Серебро - ценный ресурс
@@ -90,6 +90,13 @@ class App:
             self._grids.append(grid)
 
         self._refresh_devices()
+
+        # Отключение conveyor system на всех refinery для ручного управления ресурсами
+        for refinery in self._refineries:
+            if refinery.use_conveyor():
+                refinery.set_use_conveyor(False)
+                print(f"Disabled conveyor system on refinery {refinery.name}")
+
         print(
             f"Refinery Priority Manager started: {len(self._refineries)} refineries, "
             f"{len(self._source_containers)} source containers"
@@ -189,36 +196,95 @@ class App:
 
         return False
 
+    def _clear_refinery_inventory(self, refinery: RefineryDevice) -> int:
+        """Очистка входного инвентаря очистителя, перемещение ресурсов обратно в контейнеры-источники."""
+        actions = 0
+
+        # Получение входного инвентаря
+        input_inventory = refinery.input_inventory()
+        if not input_inventory:
+            return actions
+
+        items = input_inventory.items
+        if not items:
+            return actions
+
+        print(f"Clearing inventory for refinery {refinery.name}")
+
+        # Перемещение всех ресурсов обратно в контейнеры-источники
+        for item in items:
+            if item.amount > 0:
+                subtype = item.subtype
+                amount = item.amount
+
+                # Ищем контейнер-источник, куда можно переместить
+                moved = False
+                for source_container in self._source_containers:
+                    try:
+                        print(f"Attempting to move {amount} {subtype} from refinery {refinery.name} (ID: {refinery.device_id}) to source container {source_container.name} (ID: {source_container.device_id})")
+                        result = refinery.move_subtype(source_container.device_id, subtype, amount=amount)
+                        if result > 0:
+                            print(f"✅ Successfully moved {amount} {subtype} from refinery {refinery.name} input inventory to source container {source_container.name}")
+                            actions += 1
+                            moved = True
+                            break
+                        else:
+                            print(f"❌ Failed to move {subtype} from refinery to {source_container.name}")
+                    except Exception as e:
+                        print(f"Error moving {subtype} from refinery {refinery.name} to source container {source_container.name}: {e}")
+                        continue
+
+                if not moved:
+                    print(f"Could not move {amount} {subtype} from refinery {refinery.name} back to any source container")
+
+        return actions
+
     def _manage_refinery_queue(self, refinery: RefineryDevice) -> int:
         """Управление очередью конкретного очистителя."""
         actions = 0
 
-        # Получение текущей очереди
-        current_queue = refinery.queue()
-
-        # Определение требуемой очереди на основе приоритетов и доступных ресурсов
-        desired_queue = self._build_desired_queue(refinery)
-
-        # Сравнение текущей и желаемой очередей
-        if not self._queues_equal(current_queue, desired_queue):
-            print(f"Updating queue for refinery {refinery.name}")
-
-            # Очистка текущей очереди
-            if current_queue:
-                refinery.clear_queue()
-                actions += 1
-                time.sleep(0.5)  # Небольшая задержка
-
-            # Добавление элементов в новую очередь
-            for item in desired_queue:
-                blueprint = item['blueprint']
-                amount = item['amount']
-                refinery.add_queue_item(blueprint, amount)
-                actions += 1
-
-            # Расстановка ресурсов в правильном порядке
-            self._arrange_resources_in_queue_order(refinery, desired_queue)
+        # Временное отключение conveyor system для предотвращения автоматического забора ресурсов
+        conveyor_was_enabled = refinery.use_conveyor()
+        if conveyor_was_enabled:
+            refinery.set_use_conveyor(False)
             actions += 1
+            time.sleep(0.1)
+
+        try:
+            # Получение текущей очереди
+            current_queue = refinery.queue()
+
+            # Определение требуемой очереди на основе приоритетов и доступных ресурсов
+            desired_queue = self._build_desired_queue(refinery)
+
+            # Сравнение текущей и желаемой очередей
+            if not self._queues_equal(current_queue, desired_queue):
+                print(f"Updating queue for refinery {refinery.name}")
+
+                # Очистка входного инвентаря
+                actions += self._clear_refinery_inventory(refinery)
+
+                # Очистка текущей очереди
+                if current_queue:
+                    refinery.clear_queue()
+                    actions += 1
+                    time.sleep(0.5)  # Небольшая задержка
+
+                # Добавление элементов в новую очередь
+                for item in desired_queue:
+                    blueprint = item['blueprint']
+                    amount = item['amount']
+                    refinery.add_queue_item(blueprint, amount)
+                    actions += 1
+
+                # Расстановка ресурсов в правильном порядке
+                self._arrange_resources_in_queue_order(refinery, desired_queue)
+                actions += 1
+        finally:
+            # Восстановление состояния conveyor system
+            if conveyor_was_enabled:
+                refinery.set_use_conveyor(True)
+                actions += 1
 
         return actions
 
@@ -265,9 +331,12 @@ class App:
 
     def _arrange_resources_in_queue_order(self, refinery: RefineryDevice, queue: List[Dict]) -> None:
         """Расстановка ресурсов в контейнере очистителя в порядке очереди."""
-        for slot_index, item in enumerate(queue):
+        print(f"Arranging resources in refinery {refinery.name} for {len(queue)} queue items")
+
+        for item in queue:
             ore_type = item['ore_type']
             amount = item['amount']
+            print(f"  Need {amount} {ore_type}")
 
             # Поиск ресурса в контейнерах-источниках
             for source_container in self._source_containers:
@@ -275,22 +344,43 @@ class App:
                 for source_item in source_items:
                     if source_item.subtype == ore_type and source_item.amount > 0:
                         transfer_amount = min(source_item.amount, amount)
+                        print(f"    Found {source_item.amount} {ore_type} in source container {source_container.name} (ID: {source_container.device_id}), transferring {transfer_amount} to refinery {refinery.name} (ID: {refinery.device_id}) input inventory")
 
-                        # Перемещение в указанный слот
+                        # Перемещение в input inventory refinery
                         result = source_container.move_subtype(
-                            refinery.device_id,
+                            refinery.input_inventory(),
                             ore_type,
-                            amount=transfer_amount,
-                            target_slot_id=slot_index
+                            amount=transfer_amount
                         )
 
                         if result > 0:
+                            print(f"    ✅ Successfully moved {transfer_amount} {ore_type} from source container {source_container.name} to refinery {refinery.name} input inventory")
                             amount -= transfer_amount
                             if amount <= 0:
                                 break
+                        else:
+                            print(f"    ❌ Failed to move {ore_type} from source container {source_container.name} to refinery {refinery.name}")
 
                 if amount <= 0:
                     break
+
+            if amount > 0:
+                print(f"  ⚠️ Could not find enough {ore_type}, still need {amount}")
+
+        print("Resource arrangement completed")
+
+        # Проверка инвентаря refinery после перемещений
+        input_inventory = refinery.input_inventory()
+        if input_inventory:
+            items = input_inventory.items
+            if items:
+                print("Refinery input inventory after arrangement:")
+                for item in items:
+                    print(f"  {item.amount} {item.subtype}")
+            else:
+                print("Refinery input inventory is empty after arrangement")
+        else:
+            print("Could not check refinery input inventory")
 
     def _queues_equal(self, queue1: List[Dict], queue2: List[Dict]) -> bool:
         """Сравнение двух очередей на эквивалентность."""

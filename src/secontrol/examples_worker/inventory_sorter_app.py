@@ -2,6 +2,8 @@
 
 The script connects to the player's grid, discovers cargo containers and
 re-distributes items into tagged containers based on resource tags.
+Additionally, it collects items from the output inventories of assemblers,
+refineries, and ship grinders (cleaners), without interfering with input inventories.
 
 Usage (after installing dependencies and configuring environment variables):
 
@@ -23,6 +25,9 @@ from secontrol.base_device import Grid
 from secontrol.common import close, resolve_owner_id, resolve_player_id
 from secontrol.redis_client import RedisEventClient
 from secontrol.devices.container_device import ContainerDevice, Item
+from secontrol.devices.assembler_device import AssemblerDevice
+from secontrol.devices.refinery_device import RefineryDevice
+from secontrol.devices.ship_grinder_device import ShipGrinderDevice
 
 
 _TAG_IN_NAME = re.compile(r"\[(?P<tags>[^\[\]]+)\]")
@@ -116,6 +121,7 @@ class App:
         self._max_transfers = max(1, int(max_transfers_per_step))
         self._containers: List[TaggedContainer] = []
         self._tag_index: Dict[str, List[ContainerDevice]] = {}
+        self._production_devices: List[ContainerDevice] = []
 
     def start(self):
         client = RedisEventClient()
@@ -161,6 +167,7 @@ class App:
                 try:
                     container.device.move_subtype(destination.device_id, subtype)
                     transfers += 1
+                    print(f"SORT: Moved {subtype} from {container.device.name} ({container.device.device_type}) to {destination.name} ({destination.device_type})")
                 except Exception as exc:  # pragma: no cover - safety net for runtime issues
                     print(
                         f"Failed to move {subtype} from {container.device.name}"
@@ -170,6 +177,47 @@ class App:
                     break
             if transfers >= self._max_transfers:
                 break
+        # Collect from production device outputs
+        for device in self._production_devices:
+            print(f"COLLECT: Checking {device.name} ({device.device_type})")
+            inventories = device.inventories()
+            print(f"COLLECT: {device.name} has {len(inventories)} inventories")
+            for inv in inventories:
+                print(f"  Inventory: {inv.name} - {len(inv.items)} items")
+                for item in inv.items:
+                    print(f"    {item.display_name} ({item.subtype}) x{item.amount}")
+            output_inv = device.output_inventory()
+            if not output_inv:
+                print(f"COLLECT: No output inventory for {device.name} ({device.device_type})")
+                continue
+            print(f"COLLECT: Output inventory is '{output_inv.name}' with {len(output_inv.items)} items")
+            items = output_inv.items
+            if not items:
+                print(f"COLLECT: No items in output inventory for {device.name} ({device.device_type})")
+                continue
+            print(f"COLLECT: Found {len(items)} items in output inventory of {device.name} ({device.device_type})")
+            for item in items:
+                desired_tags = _derive_item_tags(item)
+                destination = self._select_destination(device, desired_tags)
+                if not destination:
+                    continue
+                subtype = item.subtype
+                if not isinstance(subtype, str) or not subtype:
+                    continue
+                try:
+                    device.move_subtype(destination.device_id, subtype, source_inventory=output_inv)
+                    transfers += 1
+                    print(f"COLLECT: Moved {subtype} from {device.name} ({device.device_type}) output to {destination.name} ({destination.device_type})")
+                except Exception as exc:  # pragma: no cover - safety net for runtime issues
+                    print(
+                        f"Failed to move {subtype} from {device.name} output"
+                        f" to {destination.name}: {exc}"
+                    )
+                if transfers >= self._max_transfers:
+                    break
+            if transfers >= self._max_transfers:
+                break
+
         if transfers:
             print(f"Step {self.counter}: transferred {transfers} stacks")
         else:
@@ -187,28 +235,40 @@ class App:
         if not self._grids:
             return
         all_containers: List[ContainerDevice] = []
+        production_devices: List[ContainerDevice] = []
         for grid in self._grids:
-            containers: List[ContainerDevice] = []
-            finder = getattr(grid, "find_devices_by_type", None)
-            if callable(finder):
-                try:
-                    containers = list(finder("container"))
-                except Exception:
-                    containers = []
-            if not containers:
-                containers = [
-                    device
-                    for device in grid.devices.values()
-                    if isinstance(device, ContainerDevice)
-                ]
+            # Use find_devices_containers for all container-like devices
+            containers = grid.find_devices_containers()
             all_containers.extend(containers)
+
+            # Collect production devices: assemblers, refineries, ship grinders, reactors
+            assemblers = grid.find_devices_by_type("assembler")
+            refineries = grid.find_devices_by_type("refinery")
+            grinders = grid.find_devices_by_type("ship_grinder")
+            reactors = grid.find_devices_by_type("reactor")
+            production_devices.extend(assemblers)
+            production_devices.extend(refineries)
+            production_devices.extend(grinders)
+            production_devices.extend(reactors)
+
+        # Exclude production devices from containers to avoid sorting from their inputs
+        production_device_ids = {dev.device_id for dev in production_devices}
+        cargo_containers = [dev for dev in all_containers if dev.device_id not in production_device_ids]
+        print(f"All containers found:")
+        for dev in all_containers:
+            print(f"  Container: {dev.name} ({dev.device_type}) - {'EXCLUDED' if dev.device_id in production_device_ids else 'CARGO'}")
+
         tagged_containers: List[TaggedContainer] = []
-        for device in all_containers:
+        for device in cargo_containers:
             tags = _extract_tags_from_name(device.name)
             tags.update(_extract_tags_from_custom_data(device))
             tagged_containers.append(TaggedContainer(device=device, tags=tags))
         tagged_containers.sort(key=lambda c: (c.device.name or "", str(c.device.device_id)))
         self._containers = tagged_containers
+        self._production_devices = production_devices
+        print(f"Found {len(all_containers)} total containers, {len(cargo_containers)} cargo containers, {len(production_devices)} production devices")
+        for dev in production_devices:
+            print(f"  Production: {dev.name} ({dev.device_type})")
         tag_index: Dict[str, List[ContainerDevice]] = {}
         for container in tagged_containers:
             for tag in container.tags:

@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 from secontrol.base_device import DEVICE_TYPE_MAP
 from secontrol.devices.container_device import ContainerDevice
+from secontrol.inventory import InventorySnapshot
 
 
 class ReactorDevice(ContainerDevice):
@@ -25,6 +26,9 @@ class ReactorDevice(ContainerDevice):
 
     def use_conveyor(self) -> bool:
         return bool((self.telemetry or {}).get("useConveyorSystem", False))
+
+    def output_inventory(self) -> InventorySnapshot | None:
+        return None
 
     def functional_status(self) -> Dict[str, Any]:
         data = self.telemetry or {}
