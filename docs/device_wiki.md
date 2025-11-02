@@ -86,18 +86,19 @@
 
 #### Телеметрия
 
-* `items` — список предметов с полями `type`, `subtype`, `amount`, а при наличии `displayName`; данные нормализуются клиентом при разборе телеметрии.【F:src/secontrol/devices/container_device.py†L19-L49】
-* `capacity` — агрегированные показатели объёма и массы (`currentVolume`, `maxVolume`, `currentMass`, `fillRatio`).【F:src/secontrol/devices/container_device.py†L51-L64】
+* `inventories()` — возвращает список `InventorySnapshot` с нормализованными предметами и показателями объёма/массы для каждого контейнера блока.【F:src/secontrol/devices/container_device.py†L13-L205】
+* `items(inventory=None)` — объединяет содержимое всех инвентарей (или выбранного) в список объектов `InventoryItem` с полями `type`, `subtype`, `amount`, `display_name`.【F:src/secontrol/devices/container_device.py†L23-L64】
+* `capacity(inventory=None)` — возвращает текущий объём, массу и заполненность для выбранного инвентаря или суммарно по всем。【F:src/secontrol/devices/container_device.py†L26-L64】
 
 #### Команды переноса
 
 | Команда          | Параметры | Описание |
 | ---------------- | ---------- | -------- |
-| `transfer_items` | `state`: JSON-строка с `fromId`, `toId`, `items[]` (`type`, `subtype`, `amount`) | Базовая команда Redis-плагина, используемая для любых операций перемещения инвентаря.【F:src/secontrol/devices/container_device.py†L66-L118】|
-| `move_items`     | `items`: Iterable, `from_id`, `to_id` | Высокоуровневый метод клиента: формирует полезную нагрузку для `transfer_items` по списку словарей или объектов телеметрии.【F:src/secontrol/devices/container_device.py†L120-L133】|
-| `move_subtype`   | `subtype`, `amount?`, `type?`, `from_id`, `to_id` | Перемещает один сабтайп с опциональным ограничением по количеству и типу предмета.【F:src/secontrol/devices/container_device.py†L134-L143】|
-| `move_all`       | `to_id`, `blacklist?`                | Переносит все предметы, кроме перечисленных в `blacklist`, автоматически читая телеметрию контейнера.【F:src/secontrol/devices/container_device.py†L145-L167】|
-| `drain_to`       | `to_id`, `subtypes`: Iterable        | Передает указанные сабтайпы полностью из исходного контейнера в целевой.【F:src/secontrol/devices/container_device.py†L169-L193】|
+| `transfer_items` | `state`: JSON-строка с `fromId`, `toId`, `items[]`, `fromInventoryIndex?`, `toInventoryIndex?` | Базовая команда Redis-плагина, используемая для любых операций перемещения инвентаря.【F:src/secontrol/devices/container_device.py†L66-L120】|
+| `move_items`     | `items`: Iterable, `destination`, `source_inventory?`, `destination_inventory?` | Высокоуровневый метод клиента: нормализует предметы и автоматически подставляет индексы инвентарей по объектам или ключам телеметрии.【F:src/secontrol/devices/container_device.py†L122-L205】|
+| `move_subtype`   | `subtype`, `amount?`, `type?`, `source_inventory?`, `destination_inventory?` | Перемещает один сабтайп с опциональным ограничением по количеству и типу предмета, поддерживает явный выбор инвентарей источника и получателя.【F:src/secontrol/devices/container_device.py†L206-L235】|
+| `move_all`       | `destination`, `blacklist?`, `source_inventory?`, `destination_inventory?` | Переносит все предметы, кроме перечисленных в `blacklist`, автоматически читая выбранный инвентарь контейнера.【F:src/secontrol/devices/container_device.py†L236-L266】|
+| `drain_to`       | `destination`, `subtypes`: Iterable, `source_inventory?`, `destination_inventory?` | Передает указанные сабтайпы полностью из выбранного инвентаря в целевой контейнер или конкретный инвентарь назначения.【F:src/secontrol/devices/container_device.py†L268-L290】|
 
 ### Сортировщик конвейера
 

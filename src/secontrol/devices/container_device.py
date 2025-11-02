@@ -1,220 +1,102 @@
-"""
-Container device implementation for Space Engineers grid control.
-
-This module provides functionality to interact with cargo containers on SE grids,
-including transferring items between containers.
-"""
+"""Inventory-enabled container helpers."""
 
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
-
-
-class Item:
-    """
-    Represents an item in the container.
-    """
-    def __init__(self, type: str, subtype: str, amount: float, display_name: str | None = None):
-        self.type = type
-        self.subtype = subtype
-        self.amount = amount
-        self.display_name = display_name
-
-    @classmethod
-    def from_dict(cls, data: dict) -> Item:
-        return cls(
-            type=data.get("type", ""),
-            subtype=data.get("subtype", ""),
-            amount=data.get("amount", 0.0),
-            display_name=data.get("displayName")
-        )
-
-    def to_dict(self) -> dict:
-        d = {
-            "type": self.type,
-            "subtype": self.subtype,
-            "amount": self.amount
-        }
-        if self.display_name:
-            d["displayName"] = self.display_name
-        return d
+from secontrol.inventory import InventoryItem, InventorySnapshot, normalize_inventory_items
 
 
 class ContainerDevice(BaseDevice):
-    """
-    Обёртка для контейнеров (Cargo Container).
-    Позволяет переносить предметы между инвентарями по entityId блоков.
-    Совместима с C# ContainerDevice.ProcessCommandAsync(...) из DedicatedPlugin.
-    """
-    # Можно назвать "container" или "cargo_container". Главное — согласованная нормализация.
+    """Inventory-aware base for cargo containers and similar devices."""
+
     device_type = "container"
 
-    # Кэш для разобранных полей телеметрии
-    _items_cache: list[Item] | None = None
-    _current_volume: float | None = None
-    _max_volume: float | None = None
-    _current_mass: float | None = None
-    _fill_ratio: float | None = None
+    # ------------------------------------------------------------------
+    # Telemetry helpers
+    # ------------------------------------------------------------------
+    def items(self, inventory: str | int | InventorySnapshot | None = None) -> List[InventoryItem]:
+        """Return items from the requested inventory."""
 
-    # --------------------- Телеметрия (удобные геттеры) -----------------------
-    def handle_telemetry(self, telemetry: dict) -> None:  # noqa: D401 - sync cache
-        """
-        Подписка на телеметрию устройства: обновляет кэш предметов и ёмкости.
+        return self.inventory_items(inventory)
 
-        Ожидаемый формат (пример):
-        {
-            "currentVolume": 0.008,
-            "maxVolume": 15.625,
-            "currentMass": 5,
-            "fillRatio": 0.000512,
-            "items": [{"type": "…", "subtype": "…", "amount": 1, "displayName": "…"}],
-            ...
-        }
-        """
-        # сохраним снапшот в родителе (BaseDevice уже сделал это, но продублируем для ясности)
-        self.telemetry = telemetry
+    def capacity(self, inventory: str | int | InventorySnapshot | None = None) -> Dict[str, float]:
+        """Return capacity metrics for a specific inventory or for all combined."""
 
-        # Кэш предметов
-        items = telemetry.get("items") if isinstance(telemetry, dict) else None
-        normalized: list[Item] = []
-        if isinstance(items, list):
-            for it in items:
-                if not isinstance(it, dict):
-                    continue
-                item_dict = {
-                    "type": it.get("type") or it.get("Type") or "",
-                    "subtype": it.get("subtype")
-                    or it.get("subType")
-                    or it.get("name")
-                    or "",
-                    "amount": float(it.get("amount", 0.0)),
+        if inventory is None:
+            snapshots = self.inventories()
+            if not snapshots:
+                return {"currentVolume": 0.0, "maxVolume": 0.0, "currentMass": 0.0, "fillRatio": 0.0}
+            if len(snapshots) == 1:
+                snap = snapshots[0]
+                return {
+                    "currentVolume": snap.current_volume,
+                    "maxVolume": snap.max_volume,
+                    "currentMass": snap.current_mass,
+                    "fillRatio": snap.fill_ratio,
                 }
-                if it.get("displayName"):
-                    item_dict["displayName"] = it["displayName"]
-                normalized.append(Item.from_dict(item_dict))
-        self._items_cache = normalized
-
-        # Кэш ёмкости/массы
-        try:
-            self._current_volume = float(telemetry.get("currentVolume", 0.0))
-        except Exception:
-            self._current_volume = None
-        try:
-            self._max_volume = float(telemetry.get("maxVolume", 0.0))
-        except Exception:
-            self._max_volume = None
-        try:
-            self._current_mass = float(telemetry.get("currentMass", 0.0))
-        except Exception:
-            self._current_mass = None
-        try:
-            self._fill_ratio = float(telemetry.get("fillRatio", 0.0))
-        except Exception:
-            self._fill_ratio = None
-    def items(self) -> list[Item]:
-        """
-        Возвращает список предметов из текущей телеметрии как объекты Item.
-        """
-        # отдаём из кэша, если уже приходила телеметрия
-        if isinstance(self._items_cache, list):
-            return list(self._items_cache)
-
-        # если кэша нет, попробуем взять напрямую из сырых данных (одноразово)
-        telemetry = self.telemetry or {}
-        items = telemetry.get("items") if isinstance(telemetry, dict) else None
-        if not isinstance(items, list):
-            return []
-        normalized: list[Item] = []
-        for it in items:
-            if not isinstance(it, dict):
-                continue
-            item_dict = {
-                "type": it.get("type") or it.get("Type") or "",
-                "subtype": it.get("subtype") or it.get("subType") or it.get("name") or "",
-                "amount": float(it.get("amount", 0.0)),
-            }
-            if it.get("displayName"):
-                item_dict["displayName"] = it["displayName"]
-            normalized.append(Item.from_dict(item_dict))
-        self._items_cache = normalized
-        return list(normalized)
-
-    def capacity(self) -> dict:
-        """
-        Возвращает сводку по объёму/массе/заполнению из телеметрии.
-        """
-        if self._current_volume is not None or self._max_volume is not None or self._current_mass is not None or self._fill_ratio is not None:
+            current_volume = sum(s.current_volume for s in snapshots)
+            max_volume = sum(s.max_volume for s in snapshots)
+            current_mass = sum(s.current_mass for s in snapshots)
+            fill_ratio = current_volume / max_volume if max_volume > 0 else 0.0
             return {
-                "currentVolume": float(self._current_volume or 0.0),
-                "maxVolume": float(self._max_volume or 0.0),
-                "currentMass": float(self._current_mass or 0.0),
-                "fillRatio": float(self._fill_ratio or 0.0),
+                "currentVolume": current_volume,
+                "maxVolume": max_volume,
+                "currentMass": current_mass,
+                "fillRatio": fill_ratio,
             }
 
-        t = self.telemetry or {}
-        try:
-            current_volume = float(t.get("currentVolume", 0.0))
-        except Exception:
-            current_volume = 0.0
-        try:
-            max_volume = float(t.get("maxVolume", 0.0))
-        except Exception:
-            max_volume = 0.0
-        try:
-            current_mass = float(t.get("currentMass", 0.0))
-        except Exception:
-            current_mass = 0.0
-        try:
-            fill_ratio = float(t.get("fillRatio", 0.0))
-        except Exception:
-            fill_ratio = 0.0
-        # заполним кэш, чтобы последующие вызовы были быстрыми
-        self._current_volume = current_volume
-        self._max_volume = max_volume
-        self._current_mass = current_mass
-        self._fill_ratio = fill_ratio
+        snapshot = self.get_inventory(inventory)
+        if snapshot is None:
+            return {"currentVolume": 0.0, "maxVolume": 0.0, "currentMass": 0.0, "fillRatio": 0.0}
         return {
-            "currentVolume": current_volume,
-            "maxVolume": max_volume,
-            "currentMass": current_mass,
-            "fillRatio": fill_ratio,
+            "currentVolume": snapshot.current_volume,
+            "maxVolume": snapshot.max_volume,
+            "currentMass": snapshot.current_mass,
+            "fillRatio": snapshot.fill_ratio,
         }
 
-    # --------------------- Команды переноса -----------------------------------
-    def _send_transfer(self, *, from_id: int | str, to_id: int | str, items: list[Item] | list[dict], cmd: str = "transfer_items") -> int:
-        """
-        Низкоуровневый отправитель команды переноса.
-        ВАЖНО: payload/state должен быть именно JSON-строкой — так ожидает C#.
-        """
-        # Нормализация полей items
-        norm_items: list[dict] = []
+    def inventory(self, reference: str | int | InventorySnapshot | None = None) -> Optional[InventorySnapshot]:
+        """Alias for :meth:`BaseDevice.get_inventory`."""
+
+        return self.get_inventory(reference)
+
+    # ------------------------------------------------------------------
+    # Transfer helpers
+    # ------------------------------------------------------------------
+    def _send_transfer(
+        self,
+        *,
+        from_id: int | str,
+        to_id: int | str,
+        items: Iterable[InventoryItem | dict[str, Any]],
+        cmd: str = "transfer_items",
+        from_inventory_index: Optional[int] = None,
+        to_inventory_index: Optional[int] = None,
+    ) -> int:
+        norm_items: list[dict[str, Any]] = []
         for it in items:
-            if isinstance(it, Item):
-                it_dict = it.to_dict()
+            if isinstance(it, InventoryItem):
+                it_dict = it.to_payload()
             elif isinstance(it, dict):
-                it_dict = it
+                it_dict = dict(it)
             else:
                 continue
             subtype = it_dict.get("subtype") or it_dict.get("subType") or it_dict.get("name")
             if not subtype:
-                # без сабтайпа переносить нечего
                 continue
             entry = {"subtype": str(subtype)}
-            # type — опционален (wildcard по типу в C# коде)
             if it_dict.get("type"):
                 entry["type"] = str(it_dict["type"])
-            # amount — опционален, отсутствие == перенести стек целиком
             if it_dict.get("amount") is not None:
                 entry["amount"] = float(it_dict["amount"])
-            # targetSlotId — опционален для указания целевого слота
-            target_slot_id = it_dict.get("targetSlotId")
-            if target_slot_id is None:
-                target_slot_id = it_dict.get("slotId")
-            if target_slot_id is None:
-                target_slot_id = it_dict.get("targetSlot")
+            target_slot_id = (
+                it_dict.get("targetSlotId")
+                or it_dict.get("slotId")
+                or it_dict.get("targetSlot")
+            )
             if target_slot_id is not None:
                 entry["targetSlotId"] = int(target_slot_id)
             norm_items.append(entry)
@@ -222,110 +104,213 @@ class ContainerDevice(BaseDevice):
         if not norm_items:
             return 0
 
-        payload_obj = {
+        payload_obj: Dict[str, Any] = {
             "fromId": int(from_id),
             "toId": int(to_id),
             "items": norm_items,
         }
+        if from_inventory_index is not None:
+            payload_obj["fromInventoryIndex"] = int(from_inventory_index)
+        if to_inventory_index is not None:
+            payload_obj["toInventoryIndex"] = int(to_inventory_index)
 
-        # В state кладём СТРОКУ JSON
         state_str = json.dumps(payload_obj, ensure_ascii=False)
+        return self.send_command({"cmd": cmd, "state": state_str})
 
-        return self.send_command({
-            "cmd": cmd,
-            "state": state_str,
-        })
+    def _resolve_device_inventory(
+        self,
+        target: int | str | BaseDevice | InventorySnapshot,
+        inventory_reference: str | int | InventorySnapshot | None,
+    ) -> tuple[int, Optional[int]]:
+        if isinstance(target, InventorySnapshot):
+            return int(target.device_id), target.index
 
-    def move_items(self, destination: int | str, items: list[Item] | list[dict]) -> int:
-        """
-        Перенести список предметов по сабтайпу (и при желании type/amount) в другой контейнер.
+        if isinstance(target, BaseDevice):
+            device_id = target._numeric_device_id()
+            if device_id is None:
+                device_id = int(target.device_id)
+            index: Optional[int] = None
+            if isinstance(inventory_reference, InventorySnapshot):
+                index = inventory_reference.index
+            elif isinstance(inventory_reference, int):
+                index = inventory_reference
+            elif inventory_reference is not None:
+                snapshot = target.get_inventory(inventory_reference)
+                index = snapshot.index if snapshot else None
+            return device_id, index
 
-        items: [{ "subtype": "IronIngot", "type": "MyObjectBuilder_Ingot", "amount": 50 }, ...] или [Item(...), ...]
-        - type     (опционально): точный TypeId (как в телеметрии/SE), можно не указывать.
-        - amount   (опционально): если не задан — будет перенесён весь стек найденного айтема.
-        """
-        return self._send_transfer(from_id=self.device_id, to_id=destination, items=items, cmd="transfer_items")
+        try:
+            device_id = int(target)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            raise ValueError(f"Unsupported device identifier: {target!r}") from exc
 
-    def move_subtype(self, destination: int | str, subtype: str, *, amount: float | None = None, type_id: str | None = None, target_slot_id: int | None = None) -> int:
-        """
-        Удобный синоним для переноса одного сабтайпа.
-        """
-        it = {"subtype": subtype}
+        if isinstance(inventory_reference, InventorySnapshot):
+            return device_id, inventory_reference.index
+        if isinstance(inventory_reference, int):
+            return device_id, inventory_reference
+        if isinstance(inventory_reference, str) and inventory_reference.strip():
+            raise ValueError("String inventory reference requires a device instance")
+        return device_id, None
+
+    def move_items(
+        self,
+        destination: int | str | BaseDevice | InventorySnapshot,
+        items: Iterable[InventoryItem | dict[str, Any]],
+        *,
+        source_inventory: str | int | InventorySnapshot | None = None,
+        destination_inventory: str | int | InventorySnapshot | None = None,
+    ) -> int:
+        normalized = list(items)
+        from_id = self._numeric_device_id()
+        if from_id is None:
+            from_id = int(self.device_id)
+
+        source_index: Optional[int] = None
+        if isinstance(source_inventory, InventorySnapshot):
+            source_index = source_inventory.index
+        elif isinstance(source_inventory, int):
+            source_index = source_inventory
+        elif source_inventory is not None:
+            snapshot = self.get_inventory(source_inventory)
+            source_index = snapshot.index if snapshot else None
+        elif self.inventory_count() == 1:
+            snapshot = self.get_inventory()
+            source_index = snapshot.index if snapshot else None
+
+        to_id, dest_index = self._resolve_device_inventory(destination, destination_inventory)
+
+        return self._send_transfer(
+            from_id=from_id,
+            to_id=to_id,
+            items=normalized,
+            from_inventory_index=source_index,
+            to_inventory_index=dest_index,
+        )
+
+    def move_subtype(
+        self,
+        destination: int | str | BaseDevice | InventorySnapshot,
+        subtype: str,
+        *,
+        amount: float | None = None,
+        type_id: str | None = None,
+        target_slot_id: int | None = None,
+        source_inventory: str | int | InventorySnapshot | None = None,
+        destination_inventory: str | int | InventorySnapshot | None = None,
+    ) -> int:
+        entry: Dict[str, Any] = {"subtype": subtype}
         if type_id:
-            it["type"] = type_id
+            entry["type"] = type_id
         if amount is not None:
-            it["amount"] = float(amount)
+            entry["amount"] = float(amount)
         if target_slot_id is not None:
-            it["targetSlotId"] = int(target_slot_id)
-        return self.move_items(destination, [it])
+            entry["targetSlotId"] = int(target_slot_id)
+        return self.move_items(
+            destination,
+            [entry],
+            source_inventory=source_inventory,
+            destination_inventory=destination_inventory,
+        )
 
-    def move_items_to_slot(self, destination: int | str, items: list[Item] | list[dict], target_slot_id: int) -> int:
-        """
-        Перенести список предметов в указанный слот контейнера.
-
-        items: [{ "subtype": "IronIngot", "type": "MyObjectBuilder_Ingot", "amount": 50 }, ...] или [Item(...), ...]
-        target_slot_id: номер слота для размещения предметов (0 = первый слот)
-        """
-        # Добавляем targetSlotId к каждому элементу
-        modified_items = []
+    def move_items_to_slot(
+        self,
+        destination: int | str | BaseDevice | InventorySnapshot,
+        items: Iterable[InventoryItem | dict[str, Any]],
+        target_slot_id: int,
+        *,
+        source_inventory: str | int | InventorySnapshot | None = None,
+        destination_inventory: str | int | InventorySnapshot | None = None,
+    ) -> int:
+        modified: List[Dict[str, Any]] = []
         for it in items:
-            if isinstance(it, Item):
-                it_dict = it.to_dict()
+            if isinstance(it, InventoryItem):
+                payload = it.to_payload()
             elif isinstance(it, dict):
-                it_dict = dict(it)
+                payload = dict(it)
             else:
                 continue
-            it_dict["targetSlotId"] = int(target_slot_id)
-            modified_items.append(it_dict)
+            payload["targetSlotId"] = int(target_slot_id)
+            modified.append(payload)
 
-        return self.move_items(destination, modified_items)
+        return self.move_items(
+            destination,
+            modified,
+            source_inventory=source_inventory,
+            destination_inventory=destination_inventory,
+        )
 
-    def move_all(self, destination: int | str, *, blacklist: Set[str] | None = None) -> int:
-        """
-        Перенести ВСЁ содержимое контейнера (по текущей телеметрии) в другой контейнер.
-        Можно задать чёрный список сабтайпов (например, оставить лед у источника).
-        """
+    def move_all(
+        self,
+        destination: int | str | BaseDevice | InventorySnapshot,
+        *,
+        blacklist: Set[str] | None = None,
+        source_inventory: str | int | InventorySnapshot | None = None,
+        destination_inventory: str | int | InventorySnapshot | None = None,
+    ) -> int:
         bl = {s.lower() for s in (blacklist or set())}
-        batch = []
-        for it in self.items():
-            sb = it.subtype.lower()
-            if not sb or sb in bl:
+        batch: List[Dict[str, Any]] = []
+        for item in self.items(source_inventory):
+            subtype = (item.subtype or "").lower()
+            if not subtype or subtype in bl:
                 continue
-            # amount опускаем — на стороне плагина это значит "весь стек"
-            batch.append({"subtype": it.subtype})
+            batch.append({"subtype": item.subtype})
         if not batch:
             return 0
-        return self.move_items(destination, batch)
+        return self.move_items(
+            destination,
+            batch,
+            source_inventory=source_inventory,
+            destination_inventory=destination_inventory,
+        )
 
-    def drain_to(self, destination: int | str, subtypes: list[str]) -> int:
-        """
-        Перенести перечисленные сабтайпы ЦЕЛИКОМ в другой контейнер.
-        """
+    def drain_to(
+        self,
+        destination: int | str | BaseDevice | InventorySnapshot,
+        subtypes: Iterable[str],
+        *,
+        source_inventory: str | int | InventorySnapshot | None = None,
+        destination_inventory: str | int | InventorySnapshot | None = None,
+    ) -> int:
         batch = [{"subtype": s} for s in subtypes if s]
         if not batch:
             return 0
-        return self.move_items(destination, batch)
+        return self.move_items(
+            destination,
+            batch,
+            source_inventory=source_inventory,
+            destination_inventory=destination_inventory,
+        )
 
-    # --------------------- Поиск предметов -----------------------------------
+    # ------------------------------------------------------------------
+    # Query helpers
+    # ------------------------------------------------------------------
+    def find_items_by_type(
+        self,
+        item_type: str,
+        *,
+        inventory: str | int | InventorySnapshot | None = None,
+    ) -> List[InventoryItem]:
+        return [it for it in self.items(inventory) if it.type == item_type]
 
-    def find_items_by_type(self, item_type: str) -> list[Item]:
-        """
-        Найти предметы по типу (type).
-        """
-        return [it for it in self.items() if it.type == item_type]
+    def find_items_by_subtype(
+        self,
+        subtype: str,
+        *,
+        inventory: str | int | InventorySnapshot | None = None,
+    ) -> List[InventoryItem]:
+        return [it for it in self.items(inventory) if it.subtype == subtype]
 
-    def find_items_by_subtype(self, subtype: str) -> list[Item]:
-        """
-        Найти предметы по сабтайпу (subtype).
-        """
-        return [it for it in self.items() if it.subtype == subtype]
+    def find_items_by_display_name(
+        self,
+        display_name: str,
+        *,
+        inventory: str | int | InventorySnapshot | None = None,
+    ) -> List[InventoryItem]:
+        return [it for it in self.items(inventory) if it.display_name == display_name]
 
-    def find_items_by_display_name(self, display_name: str) -> list[Item]:
-        """
-        Найти предметы по отображаемому имени (displayName).
-        """
-        return [it for it in self.items() if it.display_name == display_name]
-
+    # ------------------------------------------------------------------
+    # Utilities
+    # ------------------------------------------------------------------
     @staticmethod
     def _normalize_items(payload: Dict[str, Any] | None) -> List[Dict[str, Any]]:
         if not isinstance(payload, dict):
@@ -333,33 +318,16 @@ class ContainerDevice(BaseDevice):
         items = payload.get("items")
         if not isinstance(items, list):
             return []
-        out: List[Dict[str, Any]] = []
-        for it in items:
-            if not isinstance(it, dict):
-                continue
-            out.append(
-                {
-                    "type": it.get("type") or it.get("Type") or "",
-                    "subtype": it.get("subtype") or it.get("subType") or it.get("name") or "",
-                    "amount": float(it.get("amount", 0.0)),
-                    **(
-                        {"displayName": it["displayName"]}
-                        if it.get("displayName")
-                        else {}
-                    ),
-                }
-            )
-        return out
+        return [item.to_payload() for item in normalize_inventory_items(items)]
 
     @staticmethod
     def _items_signature(items: List[Any]) -> Tuple[Tuple[str, float], ...]:
-        # Stable signature to detect changes without noisy formatting differences
         sig: List[Tuple[str, float]] = []
         for it in items:
-            if hasattr(it, 'display_name'):  # Item object
+            if isinstance(it, InventoryItem):
                 name = str(it.display_name or it.subtype or "").strip()
                 amount = it.amount
-            else:  # dict
+            else:
                 name = str(it.get("displayName") or it.get("subtype") or "").strip()
                 amount = float(it.get("amount") or 0.0)
             sig.append((name, amount))
@@ -371,14 +339,20 @@ class ContainerDevice(BaseDevice):
             return "[]"
         parts = []
         for it in items:
-            if hasattr(it, 'display_name'):  # Item object
+            if isinstance(it, InventoryItem):
                 name = it.display_name or it.subtype or "?"
                 amount = it.amount
-            else:  # dict
+            else:
                 name = it.get("displayName") or it.get("subtype") or "?"
                 amount = it.get("amount")
             parts.append(f"{amount} x {name}")
         return "[" + ", ".join(parts) + "]"
+
+
+Item = InventoryItem
+
+# Backwards-compatible alias on the class itself
+ContainerDevice.Item = InventoryItem
 
 
 DEVICE_TYPE_MAP[ContainerDevice.device_type] = ContainerDevice

@@ -14,6 +14,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Type
 
+from .inventory import InventoryItem, InventorySnapshot, parse_inventory_payload
+
 
 # DEVICE_TYPE_MAP пополняется модулями устройств и внешними плагинами при импорте
 DEVICE_TYPE_MAP = {}
@@ -1773,6 +1775,9 @@ class BaseDevice:
         self._load_metrics: Optional[Dict[str, Any]] = None
         self._load_spent_ms: Optional[float] = None
 
+        self._inventories: Dict[str, InventorySnapshot] = {}
+        self._inventory_index_map: Dict[str, int] = {}
+
         # Подписка на телеметрию устройства (устойчивая: keyspace + channel + polling)
         self._subscription = self.redis.subscribe_to_key_resilient(
             self.telemetry_key,
@@ -1891,6 +1896,8 @@ class BaseDevice:
         changed = self._merge_common_telemetry(telemetry_payload)
         self.telemetry = telemetry_payload
 
+        self._refresh_inventories(telemetry_payload)
+
         if changed:
             self._persist_common_telemetry()
 
@@ -1903,6 +1910,181 @@ class BaseDevice:
     # ------------------------------------------------------------------
     def handle_telemetry(self, telemetry: Dict[str, Any]) -> None:
         return
+
+    # ------------------------------------------------------------------
+    # Inventory helpers
+    # ------------------------------------------------------------------
+    def inventories(self) -> List[InventorySnapshot]:
+        """Return a list of inventory snapshots sorted by index."""
+
+        return [inv.copy() for inv in sorted(self._inventories.values(), key=lambda inv: (inv.index, inv.key))]
+
+    def inventory_map(self) -> Dict[str, InventorySnapshot]:
+        """Return a mapping of inventory key -> snapshot."""
+
+        return {key: inv.copy() for key, inv in self._inventories.items()}
+
+    def inventory_count(self) -> int:
+        return len(self._inventories)
+
+    def get_inventory(self, reference: str | int | InventorySnapshot | None = None) -> Optional[InventorySnapshot]:
+        """Resolve a specific inventory by key, index, name or snapshot."""
+
+        if reference is None:
+            snapshots = self.inventories()
+            if len(snapshots) == 1:
+                return snapshots[0]
+            return None
+
+        if isinstance(reference, InventorySnapshot):
+            existing = self._inventories.get(reference.key)
+            if existing and existing.index == reference.index:
+                return existing.copy()
+            if reference.device_id == self._numeric_device_id():
+                return reference.copy()
+            return reference.copy()
+
+        if isinstance(reference, int):
+            for snapshot in self._inventories.values():
+                if snapshot.index == reference:
+                    return snapshot.copy()
+            return None
+
+        lookup = str(reference).strip().lower()
+        for key, snapshot in self._inventories.items():
+            if key.lower() == lookup:
+                return snapshot.copy()
+            if snapshot.name.lower() == lookup:
+                return snapshot.copy()
+            if snapshot.name.lower().startswith(lookup) and lookup:
+                return snapshot.copy()
+        return None
+
+    def inventory_items(self, reference: str | int | InventorySnapshot | None = None) -> List[InventoryItem]:
+        if reference is None:
+            aggregated: List[InventoryItem] = []
+            for snapshot in self._inventories.values():
+                aggregated.extend(
+                    InventoryItem(item.type, item.subtype, item.amount, item.display_name)
+                    for item in snapshot.items
+                )
+            return aggregated
+
+        inventory = self.get_inventory(reference)
+        if inventory is None:
+            return []
+        return [InventoryItem(item.type, item.subtype, item.amount, item.display_name) for item in inventory.items]
+
+    def _numeric_device_id(self) -> Optional[int]:
+        try:
+            return int(self.device_id)
+        except Exception:
+            return None
+
+    def _refresh_inventories(self, telemetry: Dict[str, Any]) -> None:
+        if not isinstance(telemetry, dict):
+            if self._inventories:
+                self._inventories = {}
+            return
+
+        entries = self._collect_inventory_payloads(telemetry)
+        if not entries:
+            if self._inventories:
+                self._inventories = {}
+            return
+
+        device_id = self._numeric_device_id() or 0
+        new_map: Dict[str, InventorySnapshot] = {}
+        for key, payload, name, index_hint in entries:
+            if not isinstance(payload, dict):
+                continue
+            index_value = self._assign_inventory_index(key, index_hint)
+            items, current_volume, max_volume, current_mass, fill_ratio = parse_inventory_payload(payload)
+            name_text = str(name).strip()
+            if not name_text:
+                name_text = self._format_inventory_name(key)
+            snapshot = InventorySnapshot(
+                device_id=device_id,
+                key=key,
+                index=index_value,
+                name=name_text,
+                current_volume=current_volume,
+                max_volume=max_volume,
+                current_mass=current_mass,
+                fill_ratio=fill_ratio,
+                items=items,
+                raw=dict(payload),
+            )
+            new_map[key] = snapshot
+
+        self._inventories = new_map
+
+    def _assign_inventory_index(self, key: str, index_hint: Optional[int]) -> int:
+        if index_hint is not None:
+            try:
+                index = int(index_hint)
+            except (TypeError, ValueError):
+                index = self._inventory_index_map.get(key, len(self._inventory_index_map))
+            else:
+                self._inventory_index_map[key] = index
+                return index
+
+        if key not in self._inventory_index_map:
+            self._inventory_index_map[key] = len(self._inventory_index_map)
+        return self._inventory_index_map[key]
+
+    def _collect_inventory_payloads(self, telemetry: Dict[str, Any]) -> List[tuple[str, Dict[str, Any], str, Optional[int]]]:
+        entries: List[tuple[str, Dict[str, Any], str, Optional[int]]] = []
+        seen: set[str] = set()
+
+        raw_list = telemetry.get("inventories")
+        if isinstance(raw_list, list):
+            for idx, entry in enumerate(raw_list):
+                if not isinstance(entry, dict):
+                    continue
+                key = str(entry.get("inventoryKey") or entry.get("key") or f"inventories[{idx}]")
+                seen.add(key)
+                name = entry.get("name") or entry.get("displayName") or self._format_inventory_name(key)
+                index_hint = entry.get("inventoryIndex")
+                if index_hint is None:
+                    index_hint = entry.get("index")
+                if index_hint is None:
+                    index_hint = idx
+                entries.append((key, entry, str(name), index_hint))
+
+        for key, value in telemetry.items():
+            if not isinstance(value, dict):
+                continue
+            if key in seen:
+                continue
+            lowered = key.lower()
+            if "inventory" not in lowered:
+                continue
+            seen.add(key)
+            name = value.get("name") or value.get("displayName") or self._format_inventory_name(key)
+            index_hint = value.get("inventoryIndex")
+            entries.append((key, value, str(name), index_hint))
+
+        if isinstance(telemetry.get("items"), list):
+            key = "inventory"
+            if key not in seen:
+                name = telemetry.get("inventoryName") or self._format_inventory_name(key)
+                index_hint = telemetry.get("inventoryIndex")
+                entries.append((key, telemetry, str(name), index_hint))
+
+        return entries
+
+    def _format_inventory_name(self, key: str) -> str:
+        text = str(key or "").strip()
+        if not text:
+            return "Inventory"
+        cleaned = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+        cleaned = cleaned.replace("_", " ").replace("[", " ").replace("]", " ").strip()
+        if not cleaned:
+            cleaned = "Inventory"
+        if "inventory" not in cleaned.lower():
+            cleaned = f"{cleaned} Inventory"
+        return cleaned.title()
 
     # ------------------------------------------------------------------
     def is_enabled(self) -> bool:

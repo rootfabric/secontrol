@@ -5,19 +5,8 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional
 
 from secontrol.base_device import DEVICE_TYPE_MAP
-from secontrol.devices.container_device import ContainerDevice, Item
-
-
-def _parse_inventory(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    if not isinstance(data, dict):
-        return {"currentVolume": 0.0, "maxVolume": 0.0, "currentMass": 0.0, "items": []}
-    items = [item for item in data.get("items", []) if isinstance(item, dict)]
-    return {
-        "currentVolume": float(data.get("currentVolume", 0.0)),
-        "maxVolume": float(data.get("maxVolume", 0.0)),
-        "currentMass": float(data.get("currentMass", 0.0)),
-        "items": items,
-    }
+from secontrol.devices.container_device import ContainerDevice
+from secontrol.inventory import InventorySnapshot
 
 
 def _normalize_queue_item(item: Any, amount: Optional[float] = None) -> Dict[str, Any]:
@@ -55,47 +44,11 @@ class AssemblerDevice(ContainerDevice):
     def current_progress(self) -> float:
         return float((self.telemetry or {}).get("currentProgress", 0.0))
 
-    def input_inventory(self) -> Dict[str, Any]:
-        data = self.telemetry or {}
-        return _parse_inventory(data.get("inputInventory"))
+    def input_inventory(self) -> InventorySnapshot | None:
+        return self.get_inventory("inputInventory") or self.get_inventory(0)
 
-    def output_inventory(self) -> Dict[str, Any]:
-        data = self.telemetry or {}
-        return _parse_inventory(data.get("outputInventory"))
-
-    def items(self) -> list[Item]:
-        """
-        Return combined items from both input and output inventories.
-        """
-        all_items = []
-
-        # Get items from input inventory
-        input_inv = self.input_inventory()
-        input_items = input_inv.get("items", [])
-        for item_data in input_items:
-            if isinstance(item_data, dict):
-                item = Item.from_dict({
-                    "type": item_data.get("type", ""),
-                    "subtype": item_data.get("subtype", ""),
-                    "amount": item_data.get("amount", 0.0),
-                    "displayName": item_data.get("displayName")
-                })
-                all_items.append(item)
-
-        # Get items from output inventory
-        output_inv = self.output_inventory()
-        output_items = output_inv.get("items", [])
-        for item_data in output_items:
-            if isinstance(item_data, dict):
-                item = Item.from_dict({
-                    "type": item_data.get("type", ""),
-                    "subtype": item_data.get("subtype", ""),
-                    "amount": item_data.get("amount", 0.0),
-                    "displayName": item_data.get("displayName")
-                })
-                all_items.append(item)
-
-        return all_items
+    def output_inventory(self) -> InventorySnapshot | None:
+        return self.get_inventory("outputInventory") or self.get_inventory(1)
 
     def queue(self) -> List[Dict[str, Any]]:
         entries = (self.telemetry or {}).get("queue")
