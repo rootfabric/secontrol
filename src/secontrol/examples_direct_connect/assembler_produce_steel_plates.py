@@ -11,7 +11,7 @@ from secontrol.devices.container_device import ContainerDevice, Item
 TARGET_TYPE = "MyObjectBuilder_Component"
 TARGET_SUBTYPE = "SteelPlate"
 TARGET_AMOUNT = 100
-STEEL_PLATE_BLUEPRINT = "MyObjectBuilder_BlueprintDefinition/Component/SteelPlate"
+STEEL_PLATE_BLUEPRINT = "SteelPlate"
 
 
 def _iter_inventory_devices(grid) -> Iterable[ContainerDevice]:
@@ -31,7 +31,13 @@ def _iter_inventory_devices(grid) -> Iterable[ContainerDevice]:
                 for device in finder("assembler")  # type: ignore[misc]
                 if isinstance(device, ContainerDevice)
             ]
-            devices = containers + assemblers
+            # Find refineries
+            refineries = [
+                device
+                for device in finder("refinery")  # type: ignore[misc]
+                if isinstance(device, ContainerDevice)
+            ]
+            devices = containers + assemblers + refineries
         except Exception:
             devices = []
     if not devices:
@@ -89,10 +95,10 @@ def main() -> None:
     try:
         inventory_devices = list(_iter_inventory_devices(grid))
         if not inventory_devices:
-            print("Контейнеры и ассемблеры не найдены на гриде.")
+            print("Контейнеры, ассемблеры и refinery не найдены на гриде.")
             return
         current = _count_steel_plates(inventory_devices)
-        print(f"Найдено {current:.0f} стальных пластин в контейнерах и ассемблерах.")
+        print(f"Найдено {current:.0f} стальных пластин в контейнерах, ассемблерах и refinery.")
         if current >= TARGET_AMOUNT:
             print("Производство не требуется.")
             return
