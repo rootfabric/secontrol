@@ -14,25 +14,33 @@ TARGET_AMOUNT = 100
 STEEL_PLATE_BLUEPRINT = "MyObjectBuilder_BlueprintDefinition/Component/SteelPlate"
 
 
-def _iter_containers(grid) -> Iterable[ContainerDevice]:
+def _iter_inventory_devices(grid) -> Iterable[ContainerDevice]:
     finder = getattr(grid, "find_devices_by_type", None)
-    containers: List[ContainerDevice] = []
+    devices: List[ContainerDevice] = []
     if callable(finder):
         try:
+            # Find containers
             containers = [
                 device
                 for device in finder("container")  # type: ignore[misc]
                 if isinstance(device, ContainerDevice)
             ]
+            # Find assemblers
+            assemblers = [
+                device
+                for device in finder("assembler")  # type: ignore[misc]
+                if isinstance(device, ContainerDevice)
+            ]
+            devices = containers + assemblers
         except Exception:
-            containers = []
-    if not containers:
-        containers = [
+            devices = []
+    if not devices:
+        devices = [
             device
             for device in grid.devices.values()
             if isinstance(device, ContainerDevice)
         ]
-    return containers
+    return devices
 
 
 def _count_steel_plates(containers: Iterable[ContainerDevice]) -> float:
@@ -68,21 +76,23 @@ def _find_assembler(grid) -> BaseDevice | None:
 def _queue_steel_plates(assembler: BaseDevice, amount: float) -> None:
     payload = {
         "cmd": "queue_add",
-        "blueprint": STEEL_PLATE_BLUEPRINT,
+        "blueprintId": STEEL_PLATE_BLUEPRINT,
+
         "amount": float(amount),
     }
+    print(payload)
     assembler.send_command(payload)
 
 
 def main() -> None:
     grid = prepare_grid()
     try:
-        containers = list(_iter_containers(grid))
-        if not containers:
-            print("Контейнеры не найдены на гриде.")
+        inventory_devices = list(_iter_inventory_devices(grid))
+        if not inventory_devices:
+            print("Контейнеры и ассемблеры не найдены на гриде.")
             return
-        current = _count_steel_plates(containers)
-        print(f"Найдено {current:.0f} стальных пластин в контейнерах.")
+        current = _count_steel_plates(inventory_devices)
+        print(f"Найдено {current:.0f} стальных пластин в контейнерах и ассемблерах.")
         if current >= TARGET_AMOUNT:
             print("Производство не требуется.")
             return
@@ -91,6 +101,7 @@ def main() -> None:
         if not assembler:
             print("Ассемблер не найден, не могу поставить задачу на производство.")
             return
+        print(f"Найден Ассемблер: {assembler.name} {assembler.grid_id}")
         print(
             "Добавляю в очередь ассемблера задачу на производство"
             f" {deficit:.0f} пластин."

@@ -2381,6 +2381,7 @@ TYPE_ALIASES = {
     "MyObjectBuilder_Cockpit": "cockpit",
     "MyObjectBuilder_OxygenGenerator": "gas_generator",
     "MyObjectBuilder_Refinery": "refinery",
+    "MyObjectBuilder_Assembler": "assembler",
     "MyObjectBuilder_ConveyorSorter": "conveyor_sorter",
     "MyObjectBuilder_ShipWelder": "ship_welder",
     "MyObjectBuilder_ShipGrinder": "ship_grinder",
