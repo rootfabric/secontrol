@@ -20,7 +20,8 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Set
 
 from secontrol.base_device import Grid
-from secontrol.common import close, prepare_grid
+from secontrol.common import close, resolve_owner_id, resolve_player_id
+from secontrol.redis_client import RedisEventClient
 from secontrol.devices.container_device import ContainerDevice, Item
 
 
@@ -110,14 +111,24 @@ class TaggedContainer:
 class App:
     def __init__(self, *, refresh_every: int = 10, max_transfers_per_step: int = 20):
         self.counter = 0
-        self._grid: Optional[Grid] = None
+        self._grids: List[Grid] = []
         self._refresh_every = max(1, int(refresh_every))
         self._max_transfers = max(1, int(max_transfers_per_step))
         self._containers: List[TaggedContainer] = []
         self._tag_index: Dict[str, List[ContainerDevice]] = {}
 
     def start(self):
-        self._grid = prepare_grid()
+        client = RedisEventClient()
+        owner_id = resolve_owner_id()
+        player_id = resolve_player_id(owner_id)
+
+        grids_info = client.list_grids(owner_id)
+        for grid_info in grids_info:
+            grid_id = str(grid_info.get("id"))
+            grid_name = grid_info.get("name", f"Grid_{grid_id}")
+            grid = Grid(client, owner_id, grid_id, player_id, grid_name)
+            self._grids.append(grid)
+
         self._refresh_containers()
         print(
             "Sorter started: %d containers, %d tagged"
@@ -125,8 +136,8 @@ class App:
         )
 
     def step(self):
-        if not self._grid:
-            raise RuntimeError("Grid is not prepared. Call start() first.")
+        if not self._grids:
+            raise RuntimeError("Grids are not prepared. Call start() first.")
         self.counter += 1
         if self.counter % self._refresh_every == 1:
             self._refresh_containers()
@@ -165,31 +176,34 @@ class App:
             print(f"Step {self.counter}: nothing to transfer")
 
     def close(self):
-        if self._grid:
+        for grid in self._grids:
             try:
-                close(self._grid)
+                close(grid)
             except Exception:  # pragma: no cover - best effort cleanup
                 pass
 
     # ------------------------------------------------------------------
     def _refresh_containers(self) -> None:
-        if not self._grid:
+        if not self._grids:
             return
-        containers: List[ContainerDevice] = []
-        finder = getattr(self._grid, "find_devices_by_type", None)
-        if callable(finder):
-            try:
-                containers = list(finder("container"))
-            except Exception:
-                containers = []
-        if not containers:
-            containers = [
-                device
-                for device in self._grid.devices.values()
-                if isinstance(device, ContainerDevice)
-            ]
+        all_containers: List[ContainerDevice] = []
+        for grid in self._grids:
+            containers: List[ContainerDevice] = []
+            finder = getattr(grid, "find_devices_by_type", None)
+            if callable(finder):
+                try:
+                    containers = list(finder("container"))
+                except Exception:
+                    containers = []
+            if not containers:
+                containers = [
+                    device
+                    for device in grid.devices.values()
+                    if isinstance(device, ContainerDevice)
+                ]
+            all_containers.extend(containers)
         tagged_containers: List[TaggedContainer] = []
-        for device in containers:
+        for device in all_containers:
             tags = _extract_tags_from_name(device.name)
             tags.update(_extract_tags_from_custom_data(device))
             tagged_containers.append(TaggedContainer(device=device, tags=tags))

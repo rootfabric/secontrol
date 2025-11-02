@@ -892,6 +892,42 @@ class Grid:
         """
         return [block for block in self.blocks.values() if block.is_damaged]
 
+    def find_devices_containers(self) -> list["BaseDevice"]:
+        """
+        Возвращает список устройств, которые могут содержать предметы (имеют инвентари).
+        """
+        return [d for d in self.devices.values() if d.is_container]
+
+    def get_all_grid_items(self) -> list[dict]:
+        """
+        Возвращает список всех предметов на гриде с информацией о расположении.
+
+        Каждый элемент содержит:
+        - device_id: ID устройства
+        - device_name: имя устройства
+        - device_type: тип устройства
+        - inventory_name: имя внутреннего инвентаря
+        - item_type: тип предмета
+        - item_subtype: подтип предмета
+        - amount: количество
+        - display_name: отображаемое имя предмета
+        """
+        items = []
+        for device in self.find_devices_containers():
+            for inventory in device.inventories():
+                for item in inventory.items:
+                    items.append({
+                        "device_id": device.device_id,
+                        "device_name": device.name,
+                        "device_type": device.device_type,
+                        "inventory_name": inventory.name,
+                        "item_type": item.type,
+                        "item_subtype": item.subtype,
+                        "amount": item.amount,
+                        "display_name": item.display_name,
+                    })
+        return items
+
     # ------------------------------------------------------------------
     def get_block(self, block_id: int | str) -> Optional[BlockInfo]:
         """Возвращает блок по его ``EntityId``."""
@@ -2446,6 +2482,12 @@ class BaseDevice:
             except (TypeError, ValueError):
                 continue
         return None
+
+    # ------------------------------------------------------------------
+    @property
+    def is_container(self) -> bool:
+        """True if this device can contain items (has inventories)."""
+        return self.inventory_count() > 0
 
     # ------------------------------------------------------------------
     def command_channel(self) -> str:
