@@ -31,6 +31,10 @@
 * [Корабельный сварщик](#корабельный-сварщик)
 * [Двигатель (трастер)](#двигатель-трастер)
 * [Базовый корабельный инструмент](#базовый-корабельный-инструмент)
+* [AI автопилоты](#ai-автопилоты)
+* [AI задачи](#ai-задачи)
+* [AI поведение](#ai-поведение)
+* [AI рекордер](#ai-рекордер)
 
 ### Батарея
 
@@ -305,4 +309,56 @@
 | `enable` / `disable` / `toggle` | — | Управляют питанием любого корабельного инструмента.【F:src/secontrol/devices/ship_tool_device.py†L24-L28】|
 | `use_conveyor` | `useConveyor`: bool | Включает использование конвейеров для подачи ресурсов.【F:src/secontrol/devices/ship_tool_device.py†L29-L30】|
 | `_send_boolean_command`, `_send_float_command` | Внутренние параметры наследников | Вспомогательные методы, которые используют устройства-наследники для отправки специализированных команд (см. конкретные разделы).【F:src/secontrol/devices/ship_tool_device.py†L31-L34】|
+
+### AI автопилоты
+
+`AiMoveGroundDevice` и `AiFlightAutopilotDevice` реализуют команды миссий и автопилота новых AI-блоков Space Engineers. Общие методы предоставляются базовым классом `AiMissionBlockDevice`.
+
+#### Команды
+
+| Команда | Параметры | Описание |
+| ------- | ---------- | -------- |
+| `mission_select` | `missionId`: int | Выбирает миссию для выполнения блоком.【F:src/secontrol/devices/ai_device.py†L73-L82】|
+| `mission_enable` / `mission_disable` / `mission_reset` | — | Запускает, останавливает или сбрасывает выбранную миссию.【F:src/secontrol/devices/ai_device.py†L84-L92】|
+| `autopilot_enable` / `autopilot_disable` / `autopilot_pause` / `autopilot_resume` | — | Управляют состоянием встроенного автопилота.【F:src/secontrol/devices/ai_device.py†L94-L102】|
+| `clear_waypoints` | — | Очищает очередь точек маршрута.【F:src/secontrol/devices/ai_device.py†L104-L105】|
+| `add_waypoint` | `position`: vector, `speed`: float?, `name`: str? | Добавляет новую точку маршрута и опционально ограничивает скорость движения.【F:src/secontrol/devices/ai_device.py†L107-L118】|
+| `set_speed_limit` | `value`: float | Устанавливает глобальное ограничение скорости для блока.【F:src/secontrol/devices/ai_device.py†L120-L121】|
+| `set_collision_avoidance` / `set_terrain_follow` | `value`: bool | Включает обход препятствий и следование рельефу соответственно.【F:src/secontrol/devices/ai_device.py†L123-L126】|
+| `set_mode` | `mode`: str | Переключает режим выполнения миссии/автопилота (например, Patrol/OneWay).【F:src/secontrol/devices/ai_device.py†L128-L131】|
+
+### AI задачи
+
+`AiOffensiveDevice` и `AiDefensiveDevice` наследуют `AiTaskDevice` и предназначены для установки целей и режимов поведения боевых AI-блоков.
+
+#### Команды
+
+| Команда | Параметры | Описание |
+| ------- | ---------- | -------- |
+| `set_target` | `entityId`: int?, `position`: vector?, `value`: str? | Назначает цель по идентификатору сущности либо по координатам. Можно передать готовую GPS-строку в `value`.【F:src/secontrol/devices/ai_device.py†L139-L154】|
+| `clear_target` | — | Сбрасывает текущую цель блока.【F:src/secontrol/devices/ai_device.py†L156-L157】|
+| `set_mode` | `mode`: str | Переключает режим поведения (например, Patrol, Assault).【F:src/secontrol/devices/ai_device.py†L159-L162】|
+
+### AI поведение
+
+`AiBehaviorDevice` управляет профилями поведения, которые подключаются к AI задачам или автопилотам.
+
+#### Команды
+
+| Команда | Параметры | Описание |
+| ------- | ---------- | -------- |
+| `set_behavior` | `behavior`: str | Устанавливает активный профиль поведения блока.【F:src/secontrol/devices/ai_device.py†L168-L173】|
+| `behavior_start` / `behavior_stop` | — | Включает или отключает выполнение выбранного профиля.【F:src/secontrol/devices/ai_device.py†L175-L179】|
+
+### AI рекордер
+
+`AiRecorderDevice` позволяет записывать и проигрывать траектории движения для AI блоков.
+
+#### Команды
+
+| Команда | Параметры | Описание |
+| ------- | ---------- | -------- |
+| `recorder_start` / `recorder_stop` | — | Начинает или завершает запись пути блока.【F:src/secontrol/devices/ai_device.py†L185-L191】|
+| `recorder_play` | — | Запускает воспроизведение записанного маршрута.【F:src/secontrol/devices/ai_device.py†L193-L194】|
+| `recorder_clear` | — | Очищает текущую запись траектории.【F:src/secontrol/devices/ai_device.py†L196-L197】|
 
