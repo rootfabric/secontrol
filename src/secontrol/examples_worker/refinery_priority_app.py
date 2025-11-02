@@ -1,0 +1,320 @@
+"""Refinery priority manager application in the App(start/step) format.
+
+The script connects to the player's grid, discovers refineries and source containers,
+and manages priority ore processing by setting up refinery queues and moving
+resources according to priority order.
+
+Priority ores are processed first, ensuring critical resources like uranium and
+gold are refined before common materials like iron.
+
+Usage (after installing dependencies and configuring environment variables):
+
+    python -m secontrol.examples_worker.refinery_priority_app
+
+Configuration:
+- PRIORITY_ORES: List of ore types in processing priority order (highest first)
+- MAX_QUEUE_SIZE: Maximum items per refinery queue
+- REFRESH_EVERY: How often to check and update refinery states (steps)
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Dict, List, Optional, Set
+
+from secontrol.base_device import Grid
+from secontrol.common import close, resolve_owner_id, resolve_player_id
+from secontrol.redis_client import RedisEventClient
+from secontrol.devices.refinery_device import RefineryDevice
+from secontrol.devices.container_device import ContainerDevice
+
+
+# Приоритетные руды для обработки (от высшего к низшему приоритету)
+PRIORITY_ORES = [
+    "Uranium",    # Уран - критический ресурс
+    "Gold",       # Золото - ценный ресурс
+    "Platinum",   # Платина - ценный ресурс
+    "Silver",     # Серебро - ценный ресурс
+    "Cobalt",     # Кобальт - для продвинутых компонентов
+    "Nickel",     # Никель - для продвинутых компонентов
+    "Magnesium",  # Магний - для продвинутых компонентов
+    "Iron",       # Железо - базовый ресурс
+    "Silicon",    # Кремний - базовый ресурс
+    "Stone",      # Камень - самый низкий приоритет
+]
+
+# Маппинг руд на чертежи очистителя
+ORE_TO_BLUEPRINT = {
+    "Stone": "StoneOreToIngot",
+    "Iron": "IronOreToIngot",
+    "Nickel": "NickelOreToIngot",
+    "Cobalt": "CobaltOreToIngot",
+    "Magnesium": "MagnesiumOreToIngot",
+    "Silicon": "SiliconOreToIngot",
+    "Silver": "SilverOreToIngot",
+    "Gold": "GoldOreToIngot",
+    "Platinum": "PlatinumOreToIngot",
+    "Uranium": "UraniumOreToIngot"
+}
+
+# Максимальный размер очереди на очиститель
+MAX_QUEUE_SIZE = 10
+
+# Частота проверки состояния (каждые N шагов)
+REFRESH_EVERY = 30
+
+
+class App:
+    """Менеджер приоритетной обработки руд в очистителях."""
+
+    def __init__(self, *, refresh_every: int = REFRESH_EVERY, max_queue_size: int = MAX_QUEUE_SIZE):
+        self.counter = 0
+        self._grids: List[Grid] = []
+        self._refresh_every = max(1, int(refresh_every))
+        self._max_queue_size = max(1, int(max_queue_size))
+        self._refineries: List[RefineryDevice] = []
+        self._source_containers: List[ContainerDevice] = []
+        self._priority_ores = PRIORITY_ORES.copy()
+
+    def start(self):
+        """Инициализация приложения."""
+        client = RedisEventClient()
+        owner_id = resolve_owner_id()
+        player_id = resolve_player_id(owner_id)
+
+        grids_info = client.list_grids(owner_id)
+        for grid_info in grids_info:
+            grid_id = str(grid_info.get("id"))
+            grid_name = grid_info.get("name", f"Grid_{grid_id}")
+            grid = Grid(client, owner_id, grid_id, player_id, grid_name)
+            self._grids.append(grid)
+
+        self._refresh_devices()
+        print(
+            f"Refinery Priority Manager started: {len(self._refineries)} refineries, "
+            f"{len(self._source_containers)} source containers"
+        )
+        print(f"Priority order: {', '.join(self._priority_ores)}")
+
+    def step(self):
+        """Один шаг работы приложения."""
+        if not self._grids:
+            raise RuntimeError("Grids are not prepared. Call start() first.")
+
+        self.counter += 1
+
+        # Периодическое обновление списка устройств
+        if self.counter % self._refresh_every == 1:
+            self._refresh_devices()
+
+        # Управление очередями очистителей
+        total_actions = 0
+        for refinery in self._refineries:
+            actions = self._manage_refinery_queue(refinery)
+            total_actions += actions
+
+        if total_actions > 0:
+            print(f"Step {self.counter}: performed {total_actions} queue management actions")
+        else:
+            print(f"Step {self.counter}: queues are optimized")
+
+    def close(self):
+        """Закрытие приложения."""
+        for grid in self._grids:
+            try:
+                close(grid)
+            except Exception:  # pragma: no cover - best effort cleanup
+                pass
+
+    def _refresh_devices(self) -> None:
+        """Обновление списков устройств."""
+        if not self._grids:
+            return
+
+        # Поиск очистителей
+        all_refineries: List[RefineryDevice] = []
+        for grid in self._grids:
+            finder = getattr(grid, "find_devices_by_type", None)
+            if callable(finder):
+                try:
+                    refineries = list(finder("refinery"))
+                    all_refineries.extend(refineries)
+                except Exception:
+                    pass
+            if not all_refineries:
+                all_refineries = [
+                    device
+                    for device in grid.devices.values()
+                    if isinstance(device, RefineryDevice)
+                ]
+
+        # Поиск контейнеров-источников
+        all_source_containers: List[ContainerDevice] = []
+        for grid in self._grids:
+            containers: List[ContainerDevice] = []
+            finder = getattr(grid, "find_devices_by_type", None)
+            if callable(finder):
+                try:
+                    containers = list(finder("container"))
+                except Exception:
+                    containers = []
+            if not containers:
+                containers = [
+                    device
+                    for device in grid.devices.values()
+                    if isinstance(device, ContainerDevice)
+                ]
+
+            # Фильтрация контейнеров-источников по имени или custom data
+            for container in containers:
+                if self._is_source_container(container):
+                    all_source_containers.append(container)
+
+        self._refineries = all_refineries
+        self._source_containers = all_source_containers
+
+    def _is_source_container(self, container: ContainerDevice) -> bool:
+        """Проверка, является ли контейнер источником ресурсов."""
+        # Проверка по имени
+        name = (container.name or "").lower()
+        if "[source]" in name or "[input]" in name or "[ore]" in name:
+            return True
+
+        # Проверка по custom data
+        custom_data = container.custom_data()
+        if custom_data and ("source" in custom_data.lower() or
+                           "input" in custom_data.lower() or
+                           "ore" in custom_data.lower()):
+            return True
+
+        return False
+
+    def _manage_refinery_queue(self, refinery: RefineryDevice) -> int:
+        """Управление очередью конкретного очистителя."""
+        actions = 0
+
+        # Получение текущей очереди
+        current_queue = refinery.queue()
+
+        # Определение требуемой очереди на основе приоритетов и доступных ресурсов
+        desired_queue = self._build_desired_queue(refinery)
+
+        # Сравнение текущей и желаемой очередей
+        if not self._queues_equal(current_queue, desired_queue):
+            print(f"Updating queue for refinery {refinery.name}")
+
+            # Очистка текущей очереди
+            if current_queue:
+                refinery.clear_queue()
+                actions += 1
+                time.sleep(0.5)  # Небольшая задержка
+
+            # Добавление элементов в новую очередь
+            for item in desired_queue:
+                blueprint = item['blueprint']
+                amount = item['amount']
+                refinery.add_queue_item(blueprint, amount)
+                actions += 1
+
+            # Расстановка ресурсов в правильном порядке
+            self._arrange_resources_in_queue_order(refinery, desired_queue)
+            actions += 1
+
+        return actions
+
+    def _build_desired_queue(self, refinery: RefineryDevice) -> List[Dict]:
+        """Построение желаемой очереди для очистителя."""
+        desired_queue = []
+
+        # Проверка доступных ресурсов в контейнерах-источниках
+        available_resources = self._get_available_resources()
+
+        # Добавление элементов в порядке приоритета
+        for ore_type in self._priority_ores:
+            if ore_type in available_resources and available_resources[ore_type] > 0:
+                blueprint = ORE_TO_BLUEPRINT.get(ore_type)
+                if blueprint:
+                    # Определение количества для добавления
+                    amount = min(available_resources[ore_type], 1000)  # Максимум 1000 единиц за раз
+                    desired_queue.append({
+                        'blueprint': blueprint,
+                        'ore_type': ore_type,
+                        'amount': amount
+                    })
+
+                    # Ограничение размера очереди
+                    if len(desired_queue) >= self._max_queue_size:
+                        break
+
+        return desired_queue
+
+    def _get_available_resources(self) -> Dict[str, float]:
+        """Получение доступных ресурсов из контейнеров-источников."""
+        available = {}
+
+        for container in self._source_containers:
+            items = container.items()
+            for item in items:
+                subtype = item.subtype or ""
+                if subtype in self._priority_ores:
+                    if subtype not in available:
+                        available[subtype] = 0
+                    available[subtype] += item.amount
+
+        return available
+
+    def _arrange_resources_in_queue_order(self, refinery: RefineryDevice, queue: List[Dict]) -> None:
+        """Расстановка ресурсов в контейнере очистителя в порядке очереди."""
+        for slot_index, item in enumerate(queue):
+            ore_type = item['ore_type']
+            amount = item['amount']
+
+            # Поиск ресурса в контейнерах-источниках
+            for source_container in self._source_containers:
+                source_items = source_container.items()
+                for source_item in source_items:
+                    if source_item.subtype == ore_type and source_item.amount > 0:
+                        transfer_amount = min(source_item.amount, amount)
+
+                        # Перемещение в указанный слот
+                        result = source_container.move_subtype(
+                            refinery.device_id,
+                            ore_type,
+                            amount=transfer_amount,
+                            target_slot_id=slot_index
+                        )
+
+                        if result > 0:
+                            amount -= transfer_amount
+                            if amount <= 0:
+                                break
+
+                if amount <= 0:
+                    break
+
+    def _queues_equal(self, queue1: List[Dict], queue2: List[Dict]) -> bool:
+        """Сравнение двух очередей на эквивалентность."""
+        if len(queue1) != len(queue2):
+            return False
+
+        for i, (item1, item2) in enumerate(zip(queue1, queue2)):
+            blueprint1 = item1.get('blueprintSubtype', item1.get('blueprintId', item1.get('blueprint', '')))
+            blueprint2 = item2.get('blueprint')
+
+            if blueprint1 != blueprint2:
+                return False
+
+        return True
+
+
+if __name__ == "__main__":
+    app = App()
+    app.start()
+    try:
+        while True:
+            app.step()
+            time.sleep(5)  # 5 секунд между шагами
+    except KeyboardInterrupt:
+        print("\nStopping refinery priority manager...")
+    finally:
+        app.close()
