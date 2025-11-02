@@ -209,6 +209,14 @@ class ContainerDevice(BaseDevice):
             # amount — опционален, отсутствие == перенести стек целиком
             if it_dict.get("amount") is not None:
                 entry["amount"] = float(it_dict["amount"])
+            # targetSlotId — опционален для указания целевого слота
+            target_slot_id = it_dict.get("targetSlotId")
+            if target_slot_id is None:
+                target_slot_id = it_dict.get("slotId")
+            if target_slot_id is None:
+                target_slot_id = it_dict.get("targetSlot")
+            if target_slot_id is not None:
+                entry["targetSlotId"] = int(target_slot_id)
             norm_items.append(entry)
 
         if not norm_items:
@@ -238,7 +246,7 @@ class ContainerDevice(BaseDevice):
         """
         return self._send_transfer(from_id=self.device_id, to_id=destination, items=items, cmd="transfer_items")
 
-    def move_subtype(self, destination: int | str, subtype: str, *, amount: float | None = None, type_id: str | None = None) -> int:
+    def move_subtype(self, destination: int | str, subtype: str, *, amount: float | None = None, type_id: str | None = None, target_slot_id: int | None = None) -> int:
         """
         Удобный синоним для переноса одного сабтайпа.
         """
@@ -247,7 +255,30 @@ class ContainerDevice(BaseDevice):
             it["type"] = type_id
         if amount is not None:
             it["amount"] = float(amount)
+        if target_slot_id is not None:
+            it["targetSlotId"] = int(target_slot_id)
         return self.move_items(destination, [it])
+
+    def move_items_to_slot(self, destination: int | str, items: list[Item] | list[dict], target_slot_id: int) -> int:
+        """
+        Перенести список предметов в указанный слот контейнера.
+
+        items: [{ "subtype": "IronIngot", "type": "MyObjectBuilder_Ingot", "amount": 50 }, ...] или [Item(...), ...]
+        target_slot_id: номер слота для размещения предметов (0 = первый слот)
+        """
+        # Добавляем targetSlotId к каждому элементу
+        modified_items = []
+        for it in items:
+            if isinstance(it, Item):
+                it_dict = it.to_dict()
+            elif isinstance(it, dict):
+                it_dict = dict(it)
+            else:
+                continue
+            it_dict["targetSlotId"] = int(target_slot_id)
+            modified_items.append(it_dict)
+
+        return self.move_items(destination, modified_items)
 
     def move_all(self, destination: int | str, *, blacklist: Set[str] | None = None) -> int:
         """

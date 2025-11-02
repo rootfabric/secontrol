@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from typing import Any, Dict, List
 
 from secontrol.common import close, prepare_grid
@@ -78,6 +79,8 @@ def arrange_resources_in_order(refinery: RefineryDevice, source_containers: List
     Перемещает ресурсы из контейнеров-источников в входной инвентарь очистителя
     в том порядке, как они указаны в очереди команд.
     """
+
+    time.sleep(1)
     queue = refinery.queue()
     if not queue:
         print("Очередь пуста, нечего расставлять")
@@ -107,13 +110,13 @@ def arrange_resources_in_order(refinery: RefineryDevice, source_containers: List
             source_items = source_container.items()
             for source_item in source_items:
                 if source_item.subtype == required_resource:
-                    # Нашли ресурс, перемещаем в очиститель
+                    # Нашли ресурс, перемещаем в очиститель в соответствующий слот
                     transfer_amount = min(source_item.amount, amount)
-                    print(f"  Перемещение {transfer_amount} {required_resource} из {source_container.name}")
+                    print(f"  Перемещение {transfer_amount} {required_resource} из {source_container.name} в слот {i}")
 
-                    result = source_container.move_subtype(refinery.device_id, required_resource, amount=transfer_amount)
+                    result = source_container.move_subtype(refinery.device_id, required_resource, amount=transfer_amount, target_slot_id=i)
                     if result > 0:
-                        print(f"  ✅ Перемещено {transfer_amount} {required_resource}")
+                        print(f"  ✅ Перемещено {transfer_amount} {required_resource} в слот {i}")
                         resource_found = True
                         amount -= transfer_amount
                         if amount <= 0:
