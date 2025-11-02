@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterable, Optional
 
 from secontrol.base_device import DEVICE_TYPE_MAP
 from secontrol.devices.container_device import ContainerDevice
+from secontrol.inventory import InventorySnapshot
 
 
 def _extract_vector(data: Optional[Dict[str, Any]], key: str) -> Dict[str, float]:
@@ -76,12 +77,8 @@ class CockpitDevice(ContainerDevice):
             "total": _extract_vector(gravity, "total"),
         }
 
-    def inventories(self) -> Iterable[Dict[str, Any]]:
-        data = self.telemetry or {}
-        inv = data.get("inventories")
-        if isinstance(inv, list):
-            return [entry for entry in inv if isinstance(entry, dict)]
-        return []
+    def inventories(self) -> Iterable[InventorySnapshot]:
+        return super().inventories()
 
     # -------------------------- Commands ----------------------------
     def set_enabled(self, enabled: bool) -> int:

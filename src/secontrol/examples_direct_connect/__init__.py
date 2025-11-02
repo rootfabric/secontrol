@@ -5,7 +5,7 @@ __all__ = [
     "lamp_blind",
     "toggle_device",
     "paint_grid_blocks.py",
-    "damage_listener",
+    "grid_damage_listener.py",
     "radar_telemetry",
     "gui_telemetry_viewer",
     "container_display_sync",
