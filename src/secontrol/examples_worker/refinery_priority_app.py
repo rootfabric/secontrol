@@ -31,9 +31,11 @@ from secontrol.devices.container_device import ContainerDevice
 
 # Приоритетные руды для обработки (от высшего к низшему приоритету)
 PRIORITY_ORES = [
-    # "Uranium",    # Уран - критический ресурс
+
+
+    "Platinum",  # Платина - ценный ресурс
+    "Uranium",  # Уран - критический ресурс
     "Gold",       # Золото - ценный ресурс
-    "Platinum",   # Платина - ценный ресурс
     "Silver",     # Серебро - ценный ресурс
     "Cobalt",     # Кобальт - для продвинутых компонентов
     "Nickel",     # Никель - для продвинутых компонентов
@@ -196,8 +198,11 @@ class App:
 
         return False
 
-    def _clear_refinery_inventory(self, refinery: RefineryDevice) -> int:
-        """Очистка входного инвентаря очистителя, перемещение ресурсов обратно в контейнеры-источники."""
+    def _clear_refinery_inventory(self, refinery: RefineryDevice, keep_ore_types: List[str] = None) -> int:
+        """Очистка входного инвентаря очистителя, перемещение ресурсов обратно в контейнеры-источники.
+
+        keep_ore_types: список типов руды, которые не нужно убирать (если они в правильном порядке)
+        """
         actions = 0
 
         # Получение входного инвентаря
@@ -211,10 +216,22 @@ class App:
 
         print(f"Clearing inventory for refinery {refinery.name}")
 
-        # Перемещение всех ресурсов обратно в контейнеры-источники
-        for item in items:
+        # Перемещение всех ресурсов обратно в контейнеры-источники, кроме тех, что нужно сохранить
+        for i, item in enumerate(items):
             if item.amount > 0:
                 subtype = item.subtype
+
+                # Проверяем, нужно ли сохранить этот ресурс
+                should_keep = False
+                if keep_ore_types and i < len(keep_ore_types):
+                    expected_ore = keep_ore_types[i]
+                    if subtype == expected_ore:
+                        print(f"Keeping {item.amount} {subtype} in refinery (correct position {i})")
+                        should_keep = True
+
+                if should_keep:
+                    continue
+
                 amount = item.amount
 
                 # Ищем контейнер-источник, куда можно переместить
@@ -251,18 +268,35 @@ class App:
             time.sleep(0.1)
 
         try:
+            # Проверка, нужно ли прервать текущую обработку из-за низкого приоритета
+            should_interrupt = self._should_interrupt_current_processing(refinery)
+            print(f"Refinery {refinery.name}: should_interrupt={should_interrupt}")
+
             # Получение текущей очереди
             current_queue = refinery.queue()
+            print(f"Current queue length: {len(current_queue)}")
 
             # Определение требуемой очереди на основе приоритетов и доступных ресурсов
             desired_queue = self._build_desired_queue(refinery)
+            print(f"Desired queue length: {len(desired_queue)}")
 
-            # Сравнение текущей и желаемой очередей
-            if not self._queues_equal(current_queue, desired_queue):
-                print(f"Updating queue for refinery {refinery.name}")
+            # Проверка, правильно ли расставлены ресурсы в input inventory
+            resources_properly_arranged = self._are_resources_properly_arranged(refinery, desired_queue)
+            print(f"Resources properly arranged: {resources_properly_arranged}")
 
-                # Очистка входного инвентаря
-                actions += self._clear_refinery_inventory(refinery)
+            # Сравнение текущей и желаемой очередей или принудительное обновление при низком приоритете
+            queues_equal = self._queues_equal(current_queue, desired_queue)
+            print(f"Queues equal: {queues_equal}")
+
+            if should_interrupt or not queues_equal or not resources_properly_arranged:
+                if should_interrupt:
+                    print(f"Interrupting low-priority processing in refinery {refinery.name}")
+                else:
+                    print(f"Updating queue for refinery {refinery.name}")
+
+                # Очистка входного инвентаря, сохраняя правильно расположенные ресурсы
+                keep_ores = [item['ore_type'] for item in desired_queue]
+                actions += self._clear_refinery_inventory(refinery, keep_ore_types=keep_ores)
 
                 # Очистка текущей очереди
                 if current_queue:
@@ -315,57 +349,88 @@ class App:
         return desired_queue
 
     def _get_available_resources(self) -> Dict[str, float]:
-        """Получение доступных ресурсов из контейнеров-источников."""
+        """Получение доступных ресурсов из всех контейнеров на гриде."""
         available = {}
 
-        for container in self._source_containers:
+        # Получить все контейнеры на всех гридах
+        all_containers = []
+        for grid in self._grids:
+            containers = grid.find_devices_containers()
+            all_containers.extend(containers)
+
+        print(f"Scanning {len(all_containers)} containers for ore...")
+
+        for container in all_containers:
             items = container.items()
             for item in items:
                 subtype = item.subtype or ""
-                if subtype in self._priority_ores:
+                # Ищем только руду, а не слитки (исключаем Ingot)
+                if subtype in self._priority_ores and "Ingot" not in subtype:
                     if subtype not in available:
                         available[subtype] = 0
                     available[subtype] += item.amount
+                    print(f"  Found {item.amount} {subtype} in {container.name}")
 
+        print(f"Available resources: {available}")
         return available
 
     def _arrange_resources_in_queue_order(self, refinery: RefineryDevice, queue: List[Dict]) -> None:
         """Расстановка ресурсов в контейнере очистителя в порядке очереди."""
         print(f"Arranging resources in refinery {refinery.name} for {len(queue)} queue items")
 
-        for item in queue:
+        # Получить текущие ресурсы в refinery input inventory
+        input_inventory = refinery.input_inventory()
+        current_inventory = {}
+        if input_inventory and input_inventory.items:
+            for item in input_inventory.items:
+                current_inventory[item.subtype] = item.amount
+
+        # Получить все контейнеры на гриде для поиска ресурсов
+        all_containers = []
+        for grid in self._grids:
+            containers = grid.find_devices_containers()
+            all_containers.extend(containers)
+
+        for i, item in enumerate(queue):
             ore_type = item['ore_type']
-            amount = item['amount']
-            print(f"  Need {amount} {ore_type}")
+            required_amount = item['amount']
 
-            # Поиск ресурса в контейнерах-источниках
-            for source_container in self._source_containers:
-                source_items = source_container.items()
-                for source_item in source_items:
-                    if source_item.subtype == ore_type and source_item.amount > 0:
-                        transfer_amount = min(source_item.amount, amount)
-                        print(f"    Found {source_item.amount} {ore_type} in source container {source_container.name} (ID: {source_container.device_id}), transferring {transfer_amount} to refinery {refinery.name} (ID: {refinery.device_id}) input inventory")
+            # Проверить, сколько уже есть в refinery
+            current_amount = current_inventory.get(ore_type, 0)
+            amount_needed = max(0, required_amount - current_amount)
 
-                        # Перемещение в input inventory refinery
-                        result = source_container.move_subtype(
-                            refinery.input_inventory(),
-                            ore_type,
-                            amount=transfer_amount
-                        )
+            if amount_needed > 0:
+                print(f"  Need {amount_needed} more {ore_type} (already have {current_amount})")
 
-                        if result > 0:
-                            print(f"    ✅ Successfully moved {transfer_amount} {ore_type} from source container {source_container.name} to refinery {refinery.name} input inventory")
-                            amount -= transfer_amount
-                            if amount <= 0:
-                                break
-                        else:
-                            print(f"    ❌ Failed to move {ore_type} from source container {source_container.name} to refinery {refinery.name}")
+                # Поиск ресурса во всех контейнерах на гриде
+                for container in all_containers:
+                    if amount_needed <= 0:
+                        break
 
-                if amount <= 0:
-                    break
+                    container_items = container.items()
+                    for container_item in container_items:
+                        if container_item.subtype == ore_type and container_item.amount > 0:
+                            transfer_amount = min(container_item.amount, amount_needed)
+                            print(f"    Found {container_item.amount} {ore_type} in container {container.name} (ID: {container.device_id}), transferring {transfer_amount} to refinery {refinery.name} (ID: {refinery.device_id}) input inventory")
 
-            if amount > 0:
-                print(f"  ⚠️ Could not find enough {ore_type}, still need {amount}")
+                            # Перемещение в input inventory refinery
+                            result = container.move_subtype(
+                                refinery.input_inventory(),
+                                ore_type,
+                                amount=transfer_amount
+                            )
+
+                            if result > 0:
+                                print(f"    ✅ Successfully moved {transfer_amount} {ore_type} from container {container.name} to refinery {refinery.name} input inventory")
+                                amount_needed -= transfer_amount
+                                current_inventory[ore_type] = current_inventory.get(ore_type, 0) + transfer_amount
+                                if amount_needed <= 0:
+                                    break
+                            else:
+                                print(f"    ❌ Failed to move {ore_type} from container {container.name} to refinery {refinery.name}")
+
+            else:
+                print(f"  Already have enough {ore_type}: {current_amount} >= {required_amount}")
 
         print("Resource arrangement completed")
 
@@ -381,6 +446,90 @@ class App:
                 print("Refinery input inventory is empty after arrangement")
         else:
             print("Could not check refinery input inventory")
+
+    def _get_current_processing_ore(self, refinery: RefineryDevice) -> Optional[str]:
+        """Определение руды, которую refinery обрабатывает сейчас."""
+        # Проверяем input inventory - там должна быть руда, которая обрабатывается
+        input_inventory = refinery.input_inventory()
+        if input_inventory and input_inventory.items:
+            # Берем первый предмет в инвентаре (предполагаем, что refinery обрабатывает первый слот)
+            first_item = input_inventory.items[0]
+            subtype = first_item.subtype or ""
+            if subtype in self._priority_ores:
+                return subtype
+
+        # Если в input inventory пусто, проверяем очередь
+        queue = refinery.queue()
+        if queue:
+            first_item = queue[0]
+            blueprint = first_item.get('blueprintSubtype', first_item.get('blueprintId', first_item.get('blueprint', '')))
+            # Обратный маппинг из blueprint в руду
+            for ore, bp in ORE_TO_BLUEPRINT.items():
+                if bp == blueprint:
+                    return ore
+
+        return None
+
+    def _get_ore_priority(self, ore_type: str) -> int:
+        """Получение приоритета руды (меньше число = выше приоритет)."""
+        if ore_type in self._priority_ores:
+            return self._priority_ores.index(ore_type)
+        return len(self._priority_ores)  # Низший приоритет для неизвестных
+
+    def _are_resources_properly_arranged(self, refinery: RefineryDevice, queue: List[Dict]) -> bool:
+        """Проверка, правильно ли расставлены ресурсы в input inventory по порядку очереди."""
+        input_inventory = refinery.input_inventory()
+        if not input_inventory or not input_inventory.items:
+            return len(queue) == 0  # Если очередь пустая и инвентарь пустой - правильно
+
+        inventory_items = input_inventory.items
+
+        # Создаем словарь текущих ресурсов в refinery
+        current_resources = {}
+        for item in inventory_items:
+            current_resources[item.subtype] = item.amount
+
+        # Проверяем порядок: для каждого ресурса в очереди, если он есть в refinery,
+        # он должен быть в правильной позиции относительно других ресурсов в очереди
+        for i, queue_item in enumerate(queue):
+            ore_type = queue_item['ore_type']
+            if ore_type in current_resources:
+                # Проверяем, что все предыдущие ресурсы в очереди либо отсутствуют, либо есть в правильном порядке
+                for j in range(i):
+                    prev_ore = queue[j]['ore_type']
+                    if prev_ore in current_resources:
+                        # Если предыдущий ресурс есть, а текущий тоже есть, порядок нарушен
+                        print(f"Resource order violation: {prev_ore} (pos {j}) comes before {ore_type} (pos {i}) in queue, but both present in refinery")
+                        return False
+                # Проверяем, что нет ресурсов из очереди, которые должны быть после этого
+                for j in range(i + 1, len(queue)):
+                    next_ore = queue[j]['ore_type']
+                    if next_ore in current_resources:
+                        print(f"Resource order violation: {next_ore} (pos {j}) comes after {ore_type} (pos {i}) in queue, but both present in refinery")
+                        return False
+
+        return True
+
+    def _should_interrupt_current_processing(self, refinery: RefineryDevice) -> bool:
+        """Проверка, нужно ли прервать текущую обработку из-за низкого приоритета."""
+        current_ore = self._get_current_processing_ore(refinery)
+        if not current_ore:
+            return False  # Ничего не обрабатывается
+
+        current_priority = self._get_ore_priority(current_ore)
+
+        # Проверяем, есть ли руда с более высоким приоритетом доступная
+        available_resources = self._get_available_resources()
+
+        for ore_type in self._priority_ores:
+            if ore_type in available_resources and available_resources[ore_type] > 0:
+                ore_priority = self._get_ore_priority(ore_type)
+                if ore_priority < current_priority:
+                    print(f"Refinery {refinery.name} processing {current_ore} (priority {current_priority}), "
+                          f"but {ore_type} (priority {ore_priority}) is available and has higher priority")
+                    return True
+
+        return False
 
     def _queues_equal(self, queue1: List[Dict], queue2: List[Dict]) -> bool:
         """Сравнение двух очередей на эквивалентность."""

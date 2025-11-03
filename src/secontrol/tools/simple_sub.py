@@ -23,6 +23,7 @@ resolved_password = os.getenv("REDIS_ADMIN_PASSWORD")
 key_name = "se:144115188075855919:grid:127168092107255649:text_panel:99187922852764730:telemetry"
 key_name = "se:144115188075855919:grid:127168092107255649:damage"
 key_name = "telemetry/device/ore_detector/141123856054096097/124829695601500437"
+key_name = "telemetry/device/ore_detector/*"
 # key_name = "se:144115188075855898:grid:141123856054096097:ore_detector:124829695601500437:telemetry"
 
 # каналы:
