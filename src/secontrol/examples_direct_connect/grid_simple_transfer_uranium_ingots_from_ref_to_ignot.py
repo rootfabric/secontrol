@@ -12,6 +12,7 @@ from typing import List, Optional
 from secontrol.common import prepare_grid, close
 from secontrol.devices.refinery_device import RefineryDevice
 from secontrol.devices.container_device import ContainerDevice
+from secontrol.item_types import item_matches, Item
 
 
 def find_refinery_with_uranium_ingots(grid) -> Optional[RefineryDevice]:
@@ -21,7 +22,7 @@ def find_refinery_with_uranium_ingots(grid) -> Optional[RefineryDevice]:
             output_inv = device.output_inventory()
             if output_inv:
                 for item in output_inv.items:
-                    if item.subtype == "Uranium" and item.type == "MyObjectBuilder_Ingot" and item.amount > 0:
+                    if item_matches(item, Item.UraniumIngot) and item.amount > 0:
                         print(f"Найден refinery '{device.name}' (ID: {device.device_id}) с {item.amount} Uranium Ingot")
                         return device
     return None
@@ -48,7 +49,7 @@ def transfer_uranium_ingots_from_refinery_to_container(refinery: RefineryDevice,
     total_transferred = 0
 
     for item in output_inv.items:
-        if item.subtype == "Uranium" and item.type == "MyObjectBuilder_Ingot" and item.amount > 0:
+        if item_matches(item, Item.UraniumIngot) and item.amount > 0:
             print(f"Перемещаем {item.amount} Uranium Ingot из refinery '{refinery.name}' в контейнер '{container.name}'")
 
             # Перемещаем Uranium Ingot из output inventory refinery в контейнер

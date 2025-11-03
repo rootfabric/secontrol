@@ -7,6 +7,7 @@ from typing import Iterable, List
 from secontrol.base_device import BaseDevice
 from secontrol.common import close, prepare_grid
 from secontrol.devices.container_device import ContainerDevice, Item
+from secontrol.item_types import item_matches, Item
 
 TARGET_TYPE = "MyObjectBuilder_Component"
 TARGET_SUBTYPE = "SteelPlate"
@@ -55,7 +56,7 @@ def _count_steel_plates(containers: Iterable[ContainerDevice]) -> float:
         for item in container.items():
             if not isinstance(item, Item):
                 continue
-            if item.type == TARGET_TYPE and item.subtype == TARGET_SUBTYPE:
+            if item_matches(item, Item.SteelPlate):
                 total += float(item.amount)
     return total
 
