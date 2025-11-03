@@ -1,71 +1,75 @@
-"""Example: blinking lamps in App(start/step) format.
-
-This example uses the App class with start/step methods and toggles
-all lamps on the selected grid on each step call.
-"""
-
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from secontrol.common import close, prepare_grid
-from secontrol.base_device import Grid
 from secontrol.devices.lamp_device import LampDevice
 
 
 class App:
     def __init__(self):
         self.counter: int = 0
-        self._grid: Optional[Grid] = None
+        # self._grid, self._owns_grid = _resolve_grid(grid, grid_id)
         self._lamps: List[LampDevice] = []
         self._on: bool = False
 
-    def start(self):
-        # Create Redis client and Grid, then collect all lamps
-        self._grid = prepare_grid()
+        # Пытаемся получить grid_id независимо от конкретного класса грида
+        self.grid_id = None
 
-        # Prefer type-based search if available, otherwise isinstance fallback
-        lamps = []
+    def start(self):
+        # Сообщение как в воркере
+        if self.grid_id is None:
+            self.grid_id = grid.grid_id
+
+        self._grid = prepare_grid(self.grid_id )
+
+        # Находим лампы: сперва по типу, затем через isinstance
+        lamps: List[LampDevice] = []
         try:
+            # если у грида есть метод поиска по типу
             lamps = list(self._grid.find_devices_by_type("lamp"))  # type: ignore[attr-defined]
         except Exception:
             pass
+
         if not lamps:
-            lamps = [d for d in self._grid.devices.values() if isinstance(d, LampDevice)]  # type: ignore[union-attr]
+            try:
+                devices = getattr(self._grid, "devices", {})  # dict[id, device]
+                lamps = [d for d in devices.values() if isinstance(d, LampDevice)]
+            except Exception:
+                lamps = []
 
         self._lamps = lamps
-        print(f"Started! Lamps found: {len(self._lamps)}")
+        print(f"Lamps found: {len(self._lamps)}")
 
     def step(self):
         self.counter += 1
-        # Toggle state each step and apply to all lamps
         self._on = not self._on
+
+        # Переключаем все лампы; ошибки каждого устройства не валят цикл
         for lamp in self._lamps:
             try:
                 lamp.set_enabled(self._on)
             except Exception:
-                # Ignore individual device errors to keep stepping
                 pass
-        state = "ON" if self._on else "OFF"
-        print(f"Step {self.counter}: lamps -> {state}")
 
-    # Optional: allow external cleanup
-    def close(self):
-        if self._grid:
-            try:
-                close(self._grid)
-            except Exception:
-                pass
+        state = "ON" if self._on else "OFF"
+        if self.grid_id is not None:
+            print(f"Step {self.counter} on grid {self.grid_id}: lamps -> {state}")
+        else:
+            print(f"Step {self.counter}: lamps -> {state}")
+
 
 
 if __name__ == "__main__":
-    # Для отладки, можно запустить локально
+    # Локальный запуск для отладки
     import time
-    app = App()
+    app = App()  # или App(grid_id="..."), или App(grid=уже_существующий_грид)
+
+
+    app.grid_id = prepare_grid().grid_id
+
     app.start()
-    # Simple demo: perform a few steps
     for _ in range(6):
         app.step()
         time.sleep(1)
     app.close()
-

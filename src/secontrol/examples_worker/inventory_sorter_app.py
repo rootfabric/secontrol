@@ -89,9 +89,11 @@ def _derive_item_tags(item: Item) -> Set[str]:
 
 
 class App:
-    def __init__(self, *, refresh_every: int = 10, max_transfers_per_step: int = 20):
+    def __init__(self, grid=None, grid_id=None, *, refresh_every: int = 10, max_transfers_per_step: int = 20):
         self.counter = 0
         self._grids: List[Grid] = []
+        self._grid = grid  # переданный извне grid объект
+        self._grid_id = grid_id  # переданный извне grid_id
         self._refresh_every = max(1, int(refresh_every))
         self._max_transfers = max(1, int(max_transfers_per_step))
         self._containers: List[ContainerDevice] = []
@@ -99,16 +101,67 @@ class App:
         self._production_devices: List[ContainerDevice] = []
 
     def start(self):
-        client = RedisEventClient()
-        owner_id = resolve_owner_id()
-        player_id = resolve_player_id(owner_id)
+        from secontrol.common import prepare_grid
 
-        grids_info = client.list_grids(owner_id)
-        for grid_info in grids_info:
-            grid_id = str(grid_info.get("id"))
-            grid_name = grid_info.get("name", f"Grid_{grid_id}")
-            grid = Grid(client, owner_id, grid_id, player_id, grid_name)
-            self._grids.append(grid)
+        if self._grid:
+            # Использовать переданный извне grid объект/данные
+            if isinstance(self._grid, dict):
+                # Словарь grid_id -> grid_name, создать Grid объекты
+                self._grids = []
+                for grid_id, grid_name in self._grid.items():
+                    try:
+                        grid = prepare_grid(grid_id)
+                        self._grids.append(grid)
+                    except Exception as e:
+                        print(f"Failed to create grid {grid_id}: {e}")
+                print(f"Started with {len(self._grids)} grids from dict")
+            elif isinstance(self._grid, (list, tuple)):
+                # Список/кортеж Grid объектов или (grid_id, grid_name) или просто grid_id
+                self._grids = []
+                for item in self._grid:
+                    if hasattr(item, 'grid_id'):
+                        # Это Grid объект
+                        self._grids.append(item)
+                    elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                        # tuple (grid_id, grid_name), создать Grid
+                        try:
+                            grid = prepare_grid(str(item[0]))
+                            self._grids.append(grid)
+                        except Exception as e:
+                            print(f"Failed to create grid {item[0]}: {e}")
+                    elif isinstance(item, str):
+                        # Просто grid_id как строка
+                        try:
+                            grid = prepare_grid(str(item))
+                            self._grids.append(grid)
+                        except Exception as e:
+                            print(f"Failed to create grid {item}: {e}")
+                    else:
+                        print(f"Unknown grid item format: {item}")
+                print(f"Started with {len(self._grids)} external grids")
+            elif isinstance(self._grid, str):
+                # Передан просто grid_id как строка
+                try:
+                    grid = prepare_grid(self._grid)
+                    self._grids = [grid]
+                except Exception as e:
+                    print(f"Failed to create grid {self._grid}: {e}")
+                    self._grids = []
+                print(f"Started with grid_id string: {self._grid}")
+            else:
+                # Один grid объект
+                self._grids = [self._grid]
+                print(f"Started with external grid: {self._grid.grid_id}")
+        elif self._grid_id:
+            # Создать grid с переданным ID
+            grid = prepare_grid(self._grid_id)
+            self._grids = [grid]
+            print(f"Started with grid ID: {self._grid_id}")
+        else:
+            # Автоматический выбор грида (fallback)
+            grid = prepare_grid()
+            self._grids = [grid]
+            print(f"Started with auto-selected grid: {grid.grid_id}")
 
         self._refresh_containers()
         print(
