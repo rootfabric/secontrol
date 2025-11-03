@@ -83,7 +83,7 @@ def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
     if grid_id:
         return grid_id
 
-    grids = client.list_grids(owner_id)
+    grids = client.list_grids(owner_id, exclude_subgrids=False)
     if not grids:
         raise RuntimeError(
             "No grids were found for the provided owner id. "
@@ -91,7 +91,20 @@ def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
         )
 
     # Take the first basic grid (non-subgrid), never fall back to sub-grids
-    non_sub = [g for g in grids if not _is_subgrid(g)]
+    # Load detailed gridinfo for each grid to check isSubgrid flag
+    non_sub = []
+    for g in grids:
+        grid_id = g.get("id")
+        if not grid_id:
+            continue
+        gridinfo_key = f"se:{owner_id}:grid:{grid_id}:gridinfo"
+        gridinfo = client.get_json(gridinfo_key)
+        is_sub = False
+        if isinstance(gridinfo, dict):
+            is_sub = bool(gridinfo.get("isSubgrid"))
+        # print(f"Grid {grid_id} {g.get('name')}: is_subgrid={is_sub}")
+        if not is_sub:
+            non_sub.append(g)
     if not non_sub:
         raise RuntimeError(
             "No basic grids (non-subgrids) were found for the provided owner id. "
@@ -108,6 +121,7 @@ def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
             f"{grid_id} ({first_grid.get('name', 'unnamed')})",
             f"— candidates: {filtered}/{total}" if non_sub else f"— total: {total}",
         )
+    print(f"Resolved grid: {grid_id} ({first_grid.get('name', 'unnamed')})",)
     return grid_id
 
 

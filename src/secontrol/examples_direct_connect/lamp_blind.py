@@ -13,6 +13,8 @@ def main() -> None:
     print(f"Using owner id: {owner_id}")
 
     grid = prepare_grid()
+    print(grid.name)
+    print(grid.is_subgrid)
 
     # lamp = next((device for device in grid.devices.values() if isinstance(device, LampDevice)), None)
     # if lamp is None:

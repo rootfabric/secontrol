@@ -537,6 +537,7 @@ class Grid:
         self.name = name or f"Grid_{grid_id}"
         self.grid_key = f"se:{owner_id}:grid:{grid_id}:gridinfo"
         self.metadata: Optional[Dict[str, Any]] = None
+        self.is_subgrid: bool = False
         self.devices: Dict[str, BaseDevice] = {}
         # NEW: индекс по числовому id
         self.devices_by_num: Dict[int, BaseDevice] = {}
@@ -632,6 +633,8 @@ class Grid:
         previous_blocks = dict(self.blocks)
 
         self.metadata = payload
+        from .common import _is_subgrid
+        self.is_subgrid = _is_subgrid(self.metadata)
         device_metadata = list(self._extract_devices(payload))
         metadata_ids = {meta.device_id for meta in device_metadata}
 
