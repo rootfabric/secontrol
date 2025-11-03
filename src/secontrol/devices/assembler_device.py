@@ -7,7 +7,8 @@ from typing import Any, Dict, Iterable, List, Optional
 from secontrol.base_device import DEVICE_TYPE_MAP
 from secontrol.devices.container_device import ContainerDevice
 from secontrol.inventory import InventorySnapshot
-
+from secontrol.base_device import Grid, DeviceMetadata
+from secontrol.item_types import Item
 
 def _normalize_queue_item(item: Any, amount: Optional[float] = None) -> Dict[str, Any]:
     if isinstance(item, dict):
@@ -30,6 +31,11 @@ class AssemblerDevice(ContainerDevice):
     """Inventory-enabled wrapper for assemblers."""
 
     device_type = "assembler"
+
+    def __init__(self, grid: Grid, metadata: DeviceMetadata) -> None:
+        super().__init__(grid, metadata)
+        self._raw_blueprints: Optional[List[Dict[str, Any]]] = None
+        self._blueprints: Optional[List[Dict[str, Any]]] = None
 
     # ----------------------- Telemetry helpers -----------------------
     def use_conveyor(self) -> bool:
@@ -125,6 +131,88 @@ class AssemblerDevice(ContainerDevice):
             sent += self.add_queue_item(entry)
         print(f"Assembler {self.name} ({self.device_id}): add_queue_items({len(list(items))}) -> sent {sent} messages total")
         return sent
+
+    def request_blueprints(self) -> int:
+        """Request blueprint information from the assembler."""
+        result = self.send_command({"cmd": "blueprints"})
+        print(f"Assembler {self.name} ({self.device_id}): request_blueprints() -> sent {result} messages")
+        return result
+
+    def handle_telemetry(self, telemetry: Dict[str, Any]) -> None:
+        """Handle telemetry update and extract blueprint data."""
+        super().handle_telemetry(telemetry)
+
+        # Инициализировать атрибуты, если они отсутствуют (для обратной совместимости)
+        if not hasattr(self, '_raw_blueprints'):
+            self._raw_blueprints: Optional[List[Dict[str, Any]]] = None
+        if not hasattr(self, '_blueprints'):
+            self._blueprints: Optional[List[Dict[str, Any]]] = None
+
+        # Extract availableBlueprints if present and not empty
+        available_blueprints = telemetry.get("availableBlueprints")
+        if available_blueprints and isinstance(available_blueprints, list) and available_blueprints:
+            if self._raw_blueprints is None:  # Only update if not already set
+                try:
+                    self._raw_blueprints = available_blueprints
+                    self._blueprints = self._process_blueprints(available_blueprints)
+                    print(f"Assembler {self.name} ({self.device_id}): received {len(available_blueprints)} blueprints")
+                except Exception as e:
+                    print(e)
+    def _process_blueprints(self, raw_blueprints: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Process raw blueprint data into structured format with ItemType objects."""
+
+
+        processed = []
+        for bp in raw_blueprints:
+            processed_bp = dict(bp)  # Copy original
+
+            # Process results
+            if "results" in bp and isinstance(bp["results"], list):
+                processed_results = []
+                for result in bp["results"]:
+                    if isinstance(result, dict) and "type" in result and "subtype" in result:
+                        # Try to find matching ItemType
+                        item_type = getattr(Item, result["subtype"], None)
+                        if item_type:
+                            processed_result = dict(result)
+                            processed_result["item_type"] = item_type
+                            processed_results.append(processed_result)
+                        else:
+                            processed_results.append(result)
+                    else:
+                        processed_results.append(result)
+                processed_bp["results"] = processed_results
+
+            # Process prerequisites
+            if "prerequisites" in bp and isinstance(bp["prerequisites"], list):
+                processed_prereqs = []
+                for prereq in bp["prerequisites"]:
+                    if isinstance(prereq, dict) and "type" in prereq and "subtype" in prereq:
+                        # Try to find matching ItemType
+                        item_type = getattr(Item, prereq["subtype"], None)
+                        if item_type:
+                            processed_prereq = dict(prereq)
+                            processed_prereq["item_type"] = item_type
+                            processed_prereqs.append(processed_prereq)
+                        else:
+                            processed_prereqs.append(prereq)
+                    else:
+                        processed_prereqs.append(prereq)
+                processed_bp["prerequisites"] = processed_prereqs
+
+            processed.append(processed_bp)
+
+        return processed
+
+    @property
+    def raw_blueprints(self) -> Optional[List[Dict[str, Any]]]:
+        """Get raw blueprint data from telemetry."""
+        return self._raw_blueprints
+
+    @property
+    def blueprints(self) -> Optional[List[Dict[str, Any]]]:
+        """Get processed blueprint data with ItemType objects."""
+        return self._blueprints
 
     # Override send_command to add logging
     def send_command(self, command: Dict[str, Any]) -> int:

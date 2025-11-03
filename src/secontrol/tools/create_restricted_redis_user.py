@@ -4,53 +4,45 @@
 """
 create_restricted_redis_user.py
 
-Создаёт/обновляет Redis-пользователя с доступом только к своим ключам и каналам.
+Создаёт/обновляет Redis-пользователя с доступом только к своим ключам и каналам,
+и сохраняет ACL в aclfile (ACL SAVE), чтобы права переживали рестарт.
 
 Переменные окружения:
-  - REDIS_URL             — адрес Redis (напр., redis://host:port/db)
-  - REDIS_PORT            — порт Redis (переопределяет порт из URL, если задан)
-  - REDIS_DB              — номер БД (переопределяет номер из URL, если задан)
+  - REDIS_URL             — адрес Redis (напр., redis://host:port/db), default: redis://127.0.0.1:6379/0
+  - REDIS_PORT            — переопределение порта (необязательно)
+  - REDIS_DB              — переопределение DB (необязательно)
   - REDIS_USERNAME        — UID/логин создаваемого пользователя (также ownerId)
   - REDIS_PASSWORD        — пароль создаваемого пользователя
+  - REDIS_ADMIN_USERNAME  — админ-пользователь (default: "default")
+  - REDIS_ADMIN_PASSWORD  — пароль админа (или SE_REDIS_PASSWORD как запасной)
 
-Админские креденшелы:
-  - REDIS_ADMIN_PASSWORD  — пароль админ-пользователя Redis (обычно «default»)
-  - REDIS_ADMIN_USERNAME  — имя админ-пользователя (по умолчанию «default»)
-
-Политика доступа:
-  keys:     se:<UID>:*
-  channels: se:<UID>:*, se.<UID>.*, keyspace по ключам в заданной/всех БД,
-            keyevent по событиям (разрешено «:*» в заданной/всех БД).
-
-Ограничивает опасные команды и разрешает необходимый минимум для клиента.
+Важные условия:
+  - В redis.conf используйте ИЛИ aclfile, ИЛИ user ... (нельзя одновременно).
+  - Если задан aclfile, файл должен существовать и быть доступен на чтение/запись.
 """
 
 from __future__ import annotations
 
 import os
 import sys
-from urllib.parse import urlparse, urlunparse
 import json
+from urllib.parse import urlparse, urlunparse
 
 import redis
 from dotenv import load_dotenv, find_dotenv
-
 
 load_dotenv(find_dotenv(usecwd=True), override=False)
 
 
 def _resolve_url_with_overrides() -> tuple[str, int]:
-    """
-    Возвращает (resolved_url, effective_db).
-    Учитывает REDIS_URL и переопределения REDIS_PORT / REDIS_DB.
-    """
+    """Возвращает (resolved_url, effective_db), учитывая REDIS_PORT / REDIS_DB."""
     url = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
     port_env = os.getenv("REDIS_PORT")
     db_env = os.getenv("REDIS_DB")
 
     pu = urlparse(url)
 
-    # Порт: переопределяем, если указан и валиден
+    # Порт
     try:
         if port_env is not None:
             port_val = int(port_env)
@@ -67,7 +59,7 @@ def _resolve_url_with_overrides() -> tuple[str, int]:
     except (TypeError, ValueError):
         pass
 
-    # DB: если задана — переписываем path в URL
+    # База
     effective_db = None
     try:
         if db_env is not None:
@@ -79,7 +71,6 @@ def _resolve_url_with_overrides() -> tuple[str, int]:
     except (TypeError, ValueError):
         pass
 
-    # Если DB не задана явно — возьмём из URL
     if effective_db is None:
         try:
             path = pu.path.strip("/ ")
@@ -91,7 +82,7 @@ def _resolve_url_with_overrides() -> tuple[str, int]:
 
 
 def _supports(feature: str, r: redis.Redis) -> bool:
-    """Проверка возможности ACL-фич (sanitize-payload, каналов)."""
+    """Проверяет поддержку конкретной ACL-фичи сервером (Redis 7+): sanitize-payload, channel ACL (&...)."""
     tmp = "__tmp_acl_probe__"
     try:
         r.execute_command("ACL", "DELUSER", tmp)
@@ -101,7 +92,6 @@ def _supports(feature: str, r: redis.Redis) -> bool:
         if feature == "sanitize":
             r.execute_command("ACL", "SETUSER", tmp, "reset", "on", "sanitize-payload", ">x")
         elif feature == "channels":
-            # Проверим, что сервер понимает маски для &каналов
             r.execute_command(
                 "ACL",
                 "SETUSER",
@@ -123,31 +113,50 @@ def _supports(feature: str, r: redis.Redis) -> bool:
             pass
 
 
+def _get_aclfile_path(r: redis.Redis) -> str | None:
+    """Возвращает путь aclfile через CONFIG GET, либо None если недоступно/не задано."""
+    try:
+        res = r.execute_command("CONFIG", "GET", "aclfile")
+        if isinstance(res, (list, tuple)) and len(res) == 2 and res[0] == "aclfile":
+            path = res[1]
+            return path or None
+    except redis.ResponseError:
+        return None
+    except Exception:
+        return None
+    return None
+
+
+def _acl_save(r: redis.Redis) -> bool:
+    """Выполняет ACL SAVE, возвращает True при успехе."""
+    try:
+        r.execute_command("ACL", "SAVE")
+        return True
+    except Exception as e:
+        print(f"⚠️ ACL SAVE failed: {e}", file=sys.stderr)
+        return False
+
+
 def main() -> None:
-    # Достаём учётные данные будущего пользователя
     uid = os.getenv("REDIS_USERNAME")
     u_pass = os.getenv("REDIS_PASSWORD")
+
     if not uid or not u_pass:
-        print("ERROR: Требуются REDIS_USERNAME и REDIS_PASSWORD для создаваемого пользователя.", file=sys.stderr)
+        print("ERROR: Требуются REDIS_USERNAME и REDIS_PASSWORD.", file=sys.stderr)
         sys.exit(2)
 
-    # Админские креды отдельно
     admin_user = os.getenv("REDIS_ADMIN_USERNAME", "default") or "default"
     admin_pass = os.getenv("REDIS_ADMIN_PASSWORD") or os.getenv("SE_REDIS_PASSWORD")
     if not admin_pass:
-        print("ERROR: Укажите REDIS_ADMIN_PASSWORD (пароль админ-пользователя Redis).", file=sys.stderr)
+        print("ERROR: Укажите REDIS_ADMIN_PASSWORD (пароль админа).", file=sys.stderr)
         sys.exit(2)
 
-    # Разбираем URL с переопределениями
     resolved_url, effective_db = _resolve_url_with_overrides()
 
-    # Подключаемся админом
+    # Подключение админом
     try:
         r_admin = redis.Redis.from_url(
-            resolved_url,
-            username=admin_user,
-            password=admin_pass,
-            decode_responses=True,
+            resolved_url, username=admin_user, password=admin_pass, decode_responses=True
         )
         r_admin.ping()
     except Exception as e:
@@ -157,62 +166,55 @@ def main() -> None:
 
     has_sanitize = _supports("sanitize", r_admin)
     has_channels = _supports("channels", r_admin)
+    aclfile_path = _get_aclfile_path(r_admin)
+
+    if not aclfile_path:
+        print("⚠️ Внимание: aclfile не настроен или CONFIG запрещён.", file=sys.stderr)
+        print("   Если в redis.conf указан aclfile, убедитесь что файл существует и доступен пользователю 'redis'.")
+    else:
+        print(f"aclfile: {aclfile_path}")
 
     key_pattern = f"se:{uid}:*"
-
-    # keyspace (канал содержит имя ключа)
     ks_db = f"__keyspace@{effective_db}__:{key_pattern}"
     ks_any = f"__keyspace@*__:{key_pattern}"
-
-    # keyevent (канал содержит тип события, НЕ ключ) — разрешаем события целиком
     ke_db_all = f"__keyevent@{effective_db}__:*"
     ke_any_all = f"__keyevent@*__:*"
 
-    # Удаляем прежнего пользователя (если есть)
+    # Снесём прежнего одноимённого пользователя (не критично, если нет)
     try:
         r_admin.execute_command("ACL", "DELUSER", uid)
     except redis.ResponseError:
         pass
 
     tokens: list[str] = [
-        "ACL",
-        "SETUSER",
-        uid,
+        "ACL", "SETUSER", uid,
         "reset",
         "on",
-        f">{u_pass}",  # пароль для нового пользователя
+        f">{u_pass}",
     ]
 
     if has_sanitize:
         tokens.append("sanitize-payload")
 
-    # Разрешённые ключи
+    # Ключи
     tokens.append(f"~{key_pattern}")
-    # Если нужны системные ключи — можно добавить:
-    # tokens.append("~se:system:*")
-
-    # Разрешённые каналы (если ACL каналов поддерживаются)
+    # Каналы
     if has_channels:
         tokens.extend(
             [
-                # Пользовательские каналы
                 f"&se:{uid}:*",
                 f"&se.{uid}.*",
                 f"&se.{uid}.commands.*",
                 f"&se.{uid}.commands.device.*",
                 f"&se.{uid}.commands.entity.*",
-
-                # keyspace по ключам (допустимо фильтровать)
                 f"&{ks_db}",
                 f"&{ks_any}",
-
-                # keyevent по событиям (фильтрация по ключам невозможна)
                 f"&{ke_db_all}",
                 f"&{ke_any_all}",
             ]
         )
 
-    # Разрешённые команды (минимум для клиента)
+    # Разрешённые команды (минимально достаточные)
     tokens.extend(
         [
             "+@read",
@@ -235,7 +237,7 @@ def main() -> None:
         ]
     )
 
-    # Запрещённые команды/группы (оставлено строго)
+    # Жёсткие запреты
     tokens.extend(
         [
             "-keys",
@@ -265,8 +267,8 @@ def main() -> None:
             "-persist",
         ]
     )
-    # Если вашему коду нужны TTL-операции — уберите их из списка «-...» и/или явно добавьте «+expire ...».
 
+    # Применяем правила
     try:
         r_admin.execute_command(*tokens)
         print(f"✅ Пользователь {uid} создан/обновлён.")
@@ -277,7 +279,7 @@ def main() -> None:
         print(f"❌ Ошибка ACL SETUSER: {e}", file=sys.stderr)
         sys.exit(4)
 
-    # Зафиксируем права в системном ключе (информационно)
+    # Информационный ключ (не обязателен)
     try:
         meta_key = f"se:system:players:{uid}:redis"
         meta_payload = {
@@ -289,9 +291,9 @@ def main() -> None:
         r_admin.set(meta_key, json.dumps(meta_payload, ensure_ascii=False))
         print(f"✅ Метаданные прав сохранены в ключ: {meta_key}")
     except Exception as e:
-        print(f"⚠️ Не удалось записать ключ с правами: {e}")
+        print(f"⚠️ Не удалось записать метаданные: {e}")
 
-    # Проверим ACL
+    # Печать ACL GETUSER
     try:
         info = r_admin.execute_command("ACL", "GETUSER", uid)
         print("\nACL GETUSER:")
@@ -300,11 +302,22 @@ def main() -> None:
     except Exception as e:
         print(f"⚠️ Не удалось прочитать ACL GETUSER: {e}")
 
-    # Проверим вход под созданным пользователем
+    # Сохранить ACL на диск
+    if aclfile_path:
+        if _acl_save(r_admin):
+            print(f"💾 ACL сохранены в файл: {aclfile_path}")
+        else:
+            print("⚠️ Не удалось сохранить ACL. Проверьте права/путь aclfile.", file=sys.stderr)
+    else:
+        # Возможно CONFIG запрещён, но aclfile настроен — попробуем всё равно
+        if _acl_save(r_admin):
+            print("💾 ACL сохранены (aclfile возможно настроен, но CONFIG GET недоступен).")
+        else:
+            print("⚠️ Похоже, aclfile не настроен — после рестарта пользователь может исчезнуть.", file=sys.stderr)
+
+    # Проверка логина новым пользователем
     try:
-        r_user = redis.Redis.from_url(
-            resolved_url, username=uid, password=u_pass, decode_responses=True
-        )
+        r_user = redis.Redis.from_url(resolved_url, username=uid, password=u_pass, decode_responses=True)
         r_user.ping()
         print("✅ Логин/пароль рабочего пользователя (PING ok).")
     except Exception as e:

@@ -928,6 +928,86 @@ class Grid:
                     })
         return items
 
+    def find_items_by_type(self, item_type: str) -> list[dict]:
+        """
+        Возвращает все предметы указанного типа на гриде.
+
+        Args:
+            item_type: Тип предмета (например, "MyObjectBuilder_Ore")
+
+        Returns:
+            Список словарей с информацией о предметах
+        """
+        return [item for item in self.get_all_grid_items() if item["item_type"] == item_type]
+
+    def find_items_by_subtype(self, subtype: str) -> list[dict]:
+        """
+        Возвращает все предметы указанного подтипа на гриде.
+
+        Args:
+            subtype: Подтип предмета (например, "SteelPlate")
+
+        Returns:
+            Список словарей с информацией о предметах
+        """
+        return [item for item in self.get_all_grid_items() if item["item_subtype"] == subtype]
+
+    def find_items_by_display_name(self, display_name: str) -> list[dict]:
+        """
+        Возвращает все предметы с указанным отображаемым именем на гриде.
+
+        Args:
+            display_name: Отображаемое имя предмета
+
+        Returns:
+            Список словарей с информацией о предметах
+        """
+        return [item for item in self.get_all_grid_items() if item["display_name"] == display_name]
+
+    def get_total_amount(self, subtype: str) -> float:
+        """
+        Возвращает общее количество предмета указанного подтипа на гриде.
+
+        Args:
+            subtype: Подтип предмета
+
+        Returns:
+            Общее количество
+        """
+        items = self.find_items_by_subtype(subtype)
+        return sum(item["amount"] for item in items)
+
+    def find_containers_with_tag(self, tag: str) -> list["BaseDevice"]:
+        """
+        Возвращает все контейнеры с указанным тегом.
+
+        Args:
+            tag: Тег для поиска
+
+        Returns:
+            Список контейнеров
+        """
+        containers = []
+        for device in self.find_devices_containers():
+            if hasattr(device, 'has_tag') and device.has_tag(tag):
+                containers.append(device)
+        return containers
+
+    def find_tagged_containers(self) -> list[tuple["BaseDevice", set[str]]]:
+        """
+        Возвращает все контейнеры с их тегами.
+
+        Returns:
+            Список кортежей (контейнер, теги)
+        """
+        result = []
+        for device in self.find_devices_containers():
+            if hasattr(device, 'tags'):
+                tags = device.tags
+                if tags:
+                    result.append((device, tags))
+        return result
+
     # ------------------------------------------------------------------
     def get_block(self, block_id: int | str) -> Optional[BlockInfo]:
         """Возвращает блок по его ``EntityId``."""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
@@ -13,6 +14,81 @@ class ContainerDevice(BaseDevice):
     """Inventory-aware base for cargo containers and similar devices."""
 
     device_type = "container"
+
+    def __init__(self, grid: Grid, metadata: DeviceMetadata) -> None:
+        super().__init__(grid, metadata)
+        self._tags: Set[str] = set()
+
+    # ------------------------------------------------------------------
+    # Tag helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _normalize_tag(text: str) -> str:
+        cleaned = re.sub(r"[^0-9a-zA-Z_]+", "_", text).strip("_")
+        return cleaned.lower()
+
+    @staticmethod
+    def _split_tags(text: str) -> Iterable[str]:
+        for raw in re.split(r"[\s,;:/|]+", text):
+            normalized = ContainerDevice._normalize_tag(raw)
+            if normalized:
+                yield normalized
+
+    @staticmethod
+    def _extract_tags_from_name(name: Optional[str]) -> Set[str]:
+        _TAG_IN_NAME = re.compile(r"\[(?P<tags>[^\[\]]+)\]")
+        tags: Set[str] = set()
+        if not name:
+            return tags
+        for match in _TAG_IN_NAME.finditer(name):
+            tags.update(ContainerDevice._split_tags(match.group("tags")))
+        return tags
+
+    @staticmethod
+    def _extract_tags_from_custom_data(custom_data: Optional[str]) -> Set[str]:
+        tags: Set[str] = set()
+        if not custom_data:
+            return tags
+        for raw_line in custom_data.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if ":" in line:
+                key, value = line.split(":", 1)
+                if key.strip().lower() not in {"tags", "tag", "labels"}:
+                    continue
+                tags.update(ContainerDevice._split_tags(value))
+            else:
+                tags.update(ContainerDevice._split_tags(line))
+        return tags
+
+    def _update_tags(self) -> None:
+        """Update tags from device name and custom data."""
+        tags = self._extract_tags_from_name(self.name)
+        tags.update(self._extract_tags_from_custom_data(self.custom_data()))
+        self._tags = tags
+
+    @property
+    def tags(self) -> Set[str]:
+        """Get current tags."""
+        return self._tags.copy()
+
+    def has_tag(self, tag: str) -> bool:
+        """Check if device has specific tag."""
+        return tag.lower() in self._tags
+
+    def add_tag(self, tag: str) -> None:
+        """Add a tag to the device (for runtime use)."""
+        self._tags.add(tag.lower())
+
+    def remove_tag(self, tag: str) -> None:
+        """Remove a tag from the device."""
+        self._tags.discard(tag.lower())
+
+    def handle_telemetry(self, telemetry: Dict[str, Any]) -> None:
+        """Handle telemetry update and refresh tags."""
+        super().handle_telemetry(telemetry)
+        self._update_tags()
 
     # ------------------------------------------------------------------
     # Telemetry helpers

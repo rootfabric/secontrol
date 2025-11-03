@@ -18,6 +18,12 @@ class ItemType:
     type: str
     subtype: str
     display_name: str = ""
+    blueprint_id: str = ""
+
+    def __post_init__(self):
+        # Если blueprint_id не указан, используем subtype
+        if not self.blueprint_id:
+            object.__setattr__(self, 'blueprint_id', self.subtype)
 
     def matches(self, item: InventoryItem) -> bool:
         """Проверяет, соответствует ли предмет этому типу."""
@@ -176,6 +182,10 @@ def is_steel_plate(item: InventoryItem) -> bool:
     return item.type == "MyObjectBuilder_Component" and item.subtype == "SteelPlate"
 
 
+# Все категории для удобства
+ALL_CATEGORIES = [ORE, INGOT, COMPONENT, TOOL, AMMO]
+
+
 class _ItemRegistry:
     """Класс для удобного доступа к типам предметов через атрибуты.
 
@@ -190,7 +200,7 @@ class _ItemRegistry:
 
     @classmethod
     def _initialize(cls):
-        """Инициализирует словарь всех предметов."""
+        """Инициализирует словарь всех предметов и добавляет их как атрибуты класса."""
         if cls._all_items:  # Уже инициализировано
             return
 
@@ -211,9 +221,11 @@ class _ItemRegistry:
                     pass  # NATO_5p56x45mm уже правильное имя
 
                 cls._all_items[attr_name] = item_type
+                # Добавляем как атрибут класса для автодополнения IDE
+                setattr(cls, attr_name, item_type)
 
     def __getattr__(self, name: str) -> ItemType:
-        """Возвращает ItemType по имени атрибута."""
+        """Возвращает ItemType по имени атрибута (fallback для динамических случаев)."""
         self._initialize()
         if name in self._all_items:
             return self._all_items[name]
@@ -227,6 +239,9 @@ class _ItemRegistry:
 
 # Создаем глобальный экземпляр для удобного доступа
 Item = _ItemRegistry()
+
+# Инициализируем атрибуты класса для автодополнения IDE
+_ItemRegistry._initialize()
 
 
 def item_matches(item: InventoryItem, item_type: ItemType) -> bool:
@@ -271,9 +286,6 @@ def is_steel_plate(item: InventoryItem) -> bool:
     """
     return item_matches(item, Item.SteelPlate)
 
-
-# Все категории для удобства
-ALL_CATEGORIES = [ORE, INGOT, COMPONENT, TOOL, AMMO]
 
 __all__ = [
     "ItemType",

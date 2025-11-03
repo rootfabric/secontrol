@@ -18,8 +18,7 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from secontrol.base_device import Grid
 from secontrol.common import close, resolve_owner_id, resolve_player_id
@@ -28,9 +27,7 @@ from secontrol.devices.container_device import ContainerDevice, Item
 from secontrol.devices.assembler_device import AssemblerDevice
 from secontrol.devices.refinery_device import RefineryDevice
 from secontrol.devices.ship_grinder_device import ShipGrinderDevice
-
-
-_TAG_IN_NAME = re.compile(r"\[(?P<tags>[^\[\]]+)\]")
+from secontrol.item_types import ORE, INGOT, COMPONENT, TOOL, AMMO, is_ore, is_ingot, is_component, is_tool, is_ammo
 
 
 def _normalize_tag(text: str) -> str:
@@ -38,56 +35,38 @@ def _normalize_tag(text: str) -> str:
     return cleaned.lower()
 
 
-def _split_tags(text: str) -> Iterable[str]:
-    for raw in re.split(r"[\s,;:/|]+", text):
-        normalized = _normalize_tag(raw)
-        if normalized:
-            yield normalized
-
-
-def _extract_tags_from_name(name: Optional[str]) -> Set[str]:
-    tags: Set[str] = set()
-    if not name:
-        return tags
-    for match in _TAG_IN_NAME.finditer(name):
-        tags.update(_split_tags(match.group("tags")))
-    return tags
-
-
-def _extract_tags_from_custom_data(device: ContainerDevice) -> Set[str]:
-    data = device.custom_data()
-    if not data:
-        return set()
-    tags: Set[str] = set()
-    for raw_line in data.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if ":" in line:
-            key, value = line.split(":", 1)
-            if key.strip().lower() not in {"tags", "tag", "labels"}:
-                continue
-            tags.update(_split_tags(value))
-        else:
-            tags.update(_split_tags(line))
-    return tags
-
-
 def _derive_item_tags(item: Item) -> Set[str]:
     tags: Set[str] = set()
+
+    # Добавляем базовые теги из subtype, type и display_name
     subtype = item.subtype
     if isinstance(subtype, str):
         tags.add(_normalize_tag(subtype))
+
     type_id = item.type
     if isinstance(type_id, str):
         tags.add(_normalize_tag(type_id))
         if type_id.startswith("MyObjectBuilder_"):
             tail = type_id.removeprefix("MyObjectBuilder_")
             tags.add(_normalize_tag(tail))
+
     display = item.display_name
     if isinstance(display, str):
         tags.add(_normalize_tag(display))
-    # Derive generic categories (ingot, ore, component, ammo, tool, gas)
+
+    # Используем новые категории предметов для точного определения типов
+    if is_ore(item):
+        tags.add("ore")
+    if is_ingot(item):
+        tags.add("ingot")
+    if is_component(item):
+        tags.add("component")
+    if is_tool(item):
+        tags.add("tool")
+    if is_ammo(item):
+        tags.add("ammo")
+
+    # Дополнительные категории на основе анализа строк (для совместимости)
     for candidate in list(tags):
         if candidate.endswith("ingot"):
             tags.add("ingot")
@@ -101,16 +80,12 @@ def _derive_item_tags(item: Item) -> Set[str]:
             tags.add("tool")
         if candidate.endswith("bottle") or candidate.endswith("gas"):
             tags.add("gas")
+
     # Add tool tag for physical gun objects (welders, grinders, drills, etc.)
     if "physicalgunobject" in tags:
         tags.add("tool")
+
     return tags
-
-
-@dataclass
-class TaggedContainer:
-    device: ContainerDevice
-    tags: Set[str]
 
 
 class App:
@@ -119,7 +94,7 @@ class App:
         self._grids: List[Grid] = []
         self._refresh_every = max(1, int(refresh_every))
         self._max_transfers = max(1, int(max_transfers_per_step))
-        self._containers: List[TaggedContainer] = []
+        self._containers: List[ContainerDevice] = []
         self._tag_index: Dict[str, List[ContainerDevice]] = {}
         self._production_devices: List[ContainerDevice] = []
 
@@ -149,7 +124,7 @@ class App:
             self._refresh_containers()
         transfers = 0
         for container in self._containers:
-            items = container.device.items()
+            items = container.items()
             if not items:
                 continue
             container_tags = container.tags
@@ -158,19 +133,19 @@ class App:
                 # Skip if container already matches desired tags
                 if desired_tags & container_tags:
                     continue
-                destination = self._select_destination(container.device, desired_tags)
+                destination = self._select_destination(container, desired_tags)
                 if not destination:
                     continue
                 subtype = item.subtype
                 if not isinstance(subtype, str) or not subtype:
                     continue
                 try:
-                    container.device.move_subtype(destination.device_id, subtype)
+                    container.move_subtype(destination.device_id, subtype)
                     transfers += 1
-                    print(f"SORT: Moved {subtype} from {container.device.name} ({container.device.device_type}) to {destination.name} ({destination.device_type})")
+                    print(f"SORT: Moved {subtype} from {container.name} ({container.device_type}) to {destination.name} ({destination.device_type})")
                 except Exception as exc:  # pragma: no cover - safety net for runtime issues
                     print(
-                        f"Failed to move {subtype} from {container.device.name}"
+                        f"Failed to move {subtype} from {container.name}"
                         f" to {destination.name}: {exc}"
                     )
                 if transfers >= self._max_transfers:
@@ -258,21 +233,18 @@ class App:
         for dev in all_containers:
             print(f"  Container: {dev.name} ({dev.device_type}) - {'EXCLUDED' if dev.device_id in production_device_ids else 'CARGO'}")
 
-        tagged_containers: List[TaggedContainer] = []
-        for device in cargo_containers:
-            tags = _extract_tags_from_name(device.name)
-            tags.update(_extract_tags_from_custom_data(device))
-            tagged_containers.append(TaggedContainer(device=device, tags=tags))
-        tagged_containers.sort(key=lambda c: (c.device.name or "", str(c.device.device_id)))
-        self._containers = tagged_containers
+        # Sort containers by name and id
+        cargo_containers.sort(key=lambda c: (c.name or "", str(c.device_id)))
+        self._containers = cargo_containers
         self._production_devices = production_devices
         print(f"Found {len(all_containers)} total containers, {len(cargo_containers)} cargo containers, {len(production_devices)} production devices")
         for dev in production_devices:
             print(f"  Production: {dev.name} ({dev.device_type})")
+        # Build tag index from container.tags (updated automatically via telemetry)
         tag_index: Dict[str, List[ContainerDevice]] = {}
-        for container in tagged_containers:
+        for container in cargo_containers:
             for tag in container.tags:
-                tag_index.setdefault(tag, []).append(container.device)
+                tag_index.setdefault(tag, []).append(container)
         self._tag_index = tag_index
 
     def _select_destination(
