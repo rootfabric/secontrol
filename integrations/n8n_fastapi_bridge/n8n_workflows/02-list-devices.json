@@ -1,0 +1,165 @@
+{
+  "name": "List devices for selected grid",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/login",
+        "authentication": "basicAuth",
+        "responseFormat": "json"
+      },
+      "id": "2",
+      "name": "Login to FastAPI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [440, 300],
+      "credentials": {
+        "httpBasicAuth": {
+          "name": "SE Grid Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:8000/grids",
+        "responseFormat": "json",
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node['Login to FastAPI'].json['access_token']}}"
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Get Grids",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "json": [
+            {
+              "name": "grids",
+              "value": "={{$node['Get Grids'].json}}"
+            }
+          ],
+          "string": [
+            {
+              "name": "gridId",
+              "value": "={{$node['Get Grids'].json.map(grid => ({name: grid.name || grid.id, value: grid.id}))}}"
+            }
+          ]
+        }
+      },
+      "id": "4",
+      "name": "Select Grid",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{'http://localhost:8000/grids/' + $json[\"gridId\"] + '/devices'}}",
+        "responseFormat": "json",
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node['Login to FastAPI'].json['access_token']}}"
+            }
+          ]
+        }
+      },
+      "id": "5",
+      "name": "Get Devices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1220, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.filter(item => item.json.deviceType === 'lamp');"
+      },
+      "id": "6",
+      "name": "Filter Lamps",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1460, 300]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Login to FastAPI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login to FastAPI": {
+      "main": [
+        [
+          {
+            "node": "Get Grids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Grids": {
+      "main": [
+        [
+          {
+            "node": "Select Grid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Grid": {
+      "main": [
+        [
+          {
+            "node": "Get Devices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Devices": {
+      "main": [
+        [
+          {
+            "node": "Filter Lamps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "active": false,
+  "id": "2"
+}
