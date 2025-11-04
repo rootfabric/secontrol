@@ -20,14 +20,12 @@ import re
 import time
 from typing import Dict, List, Optional, Set
 
-from secontrol.base_device import Grid
-from secontrol.common import close, resolve_owner_id, resolve_player_id
-from secontrol.redis_client import RedisEventClient
 from secontrol.devices.container_device import ContainerDevice, Item
-from secontrol.devices.assembler_device import AssemblerDevice
-from secontrol.devices.refinery_device import RefineryDevice
-from secontrol.devices.ship_grinder_device import ShipGrinderDevice
 from secontrol.item_types import ORE, INGOT, COMPONENT, TOOL, AMMO, is_ore, is_ingot, is_component, is_tool, is_ammo
+from secontrol.common import close, prepare_grid
+from secontrol.base_device import Grid
+
+
 
 
 def _normalize_tag(text: str) -> str:
@@ -93,7 +91,7 @@ class App:
         self.counter = 0
         self._grids: List[Grid] = []
         self._grid = grid  # переданный извне grid объект
-        self._grid_id = grid_id  # переданный извне grid_id
+        self._grid_id = self._grid.grid_id
         self._refresh_every = max(1, int(refresh_every))
         self._max_transfers = max(1, int(max_transfers_per_step))
         self._containers: List[ContainerDevice] = []
@@ -323,7 +321,10 @@ class App:
 
 
 if __name__ == "__main__":
-    app = App()
+
+    grid = prepare_grid()
+    app = App(grid)
+
     app.start()
     try:
         while True:
@@ -331,5 +332,3 @@ if __name__ == "__main__":
             time.sleep(1)
     except KeyboardInterrupt:
         pass
-    finally:
-        app.close()

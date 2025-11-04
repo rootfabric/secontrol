@@ -49,7 +49,7 @@ print(", ".join((d.name or f"{d.device_type}:{d.device_id}") for d in grid.devic
 
 ## Примеры
 
-Готовые скрипты находятся в каталоге [`sepy/examples`](src/secontrol/examples_direct_connect). Чтобы запустить пример:
+Готовые скрипты находятся в каталоге [`examples`](examples/examples_direct_connect). Чтобы запустить пример:
 
 ```bash
 python -m secontrol.examples_direct_connect.list_grids
@@ -73,8 +73,4 @@ repositories:
 ## Лицензия
 
 Проект распространяется по лицензии MIT. См. файл [LICENSE](LICENSE).
-
-Публикация
-py -m build
-py -m twine upload dist\secontrol-*
 

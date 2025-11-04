@@ -7,6 +7,7 @@ from typing import List, Optional
 from secontrol.common import close, prepare_grid
 from secontrol.devices.lamp_device import LampDevice
 from secontrol.base_device import Grid
+
 import secontrol
 
 
@@ -41,11 +42,10 @@ class App:
 if __name__ == "__main__":
     # Локальный запуск для отладки
 
-
     grid = prepare_grid()
-    app = App(grid)  # или App(grid_id="..."), или App(grid=уже_существующий_грид)
+    app = App(grid)
 
     app.start()
-    for _ in range(60):
+    while True:
         app.step()
         time.sleep(1)
