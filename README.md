@@ -11,16 +11,9 @@
 
 ## Установка
 
-После публикации на PyPI библиотеку можно будет установить стандартным способом:
 
 ```bash
 pip install secontrol
-```
-
-До публикации можно установить пакет из исходников:
-
-```bash
-pip install .
 ```
 
 ## Быстрый старт
@@ -39,36 +32,18 @@ print(", ".join((d.name or f"{d.device_type}:{d.device_id}") for d in grid.devic
 
 | Переменная        | Назначение                                              |
 | ----------------- | ------------------------------------------------------- |
-| `REDIS_URL`       | URL Redis-инстанса (по умолчанию `redis://api.outenemy.ru:6379/0`). |
 | `REDIS_USERNAME`  | Имя пользователя для авторизации.                       |
 | `REDIS_PASSWORD`  | Пароль для подключения.                                 |
-| `SE_PLAYER_ID`    | Идентификатор игрока Space Engineers.                   |
-| `SE_GRID_ID`      | Идентификатор грида. Если не задан, используется первый доступный. |
 
-Переменные можно определить в файле `.env` в корне проекта или системы. Модуль автоматически читает файл с помощью [`python-dotenv`](https://pypi.org/project/python-dotenv/).
+Переменные можно определить в файле `.env` в корне проекта или системы.
+Значения переменных необходимо получить в личном кабинете на странице https://www.outenemy.ru/se/
 
 ## Примеры
 
-Готовые скрипты находятся в каталоге [`examples`](examples/examples_direct_connect). Чтобы запустить пример:
+Готовые скрипты находятся в каталоге [`examples`](examples). Чтобы запустить пример:
 
-```bash
-python -m secontrol.examples_direct_connect.list_grids
-```
-
-## Подключение плагинов
-
-Для работы с дополнительными расширениями, такими как [se-grid-controller](https://github.com/rootfabric/se_grid_controller),
-в репозитории добавлен файл `repositories.yaml`. Он сообщает инструментам разработки, где искать внешние зависимости и
-на какой ветке они находятся.
-
-```yaml
-repositories:
-  - name: se-grid-controller
-    url: git@github.com:rootfabric/se-grid-controller.git
-    branch: main
-```
-
-При необходимости добавьте в этот файл другие плагины в том же формате.
+## Вики
+https://github.com/rootfabric/secontrol/wiki/home
 
 ## Лицензия
 
