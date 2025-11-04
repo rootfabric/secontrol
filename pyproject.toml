@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "secontrol"
-version = "0.1.6"
+dynamic = ["version"]
 description = "Space Engineers Redis helper utilities"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -47,3 +47,6 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "secontrol._version.__version__"}
