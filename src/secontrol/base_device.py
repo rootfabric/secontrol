@@ -1387,6 +1387,22 @@ class Grid:
         }
         return self.send_grid_command("park", payload=payload)
 
+    def park_on(self):
+        self.park(
+            enabled=True,
+            brake_wheels=True,
+            shutdown_thrusters=True,
+            lock_connectors=True
+        )
+
+    def park_off(self):
+        self.park(
+            enabled=False,
+            brake_wheels=False,
+            shutdown_thrusters=False,
+            lock_connectors=False
+        )
+
     # ------------------------------------------------------------------
     def power(self, mode: str) -> int:
         """Изменяет режим питания грида."""
@@ -1397,6 +1413,12 @@ class Grid:
 
         payload: Dict[str, Any] = {"mode": mode}
         return self.send_grid_command("power", payload=payload)
+
+    def power_on(self):
+        self.power("on")
+
+    def power_off(self):
+        self.power("soft_off")
 
     # ------------------------------------------------------------------
     def _extract_devices(self, payload: Dict[str, Any]) -> Iterable[DeviceMetadata]:

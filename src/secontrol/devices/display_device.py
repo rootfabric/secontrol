@@ -6,6 +6,8 @@ from typing import Any
 
 from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
 
+# for image need research
+# https://seimage.lucasteske.dev/
 
 class DisplayDevice(BaseDevice):
     """High level helper around the Space Engineers text panels (LCD, displays)."""
