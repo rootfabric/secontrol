@@ -41,6 +41,7 @@ _BUILTIN_MODULES = [
     "ship_welder_device",
     "thruster_device",
     "weapon_device",
+    "wheel_device",
 ]
 
 _loaded_builtin = False

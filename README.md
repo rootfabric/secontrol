@@ -1,51 +1,49 @@
 # secontrol
 
-`secontrol` — это высокоуровневый клиент для взаимодействия с Redis-шлюзом Space Engineers. Библиотека упрощает получение телеметрии, отправку команд и реализацию автоматизаций, используя устойчивые подписки на ключевые события.
+`secontrol` is a high-level client for interacting with the Space Engineers Redis gateway. The library simplifies obtaining telemetry, sending commands, and implementing automations using persistent subscriptions to key events.
 
-## Возможности
+## Features
 
-- Подключение к Redis с помощью конфигурации из `.env` или аргументов конструктора.
-- Наблюдение за ключами и каналами с автоматическим восстановлением подписок.
-- Утилиты для получения идентификаторов владельца, игрока и грида.
-- Примеры, демонстрирующие публикацию команд и мониторинг состояний.
+- Connecting to Redis using configuration from `.env` or constructor arguments.
+- Monitoring keys and channels with automatic subscription recovery.
+- Utilities for obtaining owner, player, and grid identifiers.
+- Examples demonstrating command publishing and state monitoring.
 
-## Установка
-
+## Installation
 
 ```bash
 pip install secontrol
 ```
 
-## Быстрый старт
+## Quick Start
 
 ```python
 from secontrol.common import prepare_grid
 
-#Первый грид игрока
+# First player's grid
 grid = prepare_grid()
-#Устройства на гриде
+# Devices on the grid
 print(", ".join((d.name or f"{d.device_type}:{d.device_id}") for d in grid.devices.values()) or "(no devices)")
 
 ```
 
-### Переменные окружения
+### Environment Variables
 
-| Переменная        | Назначение                                              |
-| ----------------- | ------------------------------------------------------- |
-| `REDIS_USERNAME`  | Имя пользователя для авторизации.                       |
-| `REDIS_PASSWORD`  | Пароль для подключения.                                 |
+| Variable         | Purpose                                               |
+| ---------------- | ----------------------------------------------------- |
+| `REDIS_USERNAME` | Username for authorization.                           |
+| `REDIS_PASSWORD` | Password for connection.                              |
 
-Переменные можно определить в файле `.env` в корне проекта или системы.
-Значения переменных необходимо получить в личном кабинете на странице https://www.outenemy.ru/se/
+Variables can be defined in the `.env` file in the project or system root.
+Variable values must be obtained in the personal account on the page https://www.outenemy.ru/se/
 
-## Примеры
+## Examples
 
-Готовые скрипты находятся в каталоге [`examples`](examples). Чтобы запустить пример:
+Ready-made scripts are located in the [`examples`](examples) directory. To run an example:
 
-## Вики
+## Wiki
 https://github.com/rootfabric/secontrol/wiki/home
 
-## Лицензия
+## License
 
-Проект распространяется по лицензии MIT. См. файл [LICENSE](LICENSE).
-
+The project is distributed under the MIT license. See the [LICENSE](LICENSE) file.

@@ -21,16 +21,10 @@ def main() -> None:
         print("No ore_detector detected on the selected grid.")
         return
 
-    # Config for scan, example values
-    config = {
-        "radius": 100,
-        "cell_size": 16,
-    }
 
-    # Short call: monitor with default 10s interval
+    ore_detector.scan()
 
-
-    ore_detector[0].monitor_ore(config=config)
+    print(ore_detector.telemetry)
 
 
 if __name__ == "__main__":

@@ -1370,6 +1370,35 @@ class Grid:
         return self.send_grid_command("list_gps", payload=effective_payload)
 
     # ------------------------------------------------------------------
+    def park(
+        self,
+        enabled: bool,
+        brake_wheels: bool,
+        shutdown_thrusters: bool,
+        lock_connectors: bool,
+    ) -> int:
+        """Активирует или деактивирует режим парковки грида."""
+
+        payload: Dict[str, Any] = {
+            "enabled": bool(enabled),
+            "brakeWheels": bool(brake_wheels),
+            "shutdownThrusters": bool(shutdown_thrusters),
+            "lockConnectors": bool(lock_connectors),
+        }
+        return self.send_grid_command("park", payload=payload)
+
+    # ------------------------------------------------------------------
+    def power(self, mode: str) -> int:
+        """Изменяет режим питания грида."""
+
+        valid_modes = {"on", "soft_off", "hard_off"}
+        if mode not in valid_modes:
+            raise ValueError(f"mode must be one of {valid_modes}, got {mode!r}")
+
+        payload: Dict[str, Any] = {"mode": mode}
+        return self.send_grid_command("power", payload=payload)
+
+    # ------------------------------------------------------------------
     def _extract_devices(self, payload: Dict[str, Any]) -> Iterable[DeviceMetadata]:
         # собираем кандидатов из всех известных мест: payload['devices'] и payload['comp']['devices']
         candidates: list[Dict[str, Any]] = []
@@ -2625,55 +2654,6 @@ class BaseDevice:
             pass
 
 
-
-class TakeGrid:
-    """A utility class that returns a ready-to-use Grid object based on an index or the first available grid."""
-
-    def __init__(self, index: int = None, redis_client=None, owner_id=None) -> None:
-        from .common import resolve_owner_id
-        from .redis_client import RedisEventClient
-
-        # Используем переданные значения или получаем их из конфигурации
-        self.redis = redis_client or RedisEventClient()
-        self.owner_id = owner_id or resolve_owner_id()
-
-        # Получаем список гридов
-        grids = self.redis.list_grids(self.owner_id)
-
-        if not grids:
-            raise ValueError(f"No grids found for owner {self.owner_id}")
-
-        # Определяем, какой грид использовать
-        if index is None:
-            # Берем первый доступный грид
-            selected_grid = grids[0]
-        else:
-            # Проверяем, что индекс в допустимом диапазоне
-            if index < 0 or index >= len(grids):
-                raise ValueError(
-                    f"Grid index {index} is out of range (available indices: 0-{len(grids)-1})"
-                )
-            selected_grid = grids[index]
-
-        # Извлекаем информацию о выбранном гриде
-        grid_id = selected_grid.get("id")
-        grid_name = selected_grid.get("name") or f"Grid_{grid_id}"
-        player_id = selected_grid.get("playerId") or self.owner_id
-
-        # Создаем внутренний объект Grid
-        self._internal_grid = Grid(
-            self.redis,
-            self.owner_id,
-            str(grid_id),
-            player_id,
-            grid_name,
-        )
-
-    def __getattr__(self, name):
-        """Делегируем все неопределенные атрибуты внутреннему объекту Grid."""
-
-        return getattr(self._internal_grid, name)
-
 # Карта: нормализованный тип -> класс устройства
 DEVICE_TYPE_MAP: Dict[str, Type[BaseDevice]] = {}
 
@@ -2707,6 +2687,9 @@ TYPE_ALIASES = {
     "MyObjectBuilder_ReflectorLight": "lamp",
     "MyObjectBuilder_LightingBlock": "lamp",
     "MyObjectBuilder_TextPanel": "textpanel",
+    "MyObjectBuilder_Wheel": "wheel",
+    "MyObjectBuilder_MotorSuspension": "wheel",
+    "motor_suspension": "wheel",
     "cargo_container": "container",
     "container": "container",
     "MyObjectBuilder_Projector": "projector",
@@ -2751,6 +2734,7 @@ TYPE_ALIASES = {
     "display": "textpanel",
     "panel": "textpanel",
     "text_panel": "textpanel",
+    "wheel": "wheel",
 }
 
 
@@ -2780,7 +2764,7 @@ def create_device(grid: Grid, metadata: DeviceMetadata) -> BaseDevice:
         else:
             # иначе это уже сам класс устройства
             device_cls = device_cls_or_name
-    
+
     return device_cls(grid, metadata)
 
 
