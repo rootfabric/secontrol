@@ -1891,6 +1891,8 @@ class Grid:
             "container": "cargo_container",
             # Text panels (LCD) используют сегмент 'text_panel'
             "textpanel": "text_panel",
+            # Wheels публикуют телеметрию как 'motor_suspension'
+            "wheel": "motor_suspension",
         }
 
         key = dev_type

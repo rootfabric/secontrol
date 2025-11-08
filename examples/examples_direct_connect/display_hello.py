@@ -15,7 +15,7 @@ def main() -> None:
     owner_id = resolve_owner_id()
     print(f"Owner ID: {owner_id}")
 
-    grid = prepare_grid()
+    grid = prepare_grid("139498645541187359")
 
 
     # Find display devices
@@ -27,7 +27,7 @@ def main() -> None:
 
     for i, display in enumerate(displays, 1):
         print(f"  {i}. {display.name} (ID: {display.device_id})")
-        display.set_text("Hello world!111")
+        display.set_text("Hello world!++")
 
     # time.sleep(1)
     #

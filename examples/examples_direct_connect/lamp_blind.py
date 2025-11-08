@@ -49,12 +49,12 @@ def main() -> None:
             lamp.set_enabled(True)
         print("All lamps enabled.")
 
-        time.sleep(1)
+        time.sleep(0.1)
 
         for lamp in lamps:
             lamp.set_enabled(False)
 
-        time.sleep(1)
+        time.sleep(0.1)
     # # Цвета для моргания
     # colors = [
     #     (1.0, 0.2, 0.2),  # красный

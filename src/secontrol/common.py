@@ -78,6 +78,67 @@ def _is_subgrid(grid_info: dict) -> bool:
     return False
 
 
+def get_all_grids(existing_client: RedisEventClient | str | None = None,
+    grid_id: str | None = None, exclude_subgrids: bool = True) -> list[tuple[str, str]]:
+    """Получить список всех гридов для owner_id.
+
+    Возвращает список кортежей (grid_id, grid_name) для всех подходящих гридов.
+    По умолчанию исключает суб-гриды.
+    """
+    if isinstance(existing_client, str) and grid_id is None:
+        existing_client = None
+
+    if isinstance(existing_client, RedisEventClient):
+        client = existing_client
+    else:
+        client = RedisEventClient()
+
+    owner_id = resolve_owner_id()
+
+    grids = client.list_grids(owner_id, exclude_subgrids=False)
+    if not grids:
+        return []
+
+    result = []
+    for g in grids:
+        grid_id = g.get("id")
+        if not grid_id:
+            continue
+        grid_id = str(grid_id)
+
+        # Получаем gridinfo для проверки суб-грида и имени
+        gridinfo = {}
+        if exclude_subgrids:
+            gridinfo_key = f"se:{owner_id}:grid:{grid_id}:gridinfo"
+            gridinfo = client.get_json(gridinfo_key) or {}
+
+        # Проверяем, является ли суб-гридом
+        is_sub = False
+        if exclude_subgrids and isinstance(gridinfo, dict):
+            is_sub = _is_subgrid(gridinfo)
+        if exclude_subgrids and is_sub:
+            continue
+
+        # Извлекаем имя грида
+        grid_name = None
+        for source in (g, gridinfo):
+            if not isinstance(source, dict):
+                continue
+            for key in ("name", "gridName", "displayName", "DisplayName"):
+                value = source.get(key)
+                if isinstance(value, str) and value.strip():
+                    grid_name = value
+                    break
+            if grid_name:
+                break
+        if not grid_name:
+            grid_name = f"Grid_{grid_id}"
+
+        result.append((grid_id, grid_name))
+
+    return result
+
+
 def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
     grid_id = os.getenv("SE_GRID_ID")
     if grid_id:
@@ -188,6 +249,7 @@ __all__ = [
     "Grid",
     "RedisEventClient",
     "close",
+    "get_all_grids",
     "prepare_grid",
     "resolve_grid_id",
     "resolve_owner_id",

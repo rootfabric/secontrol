@@ -14,6 +14,55 @@ from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
 class WheelDevice(BaseDevice):
     device_type = "wheel"
 
+    def __init__(self, grid, metadata):
+        # Cache wheel-specific telemetry fields (initialize before super().__init__ to avoid AttributeError in handle_telemetry)
+        self._brake = False
+        self._propulsion_allowed = True
+        self._steering_allowed = True
+        self._invert_propulsion = False
+        self._invert_steering = False
+        self._propulsion_override = 0.0
+        self._steering_override = 0.0
+        self._power = 0.0
+        self._strength = 0.0
+        self._friction = 0.0
+        self._damping = 0.0
+        self._height = 0.0
+        self._max_steer_angle = 0.0
+        self._steer_angle = 0.0
+        self._suspension_travel = 0.0
+        self._speed_limit_kph = 0.0
+        self._steer_speed = -1.0
+        self._steer_return_speed = -1.0
+        self._grid_speed_kph = 0.0
+
+        super().__init__(grid, metadata)
+
+    def handle_telemetry(self, telemetry):
+        """Handle telemetry update and cache wheel-specific fields."""
+        super().handle_telemetry(telemetry)
+
+        # Cache wheel-specific fields to preserve them between updates
+        self._brake = bool(telemetry.get("brake", self._brake))
+        self._propulsion_allowed = bool(telemetry.get("propulsionAllowed", self._propulsion_allowed))
+        self._steering_allowed = bool(telemetry.get("steeringAllowed", self._steering_allowed))
+        self._invert_propulsion = bool(telemetry.get("invertPropulsion", self._invert_propulsion))
+        self._invert_steering = bool(telemetry.get("invertSteer", self._invert_steering))
+        self._propulsion_override = float(telemetry.get("propulsionOverride", self._propulsion_override))
+        self._steering_override = float(telemetry.get("steeringOverride", self._steering_override))
+        self._power = float(telemetry.get("power", self._power))
+        self._strength = float(telemetry.get("strength", self._strength))
+        self._friction = float(telemetry.get("friction", self._friction))
+        self._damping = float(telemetry.get("damping", self._damping))
+        self._height = float(telemetry.get("height", self._height))
+        self._max_steer_angle = float(telemetry.get("maxSteerAngle", self._max_steer_angle))
+        self._steer_angle = float(telemetry.get("steerAngle", self._steer_angle))
+        self._suspension_travel = float(telemetry.get("suspensionTravel", self._suspension_travel))
+        self._speed_limit_kph = float(telemetry.get("speedLimitKph", self._speed_limit_kph))
+        self._steer_speed = float(telemetry.get("steerSpeed", self._steer_speed))
+        self._steer_return_speed = float(telemetry.get("steerReturnSpeed", self._steer_return_speed))
+        self._grid_speed_kph = float(telemetry.get("gridSpeedKph", self._grid_speed_kph))
+
     @staticmethod
     def _clamp_minus1_to_1(value: float) -> float:
         """Clamp value to range [-1.0, 1.0]."""
@@ -205,79 +254,79 @@ class WheelDevice(BaseDevice):
     # ----------------------- Telemetry helpers -----------------------
     def brake(self) -> bool:
         """Get current brake state."""
-        return bool((self.telemetry or {}).get("brake", False))
+        return self._brake
 
     def propulsion_allowed(self) -> bool:
         """Get propulsion allowed state."""
-        return bool((self.telemetry or {}).get("propulsionAllowed", True))
+        return self._propulsion_allowed
 
     def steering_allowed(self) -> bool:
         """Get steering allowed state."""
-        return bool((self.telemetry or {}).get("steeringAllowed", True))
+        return self._steering_allowed
 
     def invert_propulsion(self) -> bool:
         """Get propulsion inversion state."""
-        return bool((self.telemetry or {}).get("invertPropulsion", False))
+        return self._invert_propulsion
 
     def invert_steering(self) -> bool:
         """Get steering inversion state."""
-        return bool((self.telemetry or {}).get("invertSteer", False))
+        return self._invert_steering
 
     def propulsion_override(self) -> float:
         """Get current propulsion override value."""
-        return float((self.telemetry or {}).get("propulsionOverride", 0.0))
+        return self._propulsion_override
 
     def steering_override(self) -> float:
         """Get current steering override value."""
-        return float((self.telemetry or {}).get("steeringOverride", 0.0))
+        return self._steering_override
 
     def power(self) -> float:
         """Get current power consumption."""
-        return float((self.telemetry or {}).get("power", 0.0))
+        return self._power
 
     def strength(self) -> float:
         """Get current strength value."""
-        return float((self.telemetry or {}).get("strength", 0.0))
+        return self._strength
 
     def friction(self) -> float:
         """Get current friction value."""
-        return float((self.telemetry or {}).get("friction", 0.0))
+        return self._friction
 
     def damping(self) -> float:
         """Get current damping value."""
-        return float((self.telemetry or {}).get("damping", 0.0))
+        return self._damping
 
     def height(self) -> float:
         """Get current height offset."""
-        return float((self.telemetry or {}).get("height", 0.0))
+        return self._height
 
     def max_steer_angle(self) -> float:
         """Get maximum steer angle."""
-        return float((self.telemetry or {}).get("maxSteerAngle", 0.0))
+        return self._max_steer_angle
 
     def steer_angle(self) -> float:
         """Get current steer angle."""
-        return float((self.telemetry or {}).get("steerAngle", 0.0))
+        return self._steer_angle
 
     def suspension_travel(self) -> float:
         """Get suspension travel."""
-        return float((self.telemetry or {}).get("suspensionTravel", 0.0))
+        return self._suspension_travel
 
     def speed_limit_kph(self) -> float:
         """Get speed limit in km/h."""
-        return float((self.telemetry or {}).get("speedLimitKph", 0.0))
+        return self._speed_limit_kph
 
     def steer_speed(self) -> float:
         """Get steering speed."""
-        return float((self.telemetry or {}).get("steerSpeed", -1.0))
+        return self._steer_speed
 
     def steer_return_speed(self) -> float:
         """Get steering return speed."""
-        return float((self.telemetry or {}).get("steerReturnSpeed", -1.0))
+        return self._steer_return_speed
 
     def grid_speed_kph(self) -> float:
         """Get grid speed in km/h."""
-        return float((self.telemetry or {}).get("gridSpeedKph", 0.0))
+        return self._grid_speed_kph
 
 
 DEVICE_TYPE_MAP[WheelDevice.device_type] = WheelDevice

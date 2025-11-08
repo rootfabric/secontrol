@@ -28,51 +28,63 @@ def main() -> None:
 
     # exit(0)
 
-    for wheel in wheels:
-        wheel.normalize_propulsion_direction()
+    # for wheel in wheels:
+    #     wheel.normalize_propulsion_direction()
 
-    # exit(0)
+
 
     grid.park_off()
 
-    # for w in wheels:
-    #     w.set_brake(False)
-    #     w.set_propulsion_enabled(True)
-    #     w.set_steering_enabled(True)   # или False для неуправляемых осей
+
+    # exit()
 
     print(f"Found {len(wheels)} wheel(s) on grid {grid.name}")
     for i, wheel in enumerate(wheels):
         print(f"  Wheel {i+1}: {wheel.name or wheel.device_id}")
 
     for wheel in wheels:
-        wheel.normalize_propulsion_direction()
+        # wheel.normalize_propulsion_direction()
+
         print(wheel.telemetry)
+    # exit()
 
     # Drive forward for 3 seconds
+
+    speed = 1.5
     print("\nDriving forward...")
     for i, wheel in enumerate(wheels):
         wheel.set_steering(0)
-        wheel.set_propulsion(0.2)  # Forward propulsion
+        # wheel.set_propulsion(-0.6)  # Forward propulsion
+        # wheel.set_power(100)
+        # print(wheel.telemetry['invertPropulsion'])
 
-    # wheels[0].set_invert_propulsion(True)
+        if 'Left' in wheel.name:
+            wheel.set_propulsion(speed)  # Forward propulsion
+        else:
+            wheel.set_propulsion(-speed)  # Forward propulsion
+
+
     # wheels[2].set_invert_propulsion(True)
     # wheels[3].set_invert_propulsion(True)
     # # wheels[1].set_propulsion(0.3)
             # break
 
         # break
-    time.sleep(30)
+    time.sleep(5)
 
 
 
     # Stop
     print("Stopping...")
     for wheel in wheels:
-        wheel.set_propulsion(0.0)
+        wheel.set_propulsion(0)
+        wheel.set_steering(0)
 
-    print("Demo completed.")
+
 
     grid.park_on()
+
+    print("Demo completed.")
 
 
 if __name__ == "__main__":

@@ -1,22 +1,17 @@
 from __future__ import annotations
 
 import datetime
-import threading
 import time
-from typing import Dict, Tuple, Any, List, Set, Optional
 
 from secontrol.base_device import Grid
 from secontrol.devices.display_device import DisplayDevice
-from secontrol.common import resolve_owner_id, resolve_player_id, _is_subgrid
-from secontrol.redis_client import RedisEventClient
+from secontrol.common import prepare_grid
 
 
-def benchmark_display(client: RedisEventClient, owner_id: str, player_id: str, grid_info: Dict[str, Any]) -> None:
-    grid_id = str(grid_info.get('id'))
-    grid_name = grid_info.get('name', 'unnamed')
+def benchmark_display(grid: Grid) -> None:
+    grid_id = grid.grid_id
+    grid_name = grid.name or 'unnamed'
     print(f"Starting benchmark for grid {grid_id} ({grid_name})")
-
-    grid = Grid(client, owner_id, grid_id, player_id)
 
     displays = list(grid.find_devices_by_type(DisplayDevice))
     print(f"Found {len(displays)} display device(s) on grid {grid_name}:")
@@ -108,29 +103,8 @@ def benchmark_display(client: RedisEventClient, owner_id: str, player_id: str, g
 
 
 def main() -> None:
-    owner_id = resolve_owner_id()
-    player_id = resolve_player_id(owner_id)
-    print(f"Owner ID: {owner_id}")
-
-    client = RedisEventClient()
-
-    try:
-        grids = client.list_grids(owner_id)
-        if not grids:
-            print("No grids found.")
-            return
-
-        # Filter non-subgrids
-        non_subgrids = [g for g in grids if not _is_subgrid(g)]
-        print(f"Found {len(non_subgrids)} main grids.")
-
-        for grid_info in non_subgrids:
-            benchmark_display(client, owner_id, player_id, grid_info)
-            # Only do one grid, break after first
-            break
-
-    except KeyboardInterrupt:
-        pass
+    grid = prepare_grid()
+    benchmark_display(grid)
 
 
 if __name__ == "__main__":

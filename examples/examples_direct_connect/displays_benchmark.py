@@ -29,8 +29,8 @@ def benchmark_display(display: DisplayDevice) -> None:
 
             # Set new number
             display.set_text(str(local_num))
-            # display.send_command({"cmd": "update"})
-            # time.sleep(0.01)  # Small delay
+            display.send_command({"cmd": "update"})
+            time.sleep(0.01)  # Small delay
 
             operations += 1
 
@@ -92,7 +92,8 @@ def main() -> None:
         for grid_info in non_subgrids:
             grid = Grid(client, owner_id, str(grid_info['id']), player_id, grid_info.get('name'))
             benchmark_for_grid(grid)
-            break  # Only one grid
+            print(grid.name)
+            # break  # Only one grid
 
     except KeyboardInterrupt:
         pass

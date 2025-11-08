@@ -15,7 +15,7 @@ from .base_device import (
     RemovedDeviceInfo,
     get_device_class,
 )
-from .common import close, prepare_grid, resolve_grid_id, resolve_owner_id, resolve_player_id
+from .common import close, get_all_grids, prepare_grid, resolve_grid_id, resolve_owner_id, resolve_player_id
 from .redis_client import RedisEventClient
 from .grids import GridState, Grids
 from ._version import __version__
@@ -36,6 +36,7 @@ __all__ = [
     "RemovedDeviceInfo",
     "__version__",
     "close",
+    "get_all_grids",
     "get_device_class",
     "prepare_grid",
     "resolve_grid_id",

@@ -107,6 +107,29 @@ class LampDevice(BaseDevice):
             "color": components,
         })
 
+    def toggle(self) -> int:
+        """Toggle the lamp enabled state."""
+
+        return self.send_command({"cmd": "toggle"})
+
+    def set_intensity(self, intensity: float) -> int:
+        """Set the lamp intensity (0.0 to 10.0)."""
+
+        clamped_intensity = max(0.0, min(10.0, intensity))
+        return self.send_command({
+            "cmd": "intensity",
+            "value": clamped_intensity,
+        })
+
+    def set_radius(self, radius: float) -> int:
+        """Set the lamp radius (1.0 to 100.0)."""
+
+        clamped_radius = max(1.0, min(100.0, radius))
+        return self.send_command({
+            "cmd": "radius",
+            "value": clamped_radius,
+        })
+
     # ------------------------------------------------------------------
     # Telemetry helpers
     # ------------------------------------------------------------------

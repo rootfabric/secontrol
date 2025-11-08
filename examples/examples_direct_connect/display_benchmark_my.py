@@ -1,22 +1,16 @@
 from __future__ import annotations
 
-import datetime
-import threading
 import time
-from typing import Dict, Tuple, Any, List, Set, Optional
 
 from secontrol.base_device import Grid
 from secontrol.devices.display_device import DisplayDevice
-from secontrol.common import resolve_owner_id, resolve_player_id, _is_subgrid
-from secontrol.redis_client import RedisEventClient
+from secontrol.common import prepare_grid
 
 
-def benchmark_display(client: RedisEventClient, owner_id: str, player_id: str, grid_info: Dict[str, Any]) -> None:
-    grid_id = str(grid_info.get('id'))
-    grid_name = grid_info.get('name', 'unnamed')
+def benchmark_display(grid: Grid) -> None:
+    grid_id = grid.grid_id
+    grid_name = grid.name or 'unnamed'
     print(f"Starting benchmark for grid {grid_id} ({grid_name})")
-
-    grid = Grid(client, owner_id, grid_id, player_id)
 
     displays = list(grid.find_devices_by_type(DisplayDevice))
     print(f"Found {len(displays)} display device(s) on grid {grid_name}:")
@@ -41,58 +35,44 @@ def benchmark_display(client: RedisEventClient, owner_id: str, player_id: str, g
     start_time = time.time()
     match_count = 0
 
-    # while 1:
-    #     num += 1
-    #     display.set_text(str(num))
-    #     # display.send_command({"cmd": "update"})
-    #     time.sleep(0.1)
-    #     print(display.get_text())
+    try:
+        while True:
+            num += 1
+            display.set_text(str(num))
+            # time.sleep(0.10)
+            # display.send_command({"cmd": "update"})
 
-    while 1:
-        num += 1
-        # display.set_text(num)
-        display.set_text(str(num))
-        while 1:
+            while True:
+
+                # для фосажа
+                display.set_text(str(num))
+                display.send_command({"cmd": "update"})
+
+                n = display.get_text()
+
+                # print(int(n) , num)
+                if int(n) == num:
+                    match_count += 1
+
+                    # Calculate and print rate every 2 matches
+                    if match_count % 2 == 0:
+                        elapsed = time.time() - start_time
+                        rate = match_count / elapsed
+                        print(f"Match rate: {rate:.2f} matches per second")
+                    break
+                time.sleep(0.1)
 
 
-            # time.sleep(0.1)
-            n = display.get_text()
-            # print(n, num)
-            if int(n) == num:
-                match_count += 1
-                # Calculate and print rate every 10 matches
-                if match_count % 2 == 0:
-                    elapsed = time.time() - start_time
-                    rate = match_count / elapsed
-                    print(f"Match rate: {rate:.2f} matches per second")
-                break
+
+
+    except KeyboardInterrupt:
+        print("\nBenchmark stopped")
 
 
 
 def main() -> None:
-    owner_id = resolve_owner_id()
-    player_id = resolve_player_id(owner_id)
-    print(f"Owner ID: {owner_id}")
-
-    client = RedisEventClient()
-
-    try:
-        grids = client.list_grids(owner_id)
-        if not grids:
-            print("No grids found.")
-            return
-
-        # Filter non-subgrids
-        non_subgrids = [g for g in grids if not _is_subgrid(g)]
-        print(f"Found {len(non_subgrids)} main grids.")
-
-        for grid_info in non_subgrids:
-            benchmark_display(client, owner_id, player_id, grid_info)
-            # Only do one grid, break after first
-            break
-
-    except KeyboardInterrupt:
-        pass
+    grid = prepare_grid("139498645541187359")
+    benchmark_display(grid)
 
 
 if __name__ == "__main__":
