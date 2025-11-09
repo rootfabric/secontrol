@@ -157,6 +157,11 @@ class OreDetectorDevice(BaseDevice):
         max_los_rays_per_tick: Optional[int] = None,
         no_detector_cap_min: Optional[float] = None,
         no_detector_cap_max: Optional[float] = None,
+        fast_scan: Optional[bool] = None,
+        gridStep: Optional[float] = None,
+        fastScanBudgetMs: Optional[float] = None,
+        fastScanTileEdgeMax: Optional[float] = None,
+
     ) -> int:
         """Request a fresh radar scan from the ore detector with full config."""
 
@@ -202,10 +207,31 @@ class OreDetectorDevice(BaseDevice):
         if no_detector_cap_max is not None:
             state["noDetectorCapMax"] = float(no_detector_cap_max)
 
+        if fast_scan is not None:
+            state["fast_scan"] = bool(fast_scan)
+        if gridStep is not None:
+            state["gridStep"] = float(gridStep)
+        if fastScanBudgetMs is not None:
+            state["fastScanBudgetMs"] = float(fastScanBudgetMs)
+        if fastScanTileEdgeMax is not None:
+            state["fastScanTileEdgeMax"] = float(fastScanTileEdgeMax)
+
         payload: Dict[str, Any] = {
             "cmd": "scan",
             "targetId": int(self.device_id),
             "state": state,
+        }
+        if self.name:
+            payload["targetName"] = self.name
+        print(payload)
+        return self.send_command(payload)
+
+    def cancel_scan(self) -> int:
+        """Cancel the current radar scan."""
+        payload: Dict[str, Any] = {
+            "cmd": "scan",
+            "targetId": int(self.device_id),
+            "cancel": True,
         }
         if self.name:
             payload["targetName"] = self.name

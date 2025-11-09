@@ -2665,6 +2665,8 @@ class BaseDevice:
             sent += self.redis.publish(ch, command)
         return sent
 
+    def update(self):
+        self.send_command({"cmd": "update"})
     # ------------------------------------------------------------------
     def close(self) -> None:
         """Отписываемся от Redis и чистим слушателей."""
