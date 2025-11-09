@@ -16,6 +16,7 @@ __all__ = [
     "DEVICE_TYPE_MAP",
     "load_builtin_devices",
     "load_external_plugins",
+    "RoverDevice",
 ]
 
 _BUILTIN_MODULES = [
@@ -70,3 +71,6 @@ def load_external_plugins(groups: Iterable[str] | None = None) -> None:
 
 # Ensure built-in devices are registered by default.
 load_builtin_devices()
+
+# Import rover device
+from .rover_device import RoverDevice

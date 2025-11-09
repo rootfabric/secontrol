@@ -302,7 +302,7 @@ def _extract_ore_cells(radar: Dict[str, Any]) -> tuple[list[dict], int]:
 
 
 def main() -> None:
-    grid = prepare_grid("117014494109101689")
+    grid = prepare_grid()
     try:
         # Загружаем конфиг и выбираем датчик
         cfg = _load_config()

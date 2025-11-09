@@ -16,6 +16,8 @@ import secontrol.devices.wheel_device  # noqa: F401
 import time
 
 
+
+
 def main() -> None:
     grid = prepare_grid()
 
@@ -41,11 +43,11 @@ def main() -> None:
     print(f"Found {len(wheels)} wheel(s) on grid {grid.name}")
     for i, wheel in enumerate(wheels):
         print(f"  Wheel {i+1}: {wheel.name or wheel.device_id}")
-
-    for wheel in wheels:
-        # wheel.normalize_propulsion_direction()
-
-        print(wheel.telemetry)
+    #
+    # for wheel in wheels:
+    #     # wheel.normalize_propulsion_direction()
+    #
+    #     print(wheel.telemetry)
     # exit()
 
     # Drive forward for 3 seconds
@@ -54,9 +56,6 @@ def main() -> None:
     print("\nDriving forward...")
     for i, wheel in enumerate(wheels):
         wheel.set_steering(0)
-        # wheel.set_propulsion(-0.6)  # Forward propulsion
-        # wheel.set_power(100)
-        # print(wheel.telemetry['invertPropulsion'])
 
         if 'Left' in wheel.name:
             wheel.set_propulsion(speed)  # Forward propulsion

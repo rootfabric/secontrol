@@ -21,8 +21,8 @@ def main() -> None:
         print("No ore_detector detected on the selected grid.")
         return
 
-
-    ore_detector.scan()
+    ore_detector.scan(include_voxels=False)
+    # ore_detector.scan()
 
     print(ore_detector.telemetry)
 
