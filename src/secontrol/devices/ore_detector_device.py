@@ -148,7 +148,7 @@ class OreDetectorDevice(BaseDevice):
         cell_size: Optional[float] = None,
         voxel_scan_hz: Optional[float] = None,
         voxel_step: Optional[int] = None,
-        include_stone_cells: Optional[bool] = None,
+        fullSolidScan: Optional[bool] = None,
         budget_ms_per_tick: Optional[float] = None,
         voxel_min_content: Optional[int] = None,
         contacts_hz: Optional[float] = None,
@@ -176,9 +176,9 @@ class OreDetectorDevice(BaseDevice):
                 state["voxelStep"] = int(voxel_step)
             except (TypeError, ValueError):
                 pass
-        if include_stone_cells is not None:
-            state["fullSolidScan"] = bool(include_stone_cells)
-            state["includeStoneCells"] = bool(include_stone_cells)
+        if fullSolidScan is not None:
+            state["fullSolidScan"] = bool(fullSolidScan)
+
         if budget_ms_per_tick is not None:
             state["budgetMsPerTick"] = float(budget_ms_per_tick)
         if voxel_min_content is not None:

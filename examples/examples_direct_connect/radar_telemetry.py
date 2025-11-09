@@ -67,7 +67,7 @@ CONFIG: Dict[str, Any] = {
     # Полный камень / мягкая фильтрация
     "fullSolidScan": False,
     # Альяс для совместимости
-    "includeStoneCells": False,
+    "includeStoneCells": True,
     # Пример: 1.0 (мс на тик)
     "budgetMsPerTick": 10,
     # Пример: 1 (мягкая фильтрация границ)
