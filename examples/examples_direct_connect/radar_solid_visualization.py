@@ -84,20 +84,36 @@ def visualize_solid(solid: List[int], metadata: Dict[str, Any]) -> None:
         wz = origin[2] + z * cellSize
         points.append((wx, wy, wz))
 
-    # Создать PolyData из точек
+    # Создать PolyData из точек и voxelize
     cloud = pv.PolyData(points)
+    print(cellSize)
+    voxels = pv.voxelize(cloud, density=cellSize)
+    print(voxels)
 
     # Использовать глобальный plotter для обновления
+    # global plotter
+    # if 'plotter' not in globals():
+    #     plotter = pv.Plotter(off_screen=False)
+    #     plotter.add_mesh(surf, color='blue')
+    #     plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
+    #     plotter.show(auto_close=False, interactive=True)
+    # else:
+    #     # Обновить поверхность
+    #     plotter.clear()
+    #     plotter.add_mesh(surf, color='blue')
+    #     plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
+    #     plotter.render()
+
     global plotter
     if 'plotter' not in globals():
         plotter = pv.Plotter(off_screen=False)
-        plotter.add_mesh(cloud, color='blue', point_size=2, render_points_as_spheres=True)
+        plotter.add_mesh(voxels, color='blue')
         plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
         plotter.show(auto_close=False, interactive=True)
     else:
-        # Обновить точки
+        # Обновить воксели
         plotter.clear()
-        plotter.add_mesh(cloud, color='blue', point_size=2, render_points_as_spheres=True)
+        plotter.add_mesh(voxels, color='blue')
         plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
         plotter.render()
 
@@ -157,9 +173,9 @@ def main() -> None:
             fastScanBudgetMs=20,
 
             voxel_step=1,
-            cell_size = 1,
+            cell_size = 10,
 
-            gridStep=20,
+            gridStep=10,
             radius = 50,
             fastScanTileEdgeMax=256
 
