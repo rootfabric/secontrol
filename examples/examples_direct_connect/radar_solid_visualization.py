@@ -87,36 +87,36 @@ def visualize_solid(solid: List[int], metadata: Dict[str, Any]) -> None:
     # Создать PolyData из точек и voxelize
     cloud = pv.PolyData(points)
     print(cellSize)
-    voxels = pv.voxelize(cloud, density=cellSize)
-    print(voxels)
+    # voxels = pv.voxelize(cloud, density=cellSize)
+    # print(voxels)
 
     # Использовать глобальный plotter для обновления
-    # global plotter
-    # if 'plotter' not in globals():
-    #     plotter = pv.Plotter(off_screen=False)
-    #     plotter.add_mesh(surf, color='blue')
-    #     plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
-    #     plotter.show(auto_close=False, interactive=True)
-    # else:
-    #     # Обновить поверхность
-    #     plotter.clear()
-    #     plotter.add_mesh(surf, color='blue')
-    #     plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
-    #     plotter.render()
-
     global plotter
     if 'plotter' not in globals():
         plotter = pv.Plotter(off_screen=False)
-        plotter.add_mesh(voxels, color='blue')
+        plotter.add_mesh(cloud, color='blue')
         plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
         plotter.show(auto_close=False, interactive=True)
     else:
-        # Обновить воксели
+        # Обновить поверхность
         plotter.clear()
-        plotter.add_mesh(voxels, color='blue')
+        plotter.add_mesh(cloud, color='blue')
         plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
         plotter.render()
 
+    # global plotter
+    # if 'plotter' not in globals():
+    #     plotter = pv.Plotter(off_screen=False)
+    #     plotter.add_mesh(voxels, color='blue')
+    #     plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
+    #     plotter.show(auto_close=False, interactive=True)
+    # else:
+    #     # Обновить воксели
+    #     plotter.clear()
+    #     plotter.add_mesh(voxels, color='blue')
+    #     plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
+    #     plotter.render()
+    #
 
 def main() -> None:
     global cancel_requested
