@@ -39,7 +39,64 @@ Variable values must be obtained in the personal account on the page https://www
 
 ## Examples
 
-Ready-made scripts are located in the [`examples`](examples) directory. To run an example:
+Ready-made scripts are located in the [`examples/organized`](examples/organized) directory, organized by device type and complexity level:
+
+- `basic/` - Basic examples for getting started
+  - `basic/` - Simple introductory examples
+  - `intermediate/` - Moderately complex examples
+  - `advanced/` - Complex examples with advanced features
+
+- `lamp/` - Examples for controlling lamp devices
+  - `basic/` - Simple lamp control examples
+  - `intermediate/` - More complex lamp automation
+  - `advanced/` - Advanced lamp control with complex logic
+
+- `container/` - Examples for managing container devices
+  - `basic/` - Simple container operations
+  - `intermediate/` - Container inventory management
+  - `advanced/` - Complex inventory tracking and transfers
+
+- `assembler/` - Examples for controlling assembler devices
+  - `basic/` - Simple production commands
+  - `intermediate/` - Queue management and monitoring
+  - `advanced/` - Complex production workflows
+
+- `rover/` - Examples for controlling rover devices
+  - `basic/` - Simple rover movement
+  - `intermediate/` - Wheel control and steering
+  - `advanced/` - Complex rover automation
+
+- `display/` - Examples for controlling display devices
+  - `basic/` - Simple display content
+  - `intermediate/` - Dynamic content updates
+  - `advanced/` - Complex graphics and animations
+
+- `grid/` - Examples for grid-level operations
+  - `basic/` - Grid information and listings
+  - `intermediate/` - Grid resource management
+  - `advanced/` - Grid damage tracking and advanced operations
+
+- `ai/` - Examples for AI automation
+  - `basic/` - Simple AI tasks
+  - `intermediate/` - AI behavior control
+  - `advanced/` - Complex AI automation
+
+- `refinery/` - Examples for controlling refinery devices
+  - `basic/` - Simple refinery operations
+  - `intermediate/` - Priority and queue management
+  - `advanced/` - Complex refinement workflows
+
+- `radar/` - Examples for radar and detection devices
+  - `basic/` - Simple detection
+  - `intermediate/` - Radar telemetry processing
+  - `advanced/` - Complex detection and visualization
+
+- `inventory/` - Examples for inventory management
+  - `basic/` - Simple inventory operations
+  - `intermediate/` - Inventory tracking
+  - `advanced/` - Complex inventory automation and transfers
+
+To run an example:
 
 ## Wiki
 https://github.com/rootfabric/secontrol/wiki/home
