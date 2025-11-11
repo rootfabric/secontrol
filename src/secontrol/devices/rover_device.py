@@ -177,7 +177,7 @@ class RoverDevice:
             # For forward, still need from contacts
             contacts = radar.get("contacts", [])
             for contact in contacts:
-                if contact.get("type") == "grid" and contact.get("name") == self.grid.name:
+                if contact.get("type") == "grid" and contact.get("entityId") == self.grid.entity_id:
                     rover_forward = contact.get("forward")
                     break
         else:
@@ -185,7 +185,7 @@ class RoverDevice:
             contacts = radar.get("contacts", [])
             current_pos = None
             for contact in contacts:
-                if contact.get("type") == "grid" and contact.get("name") == self.grid.name:
+                if contact.get("type") == "grid" and contact.get("entityId") == self.grid.entity_id:
                     current_pos = tuple(contact["position"])
                     rover_forward = contact.get("forward")
                     break
