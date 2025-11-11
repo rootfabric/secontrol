@@ -5,11 +5,14 @@ all wheels on a grid. It automatically discovers wheels and provides simple
 drive commands.
 """
 
+import math
+import time
 from __future__ import annotations
 
 from typing import List
 
 from ..base_device import Grid
+from .ore_detector_device import OreDetectorDevice
 from .wheel_device import WheelDevice
 
 
@@ -24,9 +27,20 @@ class RoverDevice:
         """
         self.grid = grid
         self.wheels: List[WheelDevice] = grid.find_devices_by_type("wheel")
+        detectors = grid.find_devices_by_type("ore_detector")
+        if not detectors:
+            raise ValueError("No ore detector (radar) found on the grid. Cannot determine rover position for pathfinding.")
+        self.detector: OreDetectorDevice = detectors[0]
         self._current_speed = None
         self._current_steering = None
         self._parked = False
+        self._is_moving = False
+        self._target_point = None
+        self._min_distance = 20.0
+        self._base_speed = 0.005
+        self._speed_factor = 0.05
+        self._max_speed = 0.015
+        self._steering_gain = 2.5
 
     def drive_forward(self, speed: float) -> None:
         """Drive the rover forward at the specified speed.
@@ -81,3 +95,172 @@ class RoverDevice:
     def is_parked(self) -> bool:
         """Check if the rover is in parking mode."""
         return self._parked
+
+    def _compute_steering_and_speed(
+        self,
+        current_pos: tuple[float, float, float],
+        rover_forward: tuple[float, float, float],
+        target_point: tuple[float, float, float],
+        base_speed: float,
+        speed_factor: float,
+        max_speed: float,
+        steering_gain: float,
+        min_distance: float,
+    ) -> tuple[float, float]:
+        """Compute steering and speed to move towards target point.
+
+        Args:
+            current_pos: Current rover position.
+            rover_forward: Rover's forward vector.
+            target_point: Target position.
+            base_speed: Base propulsion speed.
+            speed_factor: Speed increase factor with distance.
+            max_speed: Maximum propulsion speed.
+            steering_gain: Steering amplification factor.
+            min_distance: Minimum distance to stop.
+
+        Returns:
+            Tuple of (speed, steering).
+        """
+        # Vector from rover to target
+        vector_to_target = [t - c for t, c in zip(target_point, current_pos)]
+        distance = math.sqrt(sum(v**2 for v in vector_to_target))
+
+        if distance < min_distance:
+            return 0.0, 0.0  # Stop
+
+        # Speed increases with distance
+        speed = min(max_speed, base_speed + (distance - min_distance) * speed_factor)
+
+        # Direction to target (normalized, ignore Y)
+        dir_to_target = [vector_to_target[0], 0, vector_to_target[2]]
+        dir_length = math.sqrt(sum(d**2 for d in dir_to_target))
+        if dir_length > 0:
+            dir_norm = [d / dir_length for d in dir_to_target]
+        else:
+            dir_norm = [1, 0, 0]  # Fallback
+
+        # Rover forward (normalized, ignore Y)
+        forward_horiz = [rover_forward[0], 0, rover_forward[2]]
+        forward_length = math.sqrt(sum(f**2 for f in forward_horiz))
+        if forward_length > 0:
+            forward_norm = [f / forward_length for f in forward_horiz]
+        else:
+            forward_norm = [1, 0, 0]  # Fallback
+
+        # Angle between forward and direction to target
+        dot = sum(a * b for a, b in zip(dir_norm, forward_norm))
+        cross = dir_norm[0] * forward_norm[2] - dir_norm[2] * forward_norm[0]
+        angle = math.atan2(cross, dot)
+
+        # Steering normalized to -1..1
+        steering = max(-1.0, min(1.0, angle / (math.pi / 2)))
+        steering *= steering_gain
+        steering = max(-1.0, min(1.0, steering))
+
+        return speed, -steering  # Negative steering for correct turn
+
+    def _on_telemetry(self, dev, telemetry: dict, event: str) -> None:
+        """Handle telemetry update from the radar."""
+        if not self._is_moving or not self._target_point:
+            return
+
+        radar = telemetry.get("radar")
+        if not radar:
+            return
+
+        # Try to get scannerPosition from radar
+        scanner_pos = radar.get("scannerPosition")
+        rover_forward = None
+        if scanner_pos and isinstance(scanner_pos, list) and len(scanner_pos) == 3:
+            current_pos = tuple(scanner_pos)
+            # For forward, still need from contacts
+            contacts = radar.get("contacts", [])
+            for contact in contacts:
+                if contact.get("type") == "grid" and contact.get("entityId") == self.grid.entity_id:
+                    rover_forward = contact.get("forward")
+                    break
+        else:
+            # Fallback: get position and forward from contacts
+            contacts = radar.get("contacts", [])
+            current_pos = None
+            for contact in contacts:
+                if contact.get("type") == "grid" and contact.get("entityId") == self.grid.entity_id:
+                    current_pos = tuple(contact["position"])
+                    rover_forward = contact.get("forward")
+                    break
+
+        if not current_pos or not rover_forward:
+            print("Warning: Could not find rover position or forward in radar telemetry.")
+            return
+
+        # Compute steering and speed
+        speed, steering = self._compute_steering_and_speed(
+            current_pos, rover_forward, self._target_point,
+            self._base_speed, self._speed_factor, self._max_speed, self._steering_gain, self._min_distance
+        )
+
+        if speed == 0.0 and steering == 0.0:
+            # Stop moving
+            self.stop()
+            self.park_on()
+            self._is_moving = False
+            print(f"Reached target point {self._target_point}")
+        else:
+            self.park_off()
+            self.drive(speed, steering)
+            print(f"Moving: pos={current_pos}, target={self._target_point}, speed={speed:.3f}, steering={steering:.3f}")
+
+    def move_to_point(
+        self,
+        target_point: tuple[float, float, float],
+        min_distance: float = 20.0,
+        base_speed: float = 0.005,
+        speed_factor: float = 0.05,
+        max_speed: float = 0.015,
+        steering_gain: float = 2.5,
+    ) -> None:
+        """Move the rover to the specified target point.
+
+        Blocks until the target is reached or interrupted (e.g., KeyboardInterrupt).
+
+        Args:
+            target_point: The (x, y, z) coordinates to move to.
+            min_distance: Minimum distance to target to consider it reached.
+            base_speed: Base propulsion speed (-1.0 to 1.0).
+            speed_factor: Speed increase factor per meter beyond min_distance.
+            max_speed: Maximum propulsion speed.
+            steering_gain: Steering amplification factor.
+        """
+        if self._is_moving:
+            print("Already moving to a target point.")
+            return
+
+        # Set parameters
+        self._target_point = target_point
+        self._min_distance = min_distance
+        self._base_speed = base_speed
+        self._speed_factor = speed_factor
+        self._max_speed = max_speed
+        self._steering_gain = steering_gain
+        self._is_moving = True
+
+        # Subscribe to telemetry
+        self.detector.on("telemetry", self._on_telemetry)
+
+        print(f"Starting move to {target_point}")
+
+        try:
+            # Initial scan
+            self.detector.scan(include_grids=True)
+            while self._is_moving:
+                time.sleep(1)  # Wait for telemetry updates
+                self.detector.scan(include_grids=True)  # Refresh scan
+        except KeyboardInterrupt:
+            print("Move interrupted by user.")
+            self.stop()
+            self.park_on()
+            self._is_moving = False
+        finally:
+            # Unsubscribe
+            self.detector.off("telemetry", self._on_telemetry)
