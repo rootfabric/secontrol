@@ -532,7 +532,7 @@ class Grid:
     ) -> None:
         self.redis = redis_client
         self.owner_id = owner_id
-        self.grid_id = grid_id
+        self.grid_id = int(grid_id)
         self.player_id = player_id
         self.name = name or f"Grid_{grid_id}"
         self.grid_key = f"se:{owner_id}:grid:{grid_id}:gridinfo"

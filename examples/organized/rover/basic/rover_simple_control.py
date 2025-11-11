@@ -28,7 +28,7 @@ def main() -> None:
     grid.park_off()
 
     # Drive forward for 2 seconds
-    speed = 0.01
+    speed = 0.1
     # print(f"\nDriving forward at speed {speed}...")
     # rover.drive_forward(speed)
     # time.sleep(1)
@@ -36,7 +36,7 @@ def main() -> None:
     # Drive with custom steering
     print("Driving with slight right turn...")
     rover.drive(speed, 0.3)
-    time.sleep(10)
+    time.sleep(0.5)
 
     # Stop
     print("Stopping...")

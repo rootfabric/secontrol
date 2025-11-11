@@ -12,6 +12,10 @@ except ImportError:  # pragma: no cover - Python <3.10 compatibility
 
 from secontrol.base_device import DEVICE_TYPE_MAP
 
+# Import rover device
+from .rover_device import RoverDevice
+
+
 __all__ = [
     "DEVICE_TYPE_MAP",
     "load_builtin_devices",
@@ -72,5 +76,3 @@ def load_external_plugins(groups: Iterable[str] | None = None) -> None:
 # Ensure built-in devices are registered by default.
 load_builtin_devices()
 
-# Import rover device
-from .rover_device import RoverDevice
