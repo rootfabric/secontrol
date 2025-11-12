@@ -80,7 +80,7 @@ class RoverDevice:
         """
         self.drive(speed, 0.0)
 
-    def drive(self, speed: float, steering: float = 0.0) -> None:
+    def drive(self, speed: float, steering: float = None) -> None:
         """Drive the rover with specified speed and steering.
 
         Args:
@@ -90,6 +90,8 @@ class RoverDevice:
         # if self._current_speed == speed and self._current_steering == steering:
         #     return  # No change, skip sending commands
         for wheel in self.wheels:
+            if steering is not None:
+                wheel.steering_angle = steering
             wheel.set_steering(steering)
             if 'Left' in wheel.name:
                 wheel.set_propulsion(speed)
@@ -172,7 +174,7 @@ class RoverDevice:
 
         # Emergency braking if close and fast
         if distance < 50 and rover_speed > 4:
-            return -0.1, 0.0  # Reverse to brake
+            return -0.1, None  # Reverse to brake
 
         # Speed: closer to target, slower
         speed = base_speed + (max_speed - base_speed) * min(1.0, distance / max_distance)
@@ -272,9 +274,9 @@ class RoverDevice:
         target_point: tuple[float, float, float] | None = None,
         target_callback: callable = None,
         min_distance: float = 20.0,
-        base_speed: float = 0.02,
+        base_speed: float = 0.03,
         speed_factor: float = 0.5,
-        max_speed: float = 0.02,
+        max_speed: float = 0.05,
         steering_gain: float = 2.5,
         max_distance: float = 500.0,
     ) -> None:
@@ -313,6 +315,6 @@ class RoverDevice:
         self.detector.on("telemetry", self._on_telemetry)
 
         # Disable parking for movement
-        self.park_off()
+        self.park_off(True)
 
         print(f"Starting move to target")

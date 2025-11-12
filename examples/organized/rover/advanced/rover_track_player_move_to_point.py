@@ -34,8 +34,6 @@ def main() -> None:
         print("Скан запущен. Ожидание телеметрии... (Ctrl+C для выхода)")
 
         #толкнуть
-        rover.drive(1, 0.0)
-        time.sleep(0.5)
 
         # Цикл для периодического сканирования и движения
         while True:
@@ -45,11 +43,10 @@ def main() -> None:
             player_pos = None
             rover_pos = None
             rover_forward = None
-            grid.park_off()
 
             rover_speed = 0.0
             for contact in contacts:
-                if contact.get("type") == "player" and contact.get("name") == "root":
+                if contact.get("type") == "player" and str(contact.get("ownerId")) == grid.owner_id:
                     player_pos = contact["position"]
                 elif contact.get("type") == "grid" and contact.get("name") == "Respawn Rover":
                     rover_pos = contact["position"]
@@ -80,6 +77,12 @@ def main() -> None:
                         print("Движение к игроку...")
                         rover.move_to_point(player_pos, min_distance=MIN_DISTANCE)
                     rover.update_target(player_pos)
+
+                    # Толчок, если скорость нулевая
+                    if rover._is_moving and rover_speed < 0.1:
+                        print("Толчок для старта...")
+                        rover.drive(1, 0.0)
+                        time.sleep(0.5)
                 else:
                     print("Близко к игроку, остановка.")
                     rover.stop()
