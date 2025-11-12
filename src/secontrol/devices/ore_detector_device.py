@@ -159,6 +159,9 @@ class OreDetectorDevice(BaseDevice):
         no_detector_cap_max: Optional[float] = None,
         fast_scan: Optional[bool] = None,
         gridStep: Optional[float] = None,
+        boundingBoxX: Optional[float] = None,
+        boundingBoxY: Optional[float] = None,
+        boundingBoxZ: Optional[float] = None,
         fastScanBudgetMs: Optional[float] = None,
         fastScanTileEdgeMax: Optional[float] = None,
 
@@ -215,6 +218,13 @@ class OreDetectorDevice(BaseDevice):
             state["fastScanBudgetMs"] = float(fastScanBudgetMs)
         if fastScanTileEdgeMax is not None:
             state["fastScanTileEdgeMax"] = float(fastScanTileEdgeMax)
+        if boundingBoxX is not None:
+            state["boundingBoxX"] = float(boundingBoxX)
+        if boundingBoxY is not None:
+            state["boundingBoxY"] = float(boundingBoxY)
+        if boundingBoxZ is not None:
+            state["boundingBoxZ"] = float(boundingBoxZ)
+
 
         payload: Dict[str, Any] = {
             "cmd": "scan",
