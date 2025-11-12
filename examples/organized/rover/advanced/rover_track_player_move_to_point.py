@@ -47,12 +47,14 @@ def main() -> None:
             rover_forward = None
             grid.park_off()
 
+            rover_speed = 0.0
             for contact in contacts:
                 if contact.get("type") == "player" and contact.get("name") == "root":
                     player_pos = contact["position"]
                 elif contact.get("type") == "grid" and contact.get("name") == "Respawn Rover":
                     rover_pos = contact["position"]
                     rover_forward = contact["forward"]
+                    rover_speed = contact.get("speed", 0.0)
 
             if player_pos and rover_pos and rover_forward:
                 # Вычислить вектор от ровера к игроку
@@ -63,11 +65,20 @@ def main() -> None:
                 print(f"Форвард ровера: {rover_forward}")
                 print(f"Вектор на игрока: {vector_to_player}")
                 print(f"Расстояние: {distance}")
+                print(f"Скорость ровера: {rover_speed}")
 
                 if distance > MIN_DISTANCE:
+                    # Регулировка скорости
+                    if distance < 50 and rover_speed > 10:
+                        rover._max_speed = 0.005
+                    elif rover_speed < 2:
+                        rover._max_speed = 0.05
+                    else:
+                        rover._max_speed = 0.04
+
                     if not rover._is_moving:
                         print("Движение к игроку...")
-                        rover.move_to_point(player_pos, min_distance=MIN_DISTANCE, max_speed=0.03, steering_gain=0.1)
+                        rover.move_to_point(player_pos, min_distance=MIN_DISTANCE)
                     rover.update_target(player_pos)
                 else:
                     print("Близко к игроку, остановка.")

@@ -70,7 +70,7 @@ class RoverDevice:
         self._speed_factor = 0.05
         self._max_speed = 0.015
         self._steering_gain = 2.5
-        self._pid_steering = PID(kp=0.5, ki=0.0, kd=0.1, setpoint=0.0)
+        self._pid_steering = PID(kp=2, ki=0.0, kd=0.1, setpoint=0.0)
 
     def drive_forward(self, speed: float) -> None:
         """Drive the rover forward at the specified speed.
@@ -145,6 +145,7 @@ class RoverDevice:
         steering_gain: float,
         min_distance: float,
         max_distance: float = 500.0,
+        rover_speed: float = 0.0,
     ) -> tuple[float, float]:
         """Compute steering and speed to move towards target point.
 
@@ -168,6 +169,10 @@ class RoverDevice:
 
         if distance < min_distance:
             return 0.0, 0.0  # Stop
+
+        # Emergency braking if close and fast
+        if distance < 50 and rover_speed > 4:
+            return -0.1, 0.0  # Reverse to brake
 
         # Speed: closer to target, slower
         speed = base_speed + (max_speed - base_speed) * min(1.0, distance / max_distance)
@@ -222,6 +227,13 @@ class RoverDevice:
             print("Warning: Could not find rover position or forward in radar telemetry.")
             return
 
+        # Get rover speed
+        rover_speed = 0.0
+        for contact in contacts:
+            if contact.get("type") == "grid" and contact.get("id") == int(self.grid.grid_id):
+                rover_speed = contact.get("speed", 0.0)
+                break
+
         # Update target if callback is set
         if self._target_callback:
             self._target_point = self._target_callback()
@@ -230,10 +242,18 @@ class RoverDevice:
         distance = math.sqrt(sum((t - c)**2 for t, c in zip(self._target_point, current_pos)))
         print(distance)
 
+        # Emergency stop if too close and fast
+        if distance < 50 and rover_speed > 10:
+            self.stop()
+            self.park_on()
+            self._is_moving = False
+            print("Emergency stop due to high speed near target")
+            return
+
         # Compute steering and speed
         speed, steering = self._compute_steering_and_speed(
             current_pos, rover_forward, self._target_point,
-            self._base_speed, self._speed_factor, self._max_speed, self._steering_gain, self._min_distance, self._max_distance
+            self._base_speed, self._speed_factor, self._max_speed, self._steering_gain, self._min_distance, self._max_distance, rover_speed
         )
 
         if speed == 0.0 and steering == 0.0:
@@ -291,5 +311,8 @@ class RoverDevice:
 
         # Subscribe to telemetry
         self.detector.on("telemetry", self._on_telemetry)
+
+        # Disable parking for movement
+        self.park_off()
 
         print(f"Starting move to target")
