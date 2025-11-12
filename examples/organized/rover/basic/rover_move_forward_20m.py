@@ -48,7 +48,7 @@ def main() -> None:
     print(f"Forward direction: {forward}")
 
     # Calculate target point 10 meters ahead
-    distance = 20.0
+    distance = 40.0
     target_point = (
         current_pos[0] + forward[0] * distance,
         current_pos[1] + forward[1] * distance,
@@ -60,7 +60,7 @@ def main() -> None:
     grid.park_off()
     # Move to the target point
     print("Starting move forward 10 meters...")
-    rover.move_to_point(target_point, max_speed=0.1)
+    rover.move_to_point(target_point, max_speed=0.3)
 
     print("Move completed.")
 

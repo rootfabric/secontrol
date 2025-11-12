@@ -15,8 +15,8 @@ from secontrol.devices.rover_device import RoverDevice
 # Настройки поведения ровера
 MIN_DISTANCE = 20.0  # Минимальное расстояние до игрока
 MAX_DISTANCE = 500.0  # Максимальное расстояние для расчета скорости
-BASE_SPEED = 0.01     # Базовая скорость
-MAX_SPEED = 0.02      # Максимальная скорость
+BASE_SPEED = 0.02     # Базовая скорость
+MAX_SPEED = 0.03      # Максимальная скорость
 STEERING_GAIN = 1.0  # Коэффициент усиления руления
 
 

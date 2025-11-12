@@ -33,6 +33,10 @@ def main() -> None:
 
         print("Скан запущен. Ожидание телеметрии... (Ctrl+C для выхода)")
 
+        #толкнуть
+        rover.drive(1, 0.0)
+        time.sleep(0.5)
+
         # Цикл для периодического сканирования и движения
         while True:
             detector.scan(include_players=True, include_grids=True, include_voxels=False, radius=500)
@@ -61,15 +65,15 @@ def main() -> None:
                 print(f"Расстояние: {distance}")
 
                 if distance > MIN_DISTANCE:
-                    if rover._is_moving:
-                        rover.update_target(player_pos)
-                    else:
+                    if not rover._is_moving:
                         print("Движение к игроку...")
-                        rover.move_to_point(player_pos, min_distance=MIN_DISTANCE, max_speed=0.01)
+                        rover.move_to_point(player_pos, min_distance=MIN_DISTANCE, max_speed=0.03, steering_gain=0.1)
+                    rover.update_target(player_pos)
                 else:
                     print("Близко к игроку, остановка.")
                     rover.stop()
                     rover.park_on()
+                    rover._is_moving = False
             else:
                 print("Не удалось получить позиции игрока или ровера.")
 

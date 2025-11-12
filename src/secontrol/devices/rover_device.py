@@ -70,7 +70,7 @@ class RoverDevice:
         self._speed_factor = 0.05
         self._max_speed = 0.015
         self._steering_gain = 2.5
-        self._pid_steering = PID(kp=1.0, ki=0.1, kd=0.05, setpoint=0.0)
+        self._pid_steering = PID(kp=0.5, ki=0.0, kd=0.1, setpoint=0.0)
 
     def drive_forward(self, speed: float) -> None:
         """Drive the rover forward at the specified speed.
@@ -120,6 +120,14 @@ class RoverDevice:
         if self._parked or force:
             self.grid.park_off()
             self._parked = False
+
+    def update_target(self, new_target: tuple[float, float, float]) -> None:
+        """Update the target point for ongoing movement.
+
+        Args:
+            new_target: New target position (x, y, z).
+        """
+        self._target_point = new_target
 
     @property
     def is_parked(self) -> bool:
@@ -185,7 +193,7 @@ class RoverDevice:
         cross = dir_norm[0] * forward_norm[2] - dir_norm[2] * forward_norm[0]
         angle = math.atan2(cross, dot)
 
-        # Use PID for steering
+        # Use PID controller for steering
         steering = self._pid_steering.update(angle)
         steering = max(-1.0, min(1.0, steering))
 
@@ -244,15 +252,15 @@ class RoverDevice:
         target_point: tuple[float, float, float] | None = None,
         target_callback: callable = None,
         min_distance: float = 20.0,
-        base_speed: float = 0.015,
+        base_speed: float = 0.02,
         speed_factor: float = 0.5,
         max_speed: float = 0.02,
         steering_gain: float = 2.5,
         max_distance: float = 500.0,
     ) -> None:
-        """Move the rover to the specified target point.
+        """Start moving the rover to the specified target point.
 
-        Blocks until the target is reached or interrupted (e.g., KeyboardInterrupt).
+        The movement is asynchronous; call stop() to halt it.
 
         Args:
             target_point: The (x, y, z) coordinates to move to.
@@ -285,18 +293,3 @@ class RoverDevice:
         self.detector.on("telemetry", self._on_telemetry)
 
         print(f"Starting move to target")
-
-        try:
-            # Initial scan
-            self.detector.scan(include_grids=True, include_voxels=False)
-            while self._is_moving:
-                time.sleep(1)  # Wait for telemetry updates
-                self.detector.scan(include_grids=True, include_voxels=False)  # Refresh scan
-        except KeyboardInterrupt:
-            print("Move interrupted by user.")
-            self.stop()
-            self.park_on()
-            self._is_moving = False
-        finally:
-            # Unsubscribe
-            self.detector.off("telemetry", self._on_telemetry)
