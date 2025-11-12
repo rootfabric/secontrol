@@ -22,8 +22,8 @@ def linear_to_3d(idx: int, sx: int, sy: int, sz: int) -> tuple[int, int, int]:
     return x, y, z
 
 
-def extract_solid(radar: Dict[str, Any]) -> tuple[List[int], Dict[str, Any]]:
-    """Извлекает solid массив и метаданные из радара."""
+def extract_solid(radar: Dict[str, Any]) -> tuple[List[int], Dict[str, Any], List[Dict[str, Any]]]:
+    """Извлекает solid массив, метаданные и contacts из радара."""
     raw = radar.get("raw", {})
     solid = raw.get("solid", [])
     if not isinstance(solid, list):
@@ -38,7 +38,11 @@ def extract_solid(radar: Dict[str, Any]) -> tuple[List[int], Dict[str, Any]]:
         "tsMs": raw.get("tsMs", 0),
     }
 
-    return solid, metadata
+    contacts = radar.get("contacts", [])
+    if not isinstance(contacts, list):
+        contacts = []
+
+    return solid, metadata, contacts
 
 
 # Глобальные переменные для состояния
@@ -58,7 +62,7 @@ def input_thread():
         except EOFError:
             break
 
-def visualize_solid(solid: List[int], metadata: Dict[str, Any]) -> None:
+def visualize_solid(solid: List[int], metadata: Dict[str, Any], contacts: List[Dict[str, Any]]) -> None:
     """Визуализирует solid как 3D облако точек с pyvista."""
     global last_solid_data
     if not solid:
@@ -91,17 +95,33 @@ def visualize_solid(solid: List[int], metadata: Dict[str, Any]) -> None:
     # voxels = pv.voxelize(cloud, density=cellSize)
     # print(voxels)
 
+    # Добавить точки устройств
+    device_points = []
+    for contact in contacts:
+        if contact.get("type") == "grid":
+            pos = contact.get("position")
+            if pos:
+                device_points.append(pos)
+
+    device_cloud = None
+    if device_points:
+        device_cloud = pv.PolyData(device_points)
+
     # Использовать глобальный plotter для обновления
     global plotter
     if 'plotter' not in globals():
         plotter = pv.Plotter(off_screen=False)
         plotter.add_mesh(cloud, color='blue')
+        if device_cloud:
+            plotter.add_mesh(device_cloud, color='red')
         plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
         plotter.show(auto_close=False, interactive=True)
     else:
         # Обновить поверхность
         plotter.clear()
         plotter.add_mesh(cloud, color='blue')
+        if device_cloud:
+            plotter.add_mesh(device_cloud, color='red')
         plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
         plotter.render()
 
@@ -152,11 +172,11 @@ def main() -> None:
             if not isinstance(radar, dict):
                 return
 
-            solid, metadata = extract_solid(radar)
+            solid, metadata, contacts = extract_solid(radar)
             print(f"Получен solid: {len(solid)} точек, rev={metadata['rev']}, truncated={metadata['oreCellsTruncated']}")
 
             if solid:
-                visualize_solid(solid, metadata)
+                visualize_solid(solid, metadata, contacts)
 
         device.on("telemetry", on_telemetry_update)
 
@@ -167,7 +187,7 @@ def main() -> None:
         # while 1:.
         seq = device.scan(
             include_players=False,
-            include_grids=False,
+            include_grids=True,
             budget_ms_per_tick=50,
 
             # полный скан
