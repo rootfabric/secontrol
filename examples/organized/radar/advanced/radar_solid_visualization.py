@@ -6,9 +6,12 @@ import json
 import sys
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Sequence
 
+import numpy as np
 import pyvista as pv
+from scipy.spatial.transform import Rotation
 
 from secontrol.common import close, prepare_grid
 from secontrol.devices.ore_detector_device import OreDetectorDevice
@@ -45,6 +48,147 @@ def extract_solid(radar: Dict[str, Any]) -> tuple[List[int], Dict[str, Any], Lis
     return solid, metadata, contacts
 
 
+# ------------------------------------------------------------------
+# Helpers for contact orientation
+# ------------------------------------------------------------------
+
+def _as_vector(value: Any) -> Optional[np.ndarray]:
+    if not isinstance(value, Sequence):
+        return None
+    if len(value) != 3:
+        return None
+    try:
+        nums = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError):
+        return None
+    return nums
+
+
+def _get_vector_from_contact(contact: Dict[str, Any], *keys: str) -> Optional[np.ndarray]:
+    for key in keys:
+        value = contact.get(key)
+        if value is None:
+            continue
+        vec = _as_vector(value)
+        if vec is not None:
+            return vec
+    return None
+
+
+def _extract_contact_matrix(contact: Dict[str, Any]) -> Optional[np.ndarray]:
+    matrix_keys = ("matrix", "rotationMatrix", "orientationMatrix")
+    for key in matrix_keys:
+        matrix = contact.get(key)
+        if matrix is None:
+            continue
+        arr = _as_vector(matrix)  # try 3 components first (should not match)
+        if arr is not None:
+            continue
+        if isinstance(matrix, Sequence):
+            if len(matrix) == 9:
+                try:
+                    flat = np.asarray(matrix, dtype=np.float64)
+                except (TypeError, ValueError):
+                    continue
+                return flat.reshape(3, 3)
+            if len(matrix) == 3 and all(isinstance(row, Sequence) and len(row) == 3 for row in matrix):
+                try:
+                    block = np.asarray(matrix, dtype=np.float64)
+                except (TypeError, ValueError):
+                    continue
+                return block.reshape(3, 3)
+    return None
+
+
+def _normalize_vector(vec: np.ndarray) -> Optional[np.ndarray]:
+    norm = np.linalg.norm(vec)
+    if norm <= 1e-6:
+        return None
+    return vec / norm
+
+
+def _contact_rotation_matrix(contact: Dict[str, Any]) -> Optional[np.ndarray]:
+    mat = _extract_contact_matrix(contact)
+    if mat is not None:
+        return mat
+
+    forward = _get_vector_from_contact(contact, "forward", "forwardVector", "direction")
+    if forward is None:
+        return None
+    forward_norm = _normalize_vector(forward)
+    if forward_norm is None:
+        return None
+
+    up = _get_vector_from_contact(contact, "up", "upVector", "normal")
+    if up is None or np.linalg.norm(up) <= 1e-6:
+        candidate = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        if abs(np.dot(candidate, forward_norm)) > 0.99:
+            candidate = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+        up_norm = candidate
+    else:
+        up_norm = _normalize_vector(up)
+        if up_norm is None:
+            up_norm = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+
+    right = np.cross(up_norm, forward_norm)
+    right_norm = _normalize_vector(right)
+    if right_norm is None:
+        return None
+
+    corrected_up = np.cross(forward_norm, right_norm)
+    up_norm_final = _normalize_vector(corrected_up)
+    if up_norm_final is None:
+        return None
+
+    return np.column_stack((right_norm, up_norm_final, forward_norm))
+
+
+def _get_contact_position(contact: Dict[str, Any]) -> Optional[np.ndarray]:
+    position = _get_vector_from_contact(contact, "position", "pos")
+    if position is None:
+        return None
+    return position.astype(np.float64)
+
+
+def _resolve_grid_orientation(
+    contacts: Sequence[Dict[str, Any]],
+    grid: Any | None,
+) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    target_id: Optional[int] = None
+    if grid is not None:
+        grid_id = getattr(grid, "grid_id", None)
+        try:
+            if grid_id is not None:
+                target_id = int(grid_id)
+        except (TypeError, ValueError):
+            target_id = None
+
+    fallback: Optional[tuple[np.ndarray, np.ndarray]] = None
+    for contact in contacts:
+        contact_pos = _get_contact_position(contact)
+        if contact_pos is None:
+            continue
+        rotation = _contact_rotation_matrix(contact)
+        if rotation is None:
+            continue
+        contact_type = str(contact.get("type") or "").lower()
+        contact_id = contact.get("id")
+        parsed_id: Optional[int] = None
+        try:
+            if contact_id is not None:
+                parsed_id = int(contact_id)
+        except (TypeError, ValueError):
+            parsed_id = None
+
+        if target_id is not None and parsed_id == target_id:
+            return rotation, contact_pos
+
+        if fallback is None and contact_type == "grid":
+            fallback = (rotation, contact_pos)
+
+    return fallback or (None, None)
+
+
 # Глобальные переменные для состояния
 last_scan_state = {}
 last_solid_data = None
@@ -62,7 +206,12 @@ def input_thread():
         except EOFError:
             break
 
-def visualize_solid(solid: List[int], metadata: Dict[str, Any], contacts: List[Dict[str, Any]]) -> None:
+def visualize_solid(
+    solid: List[int],
+    metadata: Dict[str, Any],
+    contacts: List[Dict[str, Any]],
+    grid: Any | None = None,
+) -> None:
     """Визуализирует solid как 3D облако точек с pyvista."""
     global last_solid_data
     if not solid:
@@ -80,13 +229,18 @@ def visualize_solid(solid: List[int], metadata: Dict[str, Any], contacts: List[D
     origin = metadata["origin"]
     sx, sy, sz = size
 
+    rotation_matrix, rotation_center = _resolve_grid_orientation(contacts, grid)
+
     points = []
     for idx in solid:
         x, y, z = linear_to_3d(idx, sx, sy, sz)
         wx = origin[0] + x * cellSize
         wy = origin[1] + y * cellSize
         wz = origin[2] + z * cellSize
-        points.append((wx, wy, wz))
+        point = np.array([wx, wy, wz], dtype=np.float64)
+        if rotation_matrix is not None and rotation_center is not None:
+            point = rotation_matrix @ (point - rotation_center) + rotation_center
+        points.append(tuple(point))
 
     print(points)
     # Создать PolyData из точек и voxelize
@@ -96,32 +250,49 @@ def visualize_solid(solid: List[int], metadata: Dict[str, Any], contacts: List[D
     # print(voxels)
 
     # Добавить точки устройств
-    device_points = []
+    grid_points = defaultdict(list)
+    wheel_points = []
     for contact in contacts:
-        if contact.get("type") == "grid":
-            pos = contact.get("position")
-            if pos:
-                device_points.append(pos)
+        pos = contact.get("position")
+        if not pos:
+            continue
+        name = contact.get("name")
+        if name == "Wheel":
+            wheel_points.append(pos)
+        else:
+            entity_id = contact.get("entityId", "unknown")
+            grid_points[entity_id].append(pos)
 
-    device_cloud = None
-    if device_points:
-        device_cloud = pv.PolyData(device_points)
 
     # Использовать глобальный plotter для обновления
     global plotter
     if 'plotter' not in globals():
         plotter = pv.Plotter(off_screen=False)
         plotter.add_mesh(cloud, color='blue')
-        if device_cloud:
-            plotter.add_mesh(device_cloud, color='red')
+        colors = ['red', 'green', 'blue', 'yellow', 'purple', 'orange', 'cyan', 'magenta']
+        for i, (eid, points) in enumerate(grid_points.items()):
+            if points:
+                color = colors[i % len(colors)]
+                grid_cloud = pv.PolyData(points)
+                plotter.add_mesh(grid_cloud, color=color)
+        if wheel_points:
+            wheel_cloud = pv.PolyData(wheel_points)
+            plotter.add_mesh(wheel_cloud, color='black')
         plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
         plotter.show(auto_close=False, interactive=True)
     else:
         # Обновить поверхность
         plotter.clear()
         plotter.add_mesh(cloud, color='blue')
-        if device_cloud:
-            plotter.add_mesh(device_cloud, color='red')
+        colors = ['red', 'green', 'blue', 'yellow', 'purple', 'orange', 'cyan', 'magenta']
+        for i, (eid, points) in enumerate(grid_points.items()):
+            if points:
+                color = colors[i % len(colors)]
+                grid_cloud = pv.PolyData(points)
+                plotter.add_mesh(grid_cloud, color=color)
+        if wheel_points:
+            wheel_cloud = pv.PolyData(wheel_points)
+            plotter.add_mesh(wheel_cloud, color='black')
         plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
         plotter.render()
 
@@ -145,7 +316,7 @@ def main() -> None:
     input_t = threading.Thread(target=input_thread, daemon=True)
     input_t.start()
 
-    grid = prepare_grid()
+    grid = prepare_grid("119052370536593617")
     try:
         # Найти ore_detector
         # detectors = grid.find_devices_by_type("ore_detector")
@@ -174,9 +345,11 @@ def main() -> None:
 
             solid, metadata, contacts = extract_solid(radar)
             print(f"Получен solid: {len(solid)} точек, rev={metadata['rev']}, truncated={metadata['oreCellsTruncated']}")
+            print("Contacts:")
+            print(json.dumps(contacts, indent=2))
 
             if solid:
-                visualize_solid(solid, metadata, contacts)
+                visualize_solid(solid, metadata, contacts, grid)
 
         device.on("telemetry", on_telemetry_update)
 
@@ -184,21 +357,22 @@ def main() -> None:
 
         # Отправить первое сканирование для solid
         print("Отправка команды scan для solid...")
-        # while 1:.
+        # while 1:
         seq = device.scan(
             include_players=False,
             include_grids=True,
-            budget_ms_per_tick=50,
+            # budget_ms_per_tick=50,
 
             # полный скан
             # include_voxels=True,
-            # fullSolidScan = True,
-            # voxel_step=15,
+            #   fullSolidScan = True,
+            # voxel_step=10,
             # cell_size=3,
             # fast_scan=False,
 
             # Быстрый скан
             include_voxels=True,
+            fullSolidScan = False,
             fast_scan=True,
             gridStep=10,
 
@@ -206,9 +380,9 @@ def main() -> None:
 
             radius = 50,
 
-            # boundingBoxX= 500,
-            # boundingBoxY= 5,
-            # boundingBoxZ= 500
+            boundingBoxX= 50,
+            boundingBoxY= 50,
+            boundingBoxZ= 50
             # fastScanTileEdgeMax=256
 
 
