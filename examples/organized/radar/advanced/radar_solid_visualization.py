@@ -33,18 +33,42 @@ def apply_quaternion(q: List[float], v: List[float]) -> List[float]:
 
 def get_forward_point(grid, distance: float = 50.0) -> List[float]:
     """Вычислить точку на distance метров вперед относительно грида."""
-    position = grid.metadata.get("position")
-    orientation = grid.metadata.get("orientation")
-    if position and orientation:
-        if isinstance(orientation, dict):
-            q = [orientation.get("w", 0), orientation.get("x", 0), orientation.get("y", 0), orientation.get("z", 0)]
-        else:
-            q = orientation
-        forward = apply_quaternion(q, [0, 0, 1])
-        center = [p + f * distance for p, f in zip(position, forward)]
-        return center
+
+    # Найти cockpit или remote_control
+    cockpit_devices = grid.find_devices_by_type("cockpit")
+    remote_devices = grid.find_devices_by_type("remote_control")
+    device = None
+    if cockpit_devices:
+        device = cockpit_devices[0]
+    elif remote_devices:
+        device = remote_devices[0]
     else:
-        raise ValueError("Не удалось получить позицию или ориентацию грида.")
+        raise ValueError("Не найдено устройство с позицией (cockpit или remote_control).")
+
+    # Обновить телеметрию
+    device.update()
+
+    # Получить position и orientation
+    position = device.telemetry.get("planetPosition") or device.telemetry.get("position")
+    orientation = device.telemetry.get("orientation")
+    if not position or not orientation:
+        raise ValueError("Не удалось получить позицию или ориентацию из телеметрии устройства.")
+
+    # Обработать position
+    if isinstance(position, dict):
+        position = [position["x"], position["y"], position["z"]]
+    elif not isinstance(position, list):
+        raise ValueError("Неверный формат позиции.")
+
+    # Обработать orientation: взять forward vector
+    if isinstance(orientation, dict) and "forward" in orientation:
+        forward = [orientation["forward"]["x"], orientation["forward"]["y"], orientation["forward"]["z"]]
+    else:
+        raise ValueError("Неверный формат ориентации.")
+
+    # Вычислить центр
+    center = [p + f * distance for p, f in zip(position, forward)]
+    return center
 
 
 def extract_solid(radar: Dict[str, Any]) -> tuple[List[List[float]], Dict[str, Any], List[Dict[str, Any]]]:
@@ -204,14 +228,16 @@ def main() -> None:
 
         # Отправить первое сканирование для solid
         print("Отправка команды scan для solid...")
-        seq = device.scan()
-        center = get_forward_point(grid, 50.0)
+        # device.scan()
+        # device.wait_for_new_radar()
+        #
+        center = get_forward_point(grid, 40.0)
         centerX, centerY, centerZ = center
         print(f"Центр сканирования: {center}")
         seq = device.scan(
-            include_players=False,
+            # include_players=False,
             include_grids=True,
-            budget_ms_per_tick=50,
+            # budget_ms_per_tick=50,
 
             # полный скан
             # include_voxels=True,
@@ -225,7 +251,9 @@ def main() -> None:
             fast_scan=True,
             gridStep=10,
 
-
+            boundingBoxX=500,
+            boundingBoxY=500,
+            boundingBoxZ=10,
 
             radius = 50,
 
@@ -238,6 +266,7 @@ def main() -> None:
 
         )
         print(f"Scan отправлен, seq={seq}. Ожидание телеметрии... (Ctrl+C для выхода)")
+
 
         # Цикл отслеживания прогресса и ожидания
         last_progress = -1

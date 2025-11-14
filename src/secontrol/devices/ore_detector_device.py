@@ -149,6 +149,18 @@ class OreDetectorDevice(BaseDevice):
         except (TypeError, ValueError):
             return None
 
+    def wait_for_new_radar(self, timeout: float = 10.0) -> bool:
+        """Ждет новой порции телеметрии радара с таймаутом."""
+        import time
+        start = time.time()
+        last_rev = self.revision()
+        while time.time() - start < timeout:
+            self.update()
+            if self.revision() != last_rev:
+                return True
+            time.sleep(0.1)
+        return False
+
     # ------------------------------------------------------------------
     # Commands
     # ------------------------------------------------------------------
@@ -243,11 +255,11 @@ class OreDetectorDevice(BaseDevice):
         if boundingBoxZ is not None:
             state["boundingBoxZ"] = float(boundingBoxZ)
         if centerX is not None:
-            state["boundingBoxX"] = float(centerX)
+            state["centerX"] = float(centerX)
         if centerY is not None:
-            state["boundingBoxY"] = float(centerY)
+            state["centerY"] = float(centerY)
         if centerZ is not None:
-            state["boundingBoxZ"] = float(centerZ)
+            state["centerZ"] = float(centerZ)
 
 
         payload: Dict[str, Any] = {
