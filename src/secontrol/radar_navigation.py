@@ -66,15 +66,33 @@ class RawRadarMap:
 
         occ = np.zeros(size, dtype=np.bool_)
 
-        solid = data.get("solid", [])  # type: ignore[assignment]
-        if solid:
-            solid_idx = np.fromiter(solid, dtype=np.int64)
-            ny, nz = size[1], size[2]
-            x = solid_idx // (ny * nz)
-            yz = solid_idx % (ny * nz)
-            y = yz // nz
-            z = yz % nz
-            occ[x, y, z] = True
+        solid_points = data.get("solidPoints")
+        if solid_points:
+            arr = np.asarray(solid_points, dtype=np.float64)
+            if arr.ndim == 2 and arr.shape[1] == 3:
+                rel = (arr - origin.reshape(1, 3)) / cell_size - 0.5
+                idx = np.rint(rel).astype(np.int64)
+                valid = (
+                    (idx[:, 0] >= 0)
+                    & (idx[:, 0] < size[0])
+                    & (idx[:, 1] >= 0)
+                    & (idx[:, 1] < size[1])
+                    & (idx[:, 2] >= 0)
+                    & (idx[:, 2] < size[2])
+                )
+                idx = idx[valid]
+                if idx.size:
+                    occ[idx[:, 0], idx[:, 1], idx[:, 2]] = True
+        else:
+            solid = data.get("solid", [])  # type: ignore[assignment]
+            if solid:
+                solid_idx = np.fromiter(solid, dtype=np.int64)
+                ny, nz = size[1], size[2]
+                x = solid_idx // (ny * nz)
+                yz = solid_idx % (ny * nz)
+                y = yz // nz
+                z = yz % nz
+                occ[x, y, z] = True
 
         for aabb in data.get("gridsAabb", []) or []:  # type: ignore[assignment]
             minx, miny, minz, maxx, maxy, maxz = aabb
