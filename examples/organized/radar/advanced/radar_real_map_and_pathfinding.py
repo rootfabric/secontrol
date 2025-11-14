@@ -145,16 +145,19 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
 
     size_x, size_y, size_z = size
 
+    # Преобразовать solid в локальные координаты относительно origin
+    solid_local = [(x - origin[0], y - origin[1], z - origin[2]) for x, y, z in solid]
+
     # Создать occupancy grid: True - blocked (воздух), False - traversable (solid)
     occ = np.ones((size_x, size_y, size_z), dtype=bool)
 
     # Заполнить occupancy grid: solid точки - traversable
-    for coord in solid:
+    for coord in solid_local:
         try:
             x, y, z = coord
-            ix = int(np.floor((x - origin[0]) / cell_size))
-            iy = int(np.floor((y - origin[1]) / cell_size))
-            iz = int(np.floor((z - origin[2]) / cell_size))
+            ix = int(np.floor(x / cell_size))
+            iy = int(np.floor(y / cell_size))
+            iz = int(np.floor(z / cell_size))
             if 0 <= ix < size_x and 0 <= iy < size_y and 0 <= iz < size_z:
                 occ[ix, iy, iz] = False  # traversable
         except Exception as e:
@@ -164,6 +167,28 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
     print(f"Всего занятых вокселей: {int(occ.sum())}")
 
     # Создать RawRadarMap
+    # Rebuild occupancy from solidPoints using RawRadarMap indexing semantics:
+    # True = occupied (solid), False = free (traversable)
+    try:
+        arr = np.asarray(solid, dtype=np.float64)
+        if arr.ndim == 2 and arr.shape[1] == 3:
+            rel = (arr - origin.reshape(1, 3)) / cell_size - 0.5
+            idx = np.rint(rel).astype(np.int64)
+            valid = (
+                (idx[:, 0] >= 0)
+                & (idx[:, 0] < size_x)
+                & (idx[:, 1] >= 0)
+                & (idx[:, 1] < size_y)
+                & (idx[:, 2] >= 0)
+                & (idx[:, 2] < size_z)
+            )
+            idx = idx[valid]
+            occ = np.zeros((size_x, size_y, size_z), dtype=bool)
+            if idx.size:
+                occ[idx[:, 0], idx[:, 1], idx[:, 2]] = True
+    except Exception as e:
+        print(f"Failed to rebuild occupancy from solidPoints: {e}")
+
     radar_map = RawRadarMap(
         occ=occ,
         origin=origin,
@@ -330,7 +355,8 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
     grid.dimensions = np.array([size_x + 1, size_y + 1, size_z + 1])
     grid.spacing = (cell_size, cell_size, cell_size)
     grid.origin = origin
-    grid.cell_data["traversable"] = (~occ).flatten(order='C')
+    # VTK expects Fortran-order flattening for cell data layout
+    grid.cell_data["traversable"] = (~occ).ravel(order='F')
     # Показать только traversable воксели
     traversable_grid = grid.threshold(0.5, scalars="traversable")
     plotter.add_mesh(traversable_grid, style='wireframe', color='blue', label="Traversable Voxels")
@@ -380,6 +406,7 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
     device_points = []
     for contact in contacts:
         if contact.get("type") == "grid":
+            print(contact)
             pos = contact.get("position")
             if pos:
                 device_points.append(pos)

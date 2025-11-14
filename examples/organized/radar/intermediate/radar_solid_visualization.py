@@ -144,6 +144,7 @@ def visualize_solid(solid: List[List[float]], metadata: Dict[str, Any], contacts
     for contact in contacts:
         if contact.get("type") == "grid":
             pos = contact.get("position")
+            print(contact)
             if pos:
                 device_points.append(pos)
 
