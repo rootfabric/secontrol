@@ -359,7 +359,8 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
     grid.cell_data["traversable"] = (~occ).ravel(order='F')
     # Показать только traversable воксели
     traversable_grid = grid.threshold(0.5, scalars="traversable")
-    plotter.add_mesh(traversable_grid, style='wireframe', color='blue', label="Traversable Voxels")
+    # plotter.add_mesh(traversable_grid, style='wireframe', color='blue', label="Traversable Voxels")
+    plotter.add_mesh(traversable_grid, color='blue', label="Traversable Voxels")
 
     # Добавить start и goal точки
     plotter.add_points(
@@ -470,7 +471,7 @@ def main() -> None:
             boundingBoxX=500,
             boundingBoxY=500,
             boundingBoxZ=40,
-            radius=150,
+            radius=500,
         )
         print(f"Scan отправлен, seq={seq}. Ожидание телеметрии... (Ctrl+C для выхода)")
 
