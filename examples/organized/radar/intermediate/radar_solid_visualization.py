@@ -231,35 +231,35 @@ def main() -> None:
         # device.scan()
         # device.wait_for_new_radar()
         #
-        center = get_forward_point(grid, 40.0)
-        centerX, centerY, centerZ = center
-        print(f"Центр сканирования: {center}")
+        # center = get_forward_point(grid, 40.0)
+        # centerX, centerY, centerZ = center
+        # print(f"Центр сканирования: {center}")
         seq = device.scan(
             # include_players=False,
             include_grids=True,
-            # budget_ms_per_tick=50,
+            budget_ms_per_tick=100,
 
             # полный скан
-            # include_voxels=True,
-            # fullSolidScan = True,
-            # voxel_step=15,
-            # cell_size=3,
-            # fast_scan=False,
+            include_voxels=True,
+            fullSolidScan = True,
+            voxel_step=1,
+            cell_size=10,
+            fast_scan=False,
 
             # Быстрый скан
-            include_voxels=True,
-            fast_scan=True,
-            gridStep=10,
+            # include_voxels=True,
+            # fast_scan=True,
+            # gridStep=5,
 
             boundingBoxX=500,
             boundingBoxY=500,
-            boundingBoxZ=10,
+            boundingBoxZ=30,
 
-            radius = 50,
+            radius = 300,
 
-            centerX=centerX,
-            centerY=centerY,
-            centerZ=centerZ
+            # centerX=centerX,
+            # centerY=centerY,
+            # centerZ=centerZ
             # fastScanTileEdgeMax=256
 
 
