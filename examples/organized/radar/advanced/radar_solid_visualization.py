@@ -17,6 +17,36 @@ from secontrol.devices.ore_detector_device import OreDetectorDevice
 # Функция linear_to_3d больше не нужна, поскольку solidPoints теперь абсолютные координаты
 
 
+def cross(a: List[float], b: List[float]) -> List[float]:
+    """Векторное произведение."""
+    return [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]]
+
+
+def apply_quaternion(q: List[float], v: List[float]) -> List[float]:
+    """Применить quaternion к вектору для поворота."""
+    w, x, y, z = q
+    qvec = [x, y, z]
+    cross1 = cross(qvec, v)
+    cross2 = cross(qvec, [c + w * vi for c, vi in zip(cross1, v)])
+    return [v[0] + 2 * cross2[0], v[1] + 2 * cross2[1], v[2] + 2 * cross2[2]]
+
+
+def get_forward_point(grid, distance: float = 50.0) -> List[float]:
+    """Вычислить точку на distance метров вперед относительно грида."""
+    position = grid.metadata.get("position")
+    orientation = grid.metadata.get("orientation")
+    if position and orientation:
+        if isinstance(orientation, dict):
+            q = [orientation.get("w", 0), orientation.get("x", 0), orientation.get("y", 0), orientation.get("z", 0)]
+        else:
+            q = orientation
+        forward = apply_quaternion(q, [0, 0, 1])
+        center = [p + f * distance for p, f in zip(position, forward)]
+        return center
+    else:
+        raise ValueError("Не удалось получить позицию или ориентацию грида.")
+
+
 def extract_solid(radar: Dict[str, Any]) -> tuple[List[List[float]], Dict[str, Any], List[Dict[str, Any]]]:
     """Извлекает solid массив, метаданные и contacts из радара."""
     raw = radar.get("raw", {})
@@ -174,17 +204,20 @@ def main() -> None:
 
         # Отправить первое сканирование для solid
         print("Отправка команды scan для solid...")
-        # while 1:.
+        seq = device.scan()
+        center = get_forward_point(grid, 50.0)
+        centerX, centerY, centerZ = center
+        print(f"Центр сканирования: {center}")
         seq = device.scan(
             include_players=False,
             include_grids=True,
-            # budget_ms_per_tick=50,
+            budget_ms_per_tick=50,
 
             # полный скан
             # include_voxels=True,
             # fullSolidScan = True,
-            # voxel_step=1,
-            # cell_size=15,
+            # voxel_step=15,
+            # cell_size=3,
             # fast_scan=False,
 
             # Быстрый скан
@@ -194,11 +227,11 @@ def main() -> None:
 
 
 
-            radius = 200,
+            radius = 50,
 
-            boundingBoxX= 500,
-            boundingBoxY= 20,
-            boundingBoxZ= 10
+            centerX=centerX,
+            centerY=centerY,
+            centerZ=centerZ
             # fastScanTileEdgeMax=256
 
 

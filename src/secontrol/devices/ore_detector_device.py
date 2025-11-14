@@ -9,6 +9,20 @@ from typing import Any, Dict, List, Optional
 from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
 
 
+def _cross(a: List[float], b: List[float]) -> List[float]:
+    """Векторное произведение."""
+    return [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]]
+
+
+def _apply_quaternion(q: List[float], v: List[float]) -> List[float]:
+    """Применить quaternion к вектору для поворота."""
+    w, x, y, z = q
+    qvec = [x, y, z]
+    cross1 = _cross(qvec, v)
+    cross2 = _cross(qvec, [c + w * vi for c, vi in zip(cross1, v)])
+    return [v[0] + 2 * cross2[0], v[1] + 2 * cross2[1], v[2] + 2 * cross2[2]]
+
+
 def _pick_radar_dict(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Выбирает словарь радара из телеметрии, учитывая разные схемы."""
     rad = data.get("radar")
@@ -143,7 +157,7 @@ class OreDetectorDevice(BaseDevice):
         *,
         include_players: bool = True,
         include_grids: bool = True,
-        include_voxels: bool = True,
+        include_voxels: bool = False,
         radius: Optional[float] = None,
         cell_size: Optional[float] = None,
         voxel_scan_hz: Optional[float] = None,
@@ -162,6 +176,9 @@ class OreDetectorDevice(BaseDevice):
         boundingBoxX: Optional[float] = None,
         boundingBoxY: Optional[float] = None,
         boundingBoxZ: Optional[float] = None,
+        centerX: Optional[float] = None,
+        centerY: Optional[float] = None,
+        centerZ: Optional[float] = None,
         fastScanBudgetMs: Optional[float] = None,
         fastScanTileEdgeMax: Optional[float] = None,
 
@@ -218,12 +235,19 @@ class OreDetectorDevice(BaseDevice):
             state["fastScanBudgetMs"] = float(fastScanBudgetMs)
         if fastScanTileEdgeMax is not None:
             state["fastScanTileEdgeMax"] = float(fastScanTileEdgeMax)
+
         if boundingBoxX is not None:
             state["boundingBoxX"] = float(boundingBoxX)
         if boundingBoxY is not None:
             state["boundingBoxY"] = float(boundingBoxY)
         if boundingBoxZ is not None:
             state["boundingBoxZ"] = float(boundingBoxZ)
+        if centerX is not None:
+            state["boundingBoxX"] = float(centerX)
+        if centerY is not None:
+            state["boundingBoxY"] = float(centerY)
+        if centerZ is not None:
+            state["boundingBoxZ"] = float(centerZ)
 
 
         payload: Dict[str, Any] = {
