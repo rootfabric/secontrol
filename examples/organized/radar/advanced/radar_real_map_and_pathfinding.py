@@ -58,11 +58,12 @@ def apply_quaternion(q: List[float], v: List[float]) -> List[float]:
 
 def get_forward_point(grid, distance: float = 50.0) -> List[float]:
     """Вычислить точку на distance метров вперед относительно грида (сейчас вернёт позицию)."""
-    return get_rover_position_and_forward(grid)[0]
+    position, _, _ = get_rover_position_and_forward(grid)
+    return position
 
 
-def get_rover_position_and_forward(grid) -> tuple[List[float], List[float]]:
-    """Получить позицию и направление вперед ровера по cockpit/remote_control."""
+def get_rover_position_and_forward(grid) -> tuple[List[float], List[float], List[float]]:
+    """Получить позицию, forward и гравитационный вектор ровера по cockpit/remote_control."""
     cockpit_devices = grid.find_devices_by_type("cockpit")
     remote_devices = grid.find_devices_by_type("remote_control")
     device = None
@@ -95,9 +96,23 @@ def get_rover_position_and_forward(grid) -> tuple[List[float], List[float]]:
     else:
         raise ValueError("Неверный формат ориентации.")
 
+    gravity_data = {}
+    gravity_vector = [0.0, 0.0, 0.0]
+    try:
+        gravity_data = device.gravity().get("total", {})  # type: ignore[union-attr]
+    except AttributeError:
+        gravity_data = {}
+
+    if isinstance(gravity_data, dict):
+        gravity_vector = [
+            float(gravity_data.get("x", 0.0)),
+            float(gravity_data.get("y", 0.0)),
+            float(gravity_data.get("z", 0.0)),
+        ]
+
     print(f"Device position: {position}")
 
-    return position, forward
+    return position, forward, gravity_vector
 
 
 # Глобальные переменные для состояния
@@ -173,8 +188,28 @@ def process_and_visualize(
 
     air = ~occ_solid
 
-    def build_walkable(vertical_axis: int) -> np.ndarray:
-        return occ_solid
+    def build_walkable(vertical_axis: int, gravity_sign: int) -> np.ndarray:
+        walkable = np.zeros_like(occ_solid, dtype=bool)
+        empty = ~occ_solid
+
+        if gravity_sign not in (-1, 1):
+            return walkable
+
+        empty_slice = [slice(None)] * 3
+        support_slice = [slice(None)] * 3
+
+        if gravity_sign > 0:
+            empty_slice[vertical_axis] = slice(0, -1)
+            support_slice[vertical_axis] = slice(1, None)
+        else:
+            empty_slice[vertical_axis] = slice(1, None)
+            support_slice[vertical_axis] = slice(0, -1)
+
+        empty_tuple = tuple(empty_slice)
+        support_tuple = tuple(support_slice)
+        walkable[empty_tuple] = empty[empty_tuple] & occ_solid[support_tuple]
+
+        return walkable
 
     axis_world_vectors = []
     base_center = (
@@ -192,11 +227,6 @@ def process_and_visualize(
         )
         axis_world_vectors.append(np.array(neighbor_center) - np.array(base_center))
 
-    # Предполагаем, что вертикаль совпадает с мировой осью Z, но
-    # дополнительно переберём все варианты, если эвристика даст сбой.
-    vertical_guess = max(range(3), key=lambda axis: abs(axis_world_vectors[axis][2]))
-    axis_candidates = [vertical_guess] + [axis for axis in range(3) if axis != vertical_guess]
-
     profile = PassabilityProfile(
         robot_radius=0.0,
         max_slope_degrees=45.0,
@@ -213,13 +243,15 @@ def process_and_visualize(
     )
 
     # Позиция ровера и игрока
+    gravity_vector: List[float] | None = None
     start_world: List[float] | None = None
     goal_world: List[float] | None = None
     goal_world_original: List[float] | None = None
     try:
-        position, forward = get_rover_position_and_forward(grid)
+        position, forward, gravity_vector = get_rover_position_and_forward(grid)
         print("Rover position:", position)
         start_world = position
+        print(f"Используем гравитационный вектор: {gravity_vector}")
 
         player_pos = None
         for contact in contacts:
@@ -241,16 +273,51 @@ def process_and_visualize(
         goal_world = None
         goal_world_original = None
 
+    gravity_unit = None
+    if gravity_vector:
+        gravity_arr = np.array(gravity_vector, dtype=float)
+        norm = float(np.linalg.norm(gravity_arr))
+        if norm > 1e-6:
+            gravity_unit = gravity_arr / norm
+        else:
+            print("Гравитационный вектор слишком мал, используем запасной вариант по оси Z")
+    else:
+        print("Не удалось получить гравитационный вектор, используем запасной вариант по оси Z")
+
+    axis_candidates: List[tuple[int, int]] = []
+    if gravity_unit is not None:
+        axis_scores: List[tuple[tuple[int, int], float]] = []
+        for axis, axis_vec in enumerate(axis_world_vectors):
+            axis_len = float(np.linalg.norm(axis_vec))
+            if axis_len <= 1e-6:
+                continue
+            axis_dir = axis_vec / axis_len
+            dot = float(np.dot(axis_dir, gravity_unit))
+            sign = 1 if dot >= 0 else -1
+            axis_scores.append(((axis, sign), abs(dot)))
+        axis_scores.sort(key=lambda item: item[1], reverse=True)
+        axis_candidates = [candidate for candidate, _ in axis_scores]
+        for axis in range(3):
+            for sign in (-1, 1):
+                candidate = (axis, sign)
+                if candidate not in axis_candidates:
+                    axis_candidates.append(candidate)
+    else:
+        for axis in range(3):
+            for sign in (-1, 1):
+                axis_candidates.append((axis, sign))
+
     selected_result: Dict[str, Any] | None = None
     evaluated_results: List[Dict[str, Any]] = []
 
-    for vertical_axis in axis_candidates:
-        walkable = build_walkable(vertical_axis)
+    for vertical_axis, gravity_sign in axis_candidates:
+        walkable = build_walkable(vertical_axis, gravity_sign)
         occ = ~walkable
 
         print(
             "--",
-            f"Пробуем вертикальную ось = {vertical_axis} (walkable: {int(walkable.sum())}, blocked: {int(occ.sum())})",
+            f"Пробуем вертикальную ось = {vertical_axis}, направление гравитации {gravity_sign:+d} "
+            f"(walkable: {int(walkable.sum())}, blocked: {int(occ.sum())})",
         )
 
         radar_map = RawRadarMap(
@@ -533,6 +600,7 @@ def process_and_visualize(
 
         result = {
             "vertical_axis": vertical_axis,
+            "gravity_sign": gravity_sign,
             "occ": occ,
             "walkable": walkable,
             "radar_map": radar_map,
@@ -578,8 +646,10 @@ def process_and_visualize(
         print("Не удалось сформировать маршрут ни в одной конфигурации.")
         return
 
+    gravity_sign = selected_result.get("gravity_sign", 0)
     print(
-        f"Выбрана конфигурация с вертикальной осью {selected_result['vertical_axis']}"
+        "Выбрана конфигурация с вертикальной осью "
+        f"{selected_result['vertical_axis']} и направлением гравитации {gravity_sign:+d}"
     )
 
     occ = selected_result["occ"]
