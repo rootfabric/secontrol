@@ -199,8 +199,8 @@ def process_and_visualize(
 
     profile = PassabilityProfile(
         robot_radius=0.1,
-        max_slope_degrees=45.0,
-        max_step_cells=2,
+        max_slope_degrees=15.0,
+        max_step_cells=1,
         allow_vertical_movement=True,
         allow_diagonal=False,
     )
@@ -749,11 +749,11 @@ def main() -> None:
             include_voxels=True,
             fullSolidScan=True,
             voxel_step=1,
-            cell_size=1,
+            cell_size=2,
             fast_scan=False,
             boundingBoxX=500,
             boundingBoxY=500,
-            boundingBoxZ=40,
+            boundingBoxZ=20,
             radius=50,
         )
         print(f"Scan отправлен, seq={seq}. Ожидание телеметрии... (Ctrl+C для выхода)")
