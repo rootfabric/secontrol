@@ -150,7 +150,7 @@ def process_and_visualize(
     size_x, size_y, size_z = size
 
     # Первичная occupancy: True = solid, False = air
-    occ = np.zeros((size_x, size_y, size_z), dtype=bool)
+    occ_solid = np.zeros((size_x, size_y, size_z), dtype=bool)
 
     try:
         arr = np.asarray(solid, dtype=np.float64)
@@ -167,40 +167,41 @@ def process_and_visualize(
             )
             idx = idx[valid]
             if idx.size:
-                occ[idx[:, 0], idx[:, 1], idx[:, 2]] = True
+                occ_solid[idx[:, 0], idx[:, 1], idx[:, 2]] = True
     except Exception as e:
         print(f"Failed to rebuild occupancy from solidPoints: {e}")
 
-    # Строим карту "walkable поверхностей":
-    # walkable = воздух с твердым вокселем прямо снизу; дырки остаются непроходимыми.
-    occ_solid = occ.copy()
     air = ~occ_solid
-    solid_below = np.zeros_like(occ_solid, dtype=bool)
-    solid_below[:, 1:, :] = occ_solid[:, 0:-1, :]
-    walkable = air & solid_below
 
-    # Для PathFinder: True = blocked, False = walkable
-    occ = ~walkable
+    def build_walkable(vertical_axis: int) -> np.ndarray:
+        return occ_solid
 
-    print(f"Карта: {size_x}x{size_y}x{size_z}, origin: {origin}, cell_size: {cell_size}")
-    print(f"Walkable cells: {int((~occ).sum())}, blocked: {int(occ.sum())}")
-
-    radar_map = RawRadarMap(
-        occ=occ,
-        origin=origin,
-        cell_size=cell_size,
-        size=(size_x, size_y, size_z),
-        revision=metadata["rev"],
-        timestamp_ms=metadata["tsMs"],
-        contacts=contacts,
-        _inflation_cache={},
+    axis_world_vectors = []
+    base_center = (
+        float(origin[0] + 0.5 * cell_size),
+        float(origin[1] + 0.5 * cell_size),
+        float(origin[2] + 0.5 * cell_size),
     )
+    for axis in range(3):
+        offset = [0, 0, 0]
+        offset[axis] = 1
+        neighbor_center = (
+            float(origin[0] + (offset[0] + 0.5) * cell_size),
+            float(origin[1] + (offset[1] + 0.5) * cell_size),
+            float(origin[2] + (offset[2] + 0.5) * cell_size),
+        )
+        axis_world_vectors.append(np.array(neighbor_center) - np.array(base_center))
+
+    # Предполагаем, что вертикаль совпадает с мировой осью Z, но
+    # дополнительно переберём все варианты, если эвристика даст сбой.
+    vertical_guess = max(range(3), key=lambda axis: abs(axis_world_vectors[axis][2]))
+    axis_candidates = [vertical_guess] + [axis for axis in range(3) if axis != vertical_guess]
 
     profile = PassabilityProfile(
         robot_radius=0.0,
         max_slope_degrees=45.0,
-        max_step_cells=1,
-        allow_vertical_movement=False,
+        max_step_cells=5,
+        allow_vertical_movement=True,
         allow_diagonal=True,
     )
     print(
@@ -210,9 +211,11 @@ def process_and_visualize(
         f"allow_vertical_movement={profile.allow_vertical_movement}, "
         f"allow_diagonal={profile.allow_diagonal}"
     )
-    pathfinder = PathFinder(radar_map, profile)
 
     # Позиция ровера и игрока
+    start_world: List[float] | None = None
+    goal_world: List[float] | None = None
+    goal_world_original: List[float] | None = None
     try:
         position, forward = get_rover_position_and_forward(grid)
         print("Rover position:", position)
@@ -226,172 +229,369 @@ def process_and_visualize(
 
         if player_pos:
             goal_world = player_pos
+            goal_world_original = player_pos
             print(f"Player position: {player_pos}, Goal: {goal_world}")
         else:
             goal_world = [p + f * 100.0 for p, f in zip(position, forward)]
+            goal_world_original = goal_world
             print(f"No player found, Goal: {goal_world}")
     except Exception as e:
         print(f"Не удалось получить позицию ровера: {e}")
-        free_indices = np.where(~occ)
-        if len(free_indices[0]) < 2:
-            print("Недостаточно свободных ячеек для пути")
-            return
-        start_world = radar_map.index_to_world_center(
-            (int(free_indices[0][0]), int(free_indices[1][0]), int(free_indices[2][0]))
-        )
-        goal_world = radar_map.index_to_world_center(
-            (int(free_indices[0][-1]), int(free_indices[1][-1]), int(free_indices[2][-1]))
+        start_world = None
+        goal_world = None
+        goal_world_original = None
+
+    selected_result: Dict[str, Any] | None = None
+    evaluated_results: List[Dict[str, Any]] = []
+
+    for vertical_axis in axis_candidates:
+        walkable = build_walkable(vertical_axis)
+        occ = ~walkable
+
+        print(
+            "--",
+            f"Пробуем вертикальную ось = {vertical_axis} (walkable: {int(walkable.sum())}, blocked: {int(occ.sum())})",
         )
 
-    # Найти ближайшую walkable-ячейку к миру
-    def find_nearest_free_index(world_pos: List[float] | np.ndarray):
-        try:
-            idx = radar_map.world_to_index(world_pos)
-            if (
-                0 <= idx[0] < size_x
-                and 0 <= idx[1] < size_y
-                and 0 <= idx[2] < size_z
-                and not occ[idx]
-            ):
-                return idx
-        except Exception:
-            pass
+        radar_map = RawRadarMap(
+            occ=occ,
+            origin=origin,
+            cell_size=cell_size,
+            size=(size_x, size_y, size_z),
+            revision=metadata["rev"],
+            timestamp_ms=metadata["tsMs"],
+            contacts=contacts,
+            _inflation_cache={},
+        )
+
+        pathfinder = PathFinder(radar_map, profile)
+
+        def find_nearest_free_index(world_pos: List[float] | np.ndarray):
+            try:
+                idx = radar_map.world_to_index(world_pos)
+                if (
+                    0 <= idx[0] < size_x
+                    and 0 <= idx[1] < size_y
+                    and 0 <= idx[2] < size_z
+                    and not occ[idx]
+                ):
+                    return idx
+            except Exception:
+                pass
+
+            free_indices_local = np.where(~occ)
+            if len(free_indices_local[0]) == 0:
+                return None
+
+            world_pos_arr = np.array(world_pos, dtype=float)
+            best_idx_local = None
+            best_dist_local = None
+            for i in range(len(free_indices_local[0])):
+                idx_local = (
+                    free_indices_local[0][i],
+                    free_indices_local[1][i],
+                    free_indices_local[2][i],
+                )
+                world_candidate = np.array(radar_map.index_to_world_center(idx_local), dtype=float)
+                dist_candidate = np.linalg.norm(world_candidate - world_pos_arr)
+                if best_dist_local is None or dist_candidate < best_dist_local:
+                    best_dist_local = dist_candidate
+                    best_idx_local = idx_local
+            return best_idx_local
 
         free_indices = np.where(~occ)
         if len(free_indices[0]) == 0:
-            return None
+            print("В этой конфигурации нет ни одной проходимой ячейки.")
+            result = {
+                "vertical_axis": vertical_axis,
+                "occ": occ,
+                "walkable": walkable,
+                "radar_map": radar_map,
+                "path_points": [],
+                "partial_path_points": [],
+                "fallback_path_used": False,
+                "goal_world": goal_world,
+                "goal_world_original": goal_world_original,
+            }
+            evaluated_results.append(result)
+            continue
 
-        world_pos_arr = np.array(world_pos, dtype=float)
-        best_idx = None
-        best_dist = None
-        for i in range(len(free_indices[0])):
-            idx = (free_indices[0][i], free_indices[1][i], free_indices[2][i])
-            world = np.array(radar_map.index_to_world_center(idx), dtype=float)
-            dist = np.linalg.norm(world - world_pos_arr)
-            if best_dist is None or dist < best_dist:
-                best_dist = dist
-                best_idx = idx
-        return best_idx
+        local_start_world = start_world
+        local_goal_world = goal_world
+        local_goal_original = goal_world_original
 
-    start_idx = find_nearest_free_index(start_world)
-    goal_idx = find_nearest_free_index(goal_world)
-
-    if start_idx is None or goal_idx is None:
-        print("Не удалось найти свободные ячейки для старта или цели")
-        return
-
-    start_center = radar_map.index_to_world_center(start_idx)
-    goal_center = radar_map.index_to_world_center(goal_idx)
-
-    print(f"Start idx: {start_idx}, Goal idx: {goal_idx}")
-    print(f"Start blocked: {bool(occ[start_idx])}, Goal blocked: {bool(occ[goal_idx])}")
-    print(f"Start world (cell center): {start_center}, Goal world (cell center): {goal_center}")
-    print(f"Goal world original (player pos): {goal_world}")
-    print(f"Goal idx is walkable: {not occ[goal_idx]}")
-
-    # Для дальнейших расчётов и метрик используем центры выбранных вокселей
-    snapped_start_world = start_center
-    snapped_goal_world = goal_center
-
-    # BFS по walkable-ячейкам — reachable область от старта
-    def get_reachable_indices(start_idx_local, occ_local, sx, sy, sz):
-        from collections import deque
-
-        visited = np.zeros((sx, sy, sz), dtype=bool)
-        queue = deque([start_idx_local])
-        visited[start_idx_local] = True
-        reachable: List[tuple[int, int, int]] = [start_idx_local]
-
-        directions = [
-            (1, 0, 0),
-            (-1, 0, 0),
-            (0, 1, 0),
-            (0, -1, 0),
-            (0, 0, 1),
-            (0, 0, -1),
-        ]
-
-        while queue:
-            current = queue.popleft()
-            cx, cy, cz = current
-            for dx, dy, dz in directions:
-                nx, ny, nz = cx + dx, cy + dy, cz + dz
-                if 0 <= nx < sx and 0 <= ny < sy and 0 <= nz < sz:
-                    if not occ_local[(nx, ny, nz)] and not visited[(nx, ny, nz)]:
-                        visited[(nx, ny, nz)] = True
-                        queue.append((nx, ny, nz))
-                        reachable.append((nx, ny, nz))
-        return reachable
-
-    reachable_indices = get_reachable_indices(start_idx, occ, size_x, size_y, size_z)
-    print(f"Reachable точек от start: {len(reachable_indices)}")
-
-    closest_reachable_idx = None
-    partial_path: List[tuple[int, int, int]] = []
-    partial_path_points: List[List[float]] = []
-
-    if reachable_indices:
-        distances = []
-        goal_world_arr = np.array(goal_world, dtype=float)
-        for idx in reachable_indices:
-            world = np.array(radar_map.index_to_world_center(idx), dtype=float)
-            dist = np.linalg.norm(world - goal_world_arr)
-            distances.append((dist, idx))
-        distances.sort()
-        closest_reachable_idx = distances[0][1]
-        print(
-            f"Ближайшая reachable к goal: {closest_reachable_idx}, "
-            f"dist: {distances[0][0]}"
-        )
-
-        print(f"Finding partial path from {start_idx} to {closest_reachable_idx}")
-        partial_path = pathfinder.find_path_indices(start_idx, closest_reachable_idx) or []
-        if partial_path:
-            partial_path_points = [
-                radar_map.index_to_world_center(idx) for idx in partial_path
-            ]
-            print(f"Partial путь из {len(partial_path)} индексов")
-        else:
-            partial_path_points = []
+        if local_start_world is None:
+            start_idx = (
+                int(free_indices[0][0]),
+                int(free_indices[1][0]),
+                int(free_indices[2][0]),
+            )
+            local_start_world = list(radar_map.index_to_world_center(start_idx))
             print(
-                f"Partial путь не найден, хотя {closest_reachable_idx} "
-                f"reachable от {start_idx}"
+                "Стартовая позиция не определена, берём первую свободную ячейку:",
+                start_idx,
+            )
+        else:
+            start_idx = find_nearest_free_index(local_start_world)
+
+        if local_goal_world is None:
+            goal_idx = (
+                int(free_indices[0][-1]),
+                int(free_indices[1][-1]),
+                int(free_indices[2][-1]),
+            )
+            local_goal_world = list(radar_map.index_to_world_center(goal_idx))
+            if local_goal_original is None:
+                local_goal_original = list(local_goal_world)
+            print(
+                "Цель не определена, берём последнюю свободную ячейку:",
+                goal_idx,
+            )
+        else:
+            goal_idx = find_nearest_free_index(local_goal_world)
+
+        if start_idx is None or goal_idx is None:
+            print("Не удалось найти свободные ячейки для старта или цели в этой конфигурации")
+            result = {
+                "vertical_axis": vertical_axis,
+                "occ": occ,
+                "walkable": walkable,
+                "radar_map": radar_map,
+                "path_points": [],
+                "partial_path_points": [],
+                "fallback_path_used": False,
+                "goal_world": local_goal_world,
+                "goal_world_original": local_goal_original,
+            }
+            evaluated_results.append(result)
+            continue
+
+        start_center = radar_map.index_to_world_center(start_idx)
+        goal_center = radar_map.index_to_world_center(goal_idx)
+
+        print(f"Start idx: {start_idx}, Goal idx: {goal_idx}")
+        print(f"Start blocked: {bool(occ[start_idx])}, Goal blocked: {bool(occ[goal_idx])}")
+        print(
+            f"Start world (cell center): {start_center}, Goal world (cell center): {goal_center}"
+        )
+        print(f"Goal world original (player pos): {local_goal_original}")
+        print(f"Goal idx is walkable: {not occ[goal_idx]}")
+
+        # Логи для клеток выше
+        print("Checking cells above start:")
+        for dz in range(1, 6):
+            idx_up = (start_idx[0], start_idx[1], start_idx[2] + dz)
+            if 0 <= idx_up[2] < size_z:
+                if occ[idx_up]:
+                    print(f"  Cell at {idx_up} is occupied (solid)")
+                else:
+                    print(f"  Cell at {idx_up} is free")
+            else:
+                print(f"  Cell at {idx_up} is out of bounds")
+                break
+
+        print("Checking cells above goal:")
+        for dz in range(1, 6):
+            idx_up = (goal_idx[0], goal_idx[1], goal_idx[2] + dz)
+            if 0 <= idx_up[2] < size_z:
+                if occ[idx_up]:
+                    print(f"  Cell at {idx_up} is occupied (solid)")
+                else:
+                    print(f"  Cell at {idx_up} is free")
+            else:
+                print(f"  Cell at {idx_up} is out of bounds")
+                break
+
+        # Для дальнейших расчётов и метрик используем центры выбранных вокселей
+        snapped_start_world = start_center
+        snapped_goal_world = goal_center
+        goal_display_world = snapped_goal_world
+
+        def get_reachable_indices(start_idx_local, occ_local, sx, sy, sz):
+            from collections import deque
+
+            visited = np.zeros((sx, sy, sz), dtype=bool)
+            queue = deque([start_idx_local])
+            visited[start_idx_local] = True
+            reachable: List[tuple[int, int, int]] = [start_idx_local]
+
+            directions = [
+                (1, 0, 0),
+                (-1, 0, 0),
+                (0, 1, 0),
+                (0, -1, 0),
+                (0, 0, 1),
+                (0, 0, -1),
+            ]
+
+            while queue:
+                current = queue.popleft()
+                cx, cy, cz = current
+                for dx, dy, dz in directions:
+                    nx, ny, nz = cx + dx, cy + dy, cz + dz
+                    if 0 <= nx < sx and 0 <= ny < sy and 0 <= nz < sz:
+                        if not occ_local[(nx, ny, nz)] and not visited[(nx, ny, nz)]:
+                            visited[(nx, ny, nz)] = True
+                            queue.append((nx, ny, nz))
+                            reachable.append((nx, ny, nz))
+            return reachable
+
+        reachable_indices = get_reachable_indices(start_idx, occ, size_x, size_y, size_z)
+        print(f"Reachable точек от start: {len(reachable_indices)}")
+
+        closest_reachable_idx = None
+        closest_reachable_dist = None
+        partial_path: List[tuple[int, int, int]] = []
+        partial_path_points: List[List[float]] = []
+
+        if reachable_indices:
+            distances = []
+            goal_world_arr = np.array(local_goal_world, dtype=float)
+            for idx_local in reachable_indices:
+                world_local = np.array(radar_map.index_to_world_center(idx_local), dtype=float)
+                dist_local = np.linalg.norm(world_local - goal_world_arr)
+                distances.append((dist_local, idx_local))
+            distances.sort()
+            closest_reachable_dist, closest_reachable_idx = distances[0]
+            print(
+                f"Ближайшая reachable к goal: {closest_reachable_idx}, "
+                f"dist: {closest_reachable_dist}"
             )
 
-    fallback_path_used = False
-    fallback_goal_world = None
+            print(f"Finding partial path from {start_idx} to {closest_reachable_idx}")
+            partial_path = pathfinder.find_path_indices(start_idx, closest_reachable_idx) or []
+            if partial_path:
+                partial_path_points = [
+                    radar_map.index_to_world_center(idx_local) for idx_local in partial_path
+                ]
+                print(f"Partial путь из {len(partial_path)} индексов")
+            else:
+                partial_path_points = []
+                print(
+                    f"Partial путь не найден, хотя {closest_reachable_idx} "
+                    f"reachable от {start_idx}"
+                )
 
-    print(f"Finding full path from {start_idx} to {goal_idx}")
-    path = pathfinder.find_path_indices(start_idx, goal_idx)
+        fallback_path_used = False
+        fallback_goal_world = None
 
-    path_points: List[Any] = []
-    actual_goal_world = snapped_goal_world
+        print(f"Finding full path from {start_idx} to {goal_idx}")
+        path = pathfinder.find_path_indices(start_idx, goal_idx)
 
-    if path:
-        print(f"Found path with {len(path)} nodes")
-        print(f"Path indices: {path}")
-        blocked_in_path = [idx for idx in path if occ[idx]]
-        if blocked_in_path:
-            print(f"Blocked indices in path: {blocked_in_path}")
+        path_points: List[Any] = []
+        actual_goal_world = snapped_goal_world
 
-        path_points = [
-            radar_map.index_to_world_center(idx) for idx in path
-        ]
-        path_points = [(x, y, z) for x, y, z in path_points]
-        actual_goal_world = path_points[-1]
-        print(f"Path starts at: {path_points[0]}")
-        print(f"Path ends at: {path_points[-1]}")
-    else:
-        print(f"Goal {goal_idx} unreachable from {start_idx}")
-        if partial_path_points:
-            print("Using fallback path to the closest reachable voxel.")
-            path_points = partial_path_points
-            fallback_path_used = True
-            if closest_reachable_idx is not None:
-                fallback_goal_world = radar_map.index_to_world_center(closest_reachable_idx)
-                actual_goal_world = fallback_goal_world
+        if path:
+            print(f"Found path with {len(path)} nodes")
+            print(f"Path indices: {path}")
+            blocked_in_path = [idx_local for idx_local in path if occ[idx_local]]
+            if blocked_in_path:
+                print(f"Blocked indices in path: {blocked_in_path}")
+
+            path_points = [
+                radar_map.index_to_world_center(idx_local) for idx_local in path
+            ]
+            path_points = [(x, y, z) for x, y, z in path_points]
+            actual_goal_world = path_points[-1]
+            print(f"Path starts at: {path_points[0]}")
+            print(f"Path ends at: {path_points[-1]}")
         else:
-            path_points = []
+            print(f"Goal {goal_idx} unreachable from {start_idx}")
+            if goal_idx in reachable_indices:
+                print("Goal is reachable, but PathFinder failed. Possible reasons:")
+                print(f"  - robot_radius={profile.robot_radius}: inflation blocks cells near solid")
+                print(f"  - max_slope_degrees={profile.max_slope_degrees}: vertical has infinite slope")
+                print(f"  - allow_vertical_movement={profile.allow_vertical_movement}")
+                print(f"  - max_step_cells={profile.max_step_cells}")
+                print("  - Path may be blocked by inflation or other constraints")
+            else:
+                print("Goal not reachable from start")
+            if partial_path_points:
+                print("Using fallback path to the closest reachable voxel.")
+                path_points = partial_path_points
+                fallback_path_used = True
+                if closest_reachable_idx is not None:
+                    fallback_goal_world = radar_map.index_to_world_center(closest_reachable_idx)
+                    actual_goal_world = fallback_goal_world
+            else:
+                path_points = []
+
+        if path_points and local_goal_world is not None:
+            goal_world_tuple = tuple(float(coord) for coord in local_goal_world)
+            last_point = np.array(path_points[-1], dtype=float)
+            distance_to_goal = float(
+                np.linalg.norm(last_point - np.array(local_goal_world, dtype=float))
+            )
+            if distance_to_goal > 1e-3:
+                path_points.append(goal_world_tuple)
+                actual_goal_world = goal_world_tuple
+                goal_display_world = goal_world_tuple
+                print(
+                    "Appended original goal position to the path for visualization, "
+                    f"distance from last path point was {distance_to_goal:.2f}"
+                )
+
+        result = {
+            "vertical_axis": vertical_axis,
+            "occ": occ,
+            "walkable": walkable,
+            "radar_map": radar_map,
+            "start_idx": start_idx,
+            "goal_idx": goal_idx,
+            "snapped_start_world": snapped_start_world,
+            "snapped_goal_world": snapped_goal_world,
+            "goal_display_world": goal_display_world,
+            "path_points": path_points,
+            "partial_path_points": partial_path_points,
+            "fallback_path_used": fallback_path_used,
+            "fallback_goal_world": fallback_goal_world,
+            "closest_reachable_idx": closest_reachable_idx,
+            "closest_reachable_dist": closest_reachable_dist,
+            "actual_goal_world": actual_goal_world,
+            "goal_world": local_goal_world,
+            "goal_world_original": local_goal_original,
+        }
+
+        evaluated_results.append(result)
+
+        if path:
+            selected_result = result
+            break
+
+    if selected_result is None:
+        print("Не нашли путь до цели ни для одной оси, выбираем лучший fallback...")
+        best_result = None
+        best_score = float("inf")
+        for res in evaluated_results:
+            dist = res.get("closest_reachable_dist")
+            if dist is None:
+                continue
+            if dist < best_score:
+                best_score = dist
+                best_result = res
+        if best_result is None and evaluated_results:
+            best_result = evaluated_results[0]
+
+        selected_result = best_result
+
+    if not selected_result:
+        print("Не удалось сформировать маршрут ни в одной конфигурации.")
+        return
+
+    print(
+        f"Выбрана конфигурация с вертикальной осью {selected_result['vertical_axis']}"
+    )
+
+    occ = selected_result["occ"]
+    radar_map = selected_result["radar_map"]
+    snapped_start_world = selected_result["snapped_start_world"]
+    goal_display_world = selected_result["goal_display_world"]
+    path_points = selected_result["path_points"]
+    partial_path_points = selected_result["partial_path_points"]
+    fallback_path_used = selected_result["fallback_path_used"]
+    fallback_goal_world = selected_result["fallback_goal_world"]
+    goal_world = selected_result["goal_world"]
+    actual_goal_world = selected_result["actual_goal_world"]
 
     # Визуализация
     print("Создаем/обновляем визуализацию...")
@@ -424,23 +624,24 @@ def process_and_visualize(
         label="Start",
     )
     if fallback_path_used and fallback_goal_world is not None:
+        if goal_world is not None:
+            plotter.add_points(
+                np.array([goal_world]),
+                color="orange",
+                render_points_as_spheres=True,
+                point_size=10,
+                label="Original Goal",
+            )
         plotter.add_points(
-            np.array([goal_world]),
-            color="orange",
-            render_points_as_spheres=True,
-            point_size=10,
-            label="Original Goal",
-        )
-        plotter.add_points(
-            np.array([actual_goal_world]),
+            np.array([fallback_goal_world]),
             color="red",
             render_points_as_spheres=True,
             point_size=10,
-            label="Fallback Goal",
+            label="Closest Reachable",
         )
     else:
         plotter.add_points(
-            np.array([snapped_goal_world]),
+            np.array([goal_display_world]),
             color="red",
             render_points_as_spheres=True,
             point_size=10,
@@ -484,7 +685,7 @@ def process_and_visualize(
     device_points = []
     for contact in contacts:
         if contact.get("type") == "grid":
-            print(contact)
+            # print(contact)
             pos = contact.get("position")
             if pos:
                 device_points.append(pos)
