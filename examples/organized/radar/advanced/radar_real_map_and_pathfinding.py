@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import sys
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import numpy as np
 import pyvista as pv
@@ -18,8 +17,6 @@ import os
 
 # Добавить src в путь для импорта
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../../src"))
-
-import os
 
 
 def extract_solid(radar: Dict[str, Any]) -> tuple[List[List[float]], Dict[str, Any], List[Dict[str, Any]]]:
@@ -47,7 +44,7 @@ def extract_solid(radar: Dict[str, Any]) -> tuple[List[List[float]], Dict[str, A
 
 def cross(a: List[float], b: List[float]) -> List[float]:
     """Векторное произведение."""
-    return [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]]
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 
 
 def apply_quaternion(q: List[float], v: List[float]) -> List[float]:
@@ -60,13 +57,12 @@ def apply_quaternion(q: List[float], v: List[float]) -> List[float]:
 
 
 def get_forward_point(grid, distance: float = 50.0) -> List[float]:
-    """Вычислить точку на distance метров вперед относительно грида."""
-    return get_rover_position_and_forward(grid)[0]  # Пока просто позиция, но можно добавить смещение
+    """Вычислить точку на distance метров вперед относительно грида (сейчас вернёт позицию)."""
+    return get_rover_position_and_forward(grid)[0]
 
 
 def get_rover_position_and_forward(grid) -> tuple[List[float], List[float]]:
-    """Получить позицию и направление вперед ровера."""
-    # Найти cockpit или remote_control
+    """Получить позицию и направление вперед ровера по cockpit/remote_control."""
     cockpit_devices = grid.find_devices_by_type("cockpit")
     remote_devices = grid.find_devices_by_type("remote_control")
     device = None
@@ -77,25 +73,25 @@ def get_rover_position_and_forward(grid) -> tuple[List[float], List[float]]:
     else:
         raise ValueError("Не найдено устройство с позицией (cockpit или remote_control).")
 
-    # Обновить телеметрию
     device.update()
 
-    # Получить position и orientation
     position = device.telemetry.get("planetPosition") or device.telemetry.get("position")
     orientation = device.telemetry.get("orientation")
 
     if not position or not orientation:
         raise ValueError("Не удалось получить позицию или ориентацию из телеметрии устройства.")
 
-    # Обработать position
     if isinstance(position, dict):
         position = [position["x"], position["y"], position["z"]]
     elif not isinstance(position, list):
         raise ValueError("Неверный формат позиции.")
 
-    # Обработать orientation: взять forward vector
     if isinstance(orientation, dict) and "forward" in orientation:
-        forward = [orientation["forward"]["x"], orientation["forward"]["y"], orientation["forward"]["z"]]
+        forward = [
+            orientation["forward"]["x"],
+            orientation["forward"]["y"],
+            orientation["forward"]["z"],
+        ]
     else:
         raise ValueError("Неверный формат ориентации.")
 
@@ -105,17 +101,18 @@ def get_rover_position_and_forward(grid) -> tuple[List[float], List[float]]:
 
 
 # Глобальные переменные для состояния
-last_scan_state = {}
+last_scan_state: Dict[str, Any] = {}
 last_solid_data = None
 cancel_requested = False
-plotter = None
+plotter: pv.Plotter | None = None
 
-def input_thread():
+
+def input_thread() -> None:
     global cancel_requested
     while True:
         try:
             cmd = input("Введите 'c' для отмены сканирования: ").strip().lower()
-            if cmd == 'c':
+            if cmd == "c":
                 cancel_requested = True
                 print("Отмена запрошена...")
                 break
@@ -123,7 +120,12 @@ def input_thread():
             break
 
 
-def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], contacts: List[Dict[str, Any]], grid) -> None:
+def process_and_visualize(
+    solid: List[List[float]],
+    metadata: Dict[str, Any],
+    contacts: List[Dict[str, Any]],
+    grid,
+) -> None:
     """Обрабатывает solid данные, строит карту, ищет путь и визуализирует."""
     global last_solid_data, plotter
     if not solid:
@@ -131,44 +133,25 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
         return
 
     # Проверка на изменение данных
-    current_data = (solid[:10], metadata["rev"])  # Первые 10 координат и rev
+    current_data = (solid[:10], metadata["rev"])
     if last_solid_data == current_data:
-        return  # Данные не изменились
+        return
     last_solid_data = current_data
 
-    print(f"Обработка solid: {len(solid)} точек, rev={metadata['rev']}, truncated={metadata['oreCellsTruncated']}")
+    print(
+        f"Обработка solid: {len(solid)} точек, "
+        f"rev={metadata['rev']}, truncated={metadata['oreCellsTruncated']}"
+    )
 
-    # Извлечь параметры
     size = metadata["size"]
-    cell_size = metadata["cellSize"]
+    cell_size = float(metadata["cellSize"])
     origin = np.array(metadata["origin"], dtype=float)
 
     size_x, size_y, size_z = size
 
-    # Преобразовать solid в локальные координаты относительно origin
-    solid_local = [(x - origin[0], y - origin[1], z - origin[2]) for x, y, z in solid]
+    # Первичная occupancy: True = solid, False = air
+    occ = np.zeros((size_x, size_y, size_z), dtype=bool)
 
-    # Создать occupancy grid: True - blocked (воздух), False - traversable (solid)
-    occ = np.ones((size_x, size_y, size_z), dtype=bool)
-
-    # Заполнить occupancy grid: solid точки - traversable
-    for coord in solid_local:
-        try:
-            x, y, z = coord
-            ix = int(np.floor(x / cell_size))
-            iy = int(np.floor(y / cell_size))
-            iz = int(np.floor(z / cell_size))
-            if 0 <= ix < size_x and 0 <= iy < size_y and 0 <= iz < size_z:
-                occ[ix, iy, iz] = False  # traversable
-        except Exception as e:
-            print(f"Ошибка обработки точки {coord}: {e}")
-
-    print(f"Карта: {size_x}x{size_y}x{size_z}, origin: {origin}, cell_size: {cell_size}")
-    print(f"Всего занятых вокселей: {int(occ.sum())}")
-
-    # Создать RawRadarMap
-    # Rebuild occupancy from solidPoints using RawRadarMap indexing semantics:
-    # True = occupied (solid), False = free (traversable)
     try:
         arr = np.asarray(solid, dtype=np.float64)
         if arr.ndim == 2 and arr.shape[1] == 3:
@@ -183,21 +166,23 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
                 & (idx[:, 2] < size_z)
             )
             idx = idx[valid]
-            occ = np.zeros((size_x, size_y, size_z), dtype=bool)
             if idx.size:
                 occ[idx[:, 0], idx[:, 1], idx[:, 2]] = True
     except Exception as e:
         print(f"Failed to rebuild occupancy from solidPoints: {e}")
 
-    # Build walkable-surface occupancy without inventing voxels.
-    # Walkable = air voxel with solid directly below; holes remain non-walkable.
+    # Строим карту "walkable поверхностей":
+    # walkable = воздух с твердым вокселем прямо снизу; дырки остаются непроходимыми.
     occ_solid = occ.copy()
     air = ~occ_solid
     solid_below = np.zeros_like(occ_solid, dtype=bool)
     solid_below[:, 1:, :] = occ_solid[:, 0:-1, :]
     walkable = air & solid_below
-    # Replace occ with BLOCKED mask for path planning: True = blocked, False = walkable
+
+    # Для PathFinder: True = blocked, False = walkable
     occ = ~walkable
+
+    print(f"Карта: {size_x}x{size_y}x{size_z}, origin: {origin}, cell_size: {cell_size}")
     print(f"Walkable cells: {int((~occ).sum())}, blocked: {int(occ.sum())}")
 
     radar_map = RawRadarMap(
@@ -211,7 +196,6 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
         _inflation_cache={},
     )
 
-    # PathFinder с либеральным профилем для отладки
     profile = PassabilityProfile(
         robot_radius=0.0,
         max_slope_degrees=45.0,
@@ -219,20 +203,25 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
         allow_vertical_movement=False,
         allow_diagonal=True,
     )
-    print(f"PassabilityProfile: robot_radius={profile.robot_radius}, max_slope_degrees={profile.max_slope_degrees}, max_step_cells={profile.max_step_cells}, allow_vertical_movement={profile.allow_vertical_movement}, allow_diagonal={profile.allow_diagonal}")
+    print(
+        f"PassabilityProfile: robot_radius={profile.robot_radius}, "
+        f"max_slope_degrees={profile.max_slope_degrees}, "
+        f"max_step_cells={profile.max_step_cells}, "
+        f"allow_vertical_movement={profile.allow_vertical_movement}, "
+        f"allow_diagonal={profile.allow_diagonal}"
+    )
     pathfinder = PathFinder(radar_map, profile)
 
-    # Получить позицию ровера и игрока
+    # Позиция ровера и игрока
     try:
         position, forward = get_rover_position_and_forward(grid)
         print("Rover position:", position)
         start_world = position
 
-        # Взять player_pos из contacts
         player_pos = None
         for contact in contacts:
             if contact.get("type") == "player" and str(contact.get("ownerId")) == grid.owner_id:
-                player_pos = contact["position"]
+                player_pos = contact.get("position")
                 break
 
         if player_pos:
@@ -243,35 +232,46 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
             print(f"No player found, Goal: {goal_world}")
     except Exception as e:
         print(f"Не удалось получить позицию ровера: {e}")
-        # Fallback to random free cells
         free_indices = np.where(~occ)
         if len(free_indices[0]) < 2:
             print("Недостаточно свободных ячеек для пути")
             return
-        start_world = radar_map.index_to_world_center((int(free_indices[0][0]), int(free_indices[1][0]), int(free_indices[2][0])))
-        goal_world = radar_map.index_to_world_center((int(free_indices[0][-1]), int(free_indices[1][-1]), int(free_indices[2][-1])))
+        start_world = radar_map.index_to_world_center(
+            (int(free_indices[0][0]), int(free_indices[1][0]), int(free_indices[2][0]))
+        )
+        goal_world = radar_map.index_to_world_center(
+            (int(free_indices[0][-1]), int(free_indices[1][-1]), int(free_indices[2][-1]))
+        )
 
-    # Найти ближайшую свободную ячейку к start_world и goal_world
-    def find_nearest_free_index(world_pos):
-        # Попытаться world_to_index
+    # Найти ближайшую walkable-ячейку к миру
+    def find_nearest_free_index(world_pos: List[float] | np.ndarray):
         try:
             idx = radar_map.world_to_index(world_pos)
-            if 0 <= idx[0] < size_x and 0 <= idx[1] < size_y and 0 <= idx[2] < size_z and not occ[idx]:
+            if (
+                0 <= idx[0] < size_x
+                and 0 <= idx[1] < size_y
+                and 0 <= idx[2] < size_z
+                and not occ[idx]
+            ):
                 return idx
-        except:
+        except Exception:
             pass
-        # Найти ближайший свободный
+
         free_indices = np.where(~occ)
         if len(free_indices[0]) == 0:
             return None
-        distances = []
+
+        world_pos_arr = np.array(world_pos, dtype=float)
+        best_idx = None
+        best_dist = None
         for i in range(len(free_indices[0])):
             idx = (free_indices[0][i], free_indices[1][i], free_indices[2][i])
-            world = radar_map.index_to_world_center(idx)
-            dist = np.linalg.norm(np.array(world) - np.array(world_pos))
-            distances.append((dist, idx))
-        distances.sort()
-        return distances[0][1]
+            world = np.array(radar_map.index_to_world_center(idx), dtype=float)
+            dist = np.linalg.norm(world - world_pos_arr)
+            if best_dist is None or dist < best_dist:
+                best_dist = dist
+                best_idx = idx
+        return best_idx
 
     start_idx = find_nearest_free_index(start_world)
     goal_idx = find_nearest_free_index(goal_world)
@@ -280,28 +280,44 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
         print("Не удалось найти свободные ячейки для старта или цели")
         return
 
+    start_center = radar_map.index_to_world_center(start_idx)
+    goal_center = radar_map.index_to_world_center(goal_idx)
+
     print(f"Start idx: {start_idx}, Goal idx: {goal_idx}")
     print(f"Start blocked: {bool(occ[start_idx])}, Goal blocked: {bool(occ[goal_idx])}")
-    print(f"Start world: {radar_map.index_to_world_center(start_idx)}, Goal world: {radar_map.index_to_world_center(goal_idx)}")
+    print(f"Start world (cell center): {start_center}, Goal world (cell center): {goal_center}")
+    print(f"Goal world original (player pos): {goal_world}")
+    print(f"Goal idx is walkable: {not occ[goal_idx]}")
 
-    # Найти reachable точки от start с помощью BFS
-    def get_reachable_indices(start_idx, occ, size_x, size_y, size_z):
+    # Для дальнейших расчётов и метрик используем центры выбранных вокселей
+    snapped_start_world = start_center
+    snapped_goal_world = goal_center
+
+    # BFS по walkable-ячейкам — reachable область от старта
+    def get_reachable_indices(start_idx_local, occ_local, sx, sy, sz):
         from collections import deque
-        visited = np.zeros((size_x, size_y, size_z), dtype=bool)
-        queue = deque([start_idx])
-        visited[start_idx] = True
-        reachable = [start_idx]
+
+        visited = np.zeros((sx, sy, sz), dtype=bool)
+        queue = deque([start_idx_local])
+        visited[start_idx_local] = True
+        reachable: List[tuple[int, int, int]] = [start_idx_local]
 
         directions = [
-            (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)
+            (1, 0, 0),
+            (-1, 0, 0),
+            (0, 1, 0),
+            (0, -1, 0),
+            (0, 0, 1),
+            (0, 0, -1),
         ]
 
         while queue:
             current = queue.popleft()
+            cx, cy, cz = current
             for dx, dy, dz in directions:
-                nx, ny, nz = current[0] + dx, current[1] + dy, current[2] + dz
-                if 0 <= nx < size_x and 0 <= ny < size_y and 0 <= nz < size_z:
-                    if not occ[(nx, ny, nz)] and not visited[(nx, ny, nz)]:
+                nx, ny, nz = cx + dx, cy + dy, cz + dz
+                if 0 <= nx < sx and 0 <= ny < sy and 0 <= nz < sz:
+                    if not occ_local[(nx, ny, nz)] and not visited[(nx, ny, nz)]:
                         visited[(nx, ny, nz)] = True
                         queue.append((nx, ny, nz))
                         reachable.append((nx, ny, nz))
@@ -309,35 +325,38 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
 
     reachable_indices = get_reachable_indices(start_idx, occ, size_x, size_y, size_z)
     print(f"Reachable точек от start: {len(reachable_indices)}")
+
     closest_reachable_idx = None
-    partial_path = []
-    partial_path_points = []
+    partial_path: List[tuple[int, int, int]] = []
+    partial_path_points: List[List[float]] = []
 
-
-    # Найти ближайшую reachable точку к goal
     if reachable_indices:
         distances = []
+        goal_world_arr = np.array(goal_world, dtype=float)
         for idx in reachable_indices:
-            world = radar_map.index_to_world_center(idx)
-            dist = np.linalg.norm(np.array(world) - np.array(goal_world))
+            world = np.array(radar_map.index_to_world_center(idx), dtype=float)
+            dist = np.linalg.norm(world - goal_world_arr)
             distances.append((dist, idx))
         distances.sort()
         closest_reachable_idx = distances[0][1]
-        print(f"Ближайшая reachable к goal: {closest_reachable_idx}, dist: {distances[0][0]}")
+        print(
+            f"Ближайшая reachable к goal: {closest_reachable_idx}, "
+            f"dist: {distances[0][0]}"
+        )
 
-        # Найти путь к ближайшей reachable
         print(f"Finding partial path from {start_idx} to {closest_reachable_idx}")
-        partial_path = pathfinder.find_path_indices(start_idx, closest_reachable_idx)
+        partial_path = pathfinder.find_path_indices(start_idx, closest_reachable_idx) or []
         if partial_path:
-            partial_path_points = [radar_map.index_to_world_center(idx) for idx in partial_path]
+            partial_path_points = [
+                radar_map.index_to_world_center(idx) for idx in partial_path
+            ]
             print(f"Partial путь из {len(partial_path)} индексов")
         else:
             partial_path_points = []
-            print(f"Partial путь не найден, хотя {closest_reachable_idx} reachable от {start_idx}")
-    else:
-        closest_reachable_idx = None
-        partial_path = []
-        partial_path_points = []
+            print(
+                f"Partial путь не найден, хотя {closest_reachable_idx} "
+                f"reachable от {start_idx}"
+            )
 
     fallback_path_used = False
     fallback_goal_world = None
@@ -346,7 +365,7 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
     path = pathfinder.find_path_indices(start_idx, goal_idx)
 
     path_points: List[Any] = []
-    actual_goal_world = goal_world
+    actual_goal_world = snapped_goal_world
 
     if path:
         print(f"Found path with {len(path)} nodes")
@@ -354,10 +373,14 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
         blocked_in_path = [idx for idx in path if occ[idx]]
         if blocked_in_path:
             print(f"Blocked indices in path: {blocked_in_path}")
-        path_points = [radar_map.index_to_world_center(idx) for idx in path]
+
+        path_points = [
+            radar_map.index_to_world_center(idx) for idx in path
+        ]
         path_points = [(x, y, z) for x, y, z in path_points]
         actual_goal_world = path_points[-1]
         print(f"Path starts at: {path_points[0]}")
+        print(f"Path ends at: {path_points[-1]}")
     else:
         print(f"Goal {goal_idx} unreachable from {start_idx}")
         if partial_path_points:
@@ -370,33 +393,31 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
         else:
             path_points = []
 
-
-    # Визуализация с pyvista
+    # Визуализация
     print("Создаем/обновляем визуализацию...")
 
     if plotter is None:
         plotter = pv.Plotter()
 
-    # Очистить предыдущую визуализацию
     plotter.clear()
 
-    # Визуализировать воксельную сетку только для traversable вокселей
-    # Traversable voxel grid drawing disabled (per earlier request).
-    grid = pv.ImageData()
-    grid.dimensions = np.array([size_x + 1, size_y + 1, size_z + 1])
-    grid.spacing = (cell_size, cell_size, cell_size)
-    grid.origin = origin
-    # VTK expects Fortran-order flattening for cell data layout
-    grid.cell_data["traversable"] = (~occ).ravel(order='F')
-    # Показать только traversable воксели
-    traversable_grid = grid.threshold(0.5, scalars="traversable")
-    plotter.add_mesh(traversable_grid, style='wireframe', color='blue', label="Traversable Voxels")
-    # plotter.add_mesh(traversable_grid, color='blue', label="Traversable Voxels")
+    # Воксельная сетка: показываем walkable ячейки
+    img = pv.ImageData()
+    img.dimensions = np.array([size_x + 1, size_y + 1, size_z + 1])
+    img.spacing = (cell_size, cell_size, cell_size)
+    img.origin = origin
+    img.cell_data["traversable"] = (~occ).ravel(order="F")
+    traversable_grid = img.threshold(0.5, scalars="traversable")
+    plotter.add_mesh(
+        traversable_grid,
+        style="wireframe",
+        color="blue",
+        label="Traversable Voxels",
+    )
 
-
-    # Добавить start и goal точки
+    # Старт/цель
     plotter.add_points(
-        np.array([start_world]),
+        np.array([snapped_start_world]),
         color="green",
         render_points_as_spheres=True,
         point_size=10,
@@ -419,16 +440,15 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
         )
     else:
         plotter.add_points(
-            np.array([goal_world]),
+            np.array([snapped_goal_world]),
             color="red",
             render_points_as_spheres=True,
             point_size=10,
             label="Goal",
         )
 
-    # Добавить желтые точки для проверки
-    # test_points = np.array([[1036536, 184299, 1660050], [1036536 + 100, 184299 + 100, 1660050 + 10]])
-    test_points = np.array([1036773.708, 184439.29,1660005.359])
+    # Тестовая точка (форма 1x3, чтобы PyVista не ругался)
+    test_points = np.array([[1036773.708, 184439.29, 1660005.359]])
 
     plotter.add_points(
         test_points,
@@ -441,17 +461,26 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
     if partial_path_points and not fallback_path_used:
         partial_line = pv.lines_from_points(partial_path_points)
         partial_tube = partial_line.tube(radius=0.5)
-        plotter.add_mesh(partial_tube, color="yellow", label="Partial Path to Closest Reachable")
+        plotter.add_mesh(
+            partial_tube,
+            color="yellow",
+            label="Partial Path to Closest Reachable",
+        )
         print(f"Added partial path tube with {len(partial_path_points)} points")
 
     if path_points:
         line = pv.lines_from_points(path_points)
         tube = line.tube(radius=0.5)
         plotter.add_mesh(tube, color="red", label="Path")
-        plotter.add_points(np.array(path_points), color="red", point_size=10, label="Path Points")
+        plotter.add_points(
+            np.array(path_points),
+            color="red",
+            point_size=10,
+            label="Path Points",
+        )
         print(f"Added path tube and points with {len(path_points)} points")
 
-    # Добавить точки устройств
+    # Точки гридов (contacts type=grid)
     device_points = []
     for contact in contacts:
         if contact.get("type") == "grid":
@@ -462,36 +491,41 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
 
     if device_points:
         device_cloud = pv.PolyData(device_points)
-        plotter.add_mesh(device_cloud, color='red', label="Devices")
+        plotter.add_mesh(device_cloud, color="red", label="Devices")
 
-    plotter.add_text(f'Real Radar Map and Path (rev={metadata["rev"]}, points={len(solid)})', position='upper_left')
+    plotter.add_text(
+        f'Real Radar Map and Path (rev={metadata["rev"]}, points={len(solid)})',
+        position="upper_left",
+    )
     plotter.show(title="Real Radar Map and Path")
 
 
 def main() -> None:
     global cancel_requested, plotter
-    # Запустить поток для ввода команд
+
     input_t = threading.Thread(target=input_thread, daemon=True)
     input_t.start()
 
     grid = prepare_grid()
     try:
-        # Найти ore_detector
         detectors = grid.find_devices_by_type(OreDetectorDevice)
         if not detectors:
             print("На гриде не найдено ни одного детектора руды (ore_detector).")
             return
+
         device: OreDetectorDevice = detectors[0]
         print(f"Найден радар device_id={device.device_id} name={device.name!r}")
         print(f"Ключ телеметрии: {device.telemetry_key}")
 
-        # Подписка на телеметрию
-        def on_telemetry_update(dev: OreDetectorDevice, telemetry: Dict[str, Any], source_event: str) -> None:
+        def on_telemetry_update(
+            dev: OreDetectorDevice,
+            telemetry: Dict[str, Any],
+            source_event: str,
+        ) -> None:
             global last_scan_state
             if not isinstance(telemetry, dict):
                 return
 
-            # Сохранить состояние scan
             scan_state = telemetry.get("scan", {})
             if isinstance(scan_state, dict):
                 last_scan_state = scan_state
@@ -506,7 +540,6 @@ def main() -> None:
 
         device.on("telemetry", on_telemetry_update)
 
-        # Отправить сканирование для solid
         print("Отправка команды scan для solid...")
         seq = device.scan(
             include_players=True,
@@ -514,7 +547,7 @@ def main() -> None:
             include_voxels=True,
             fullSolidScan=True,
             voxel_step=1,
-            cell_size=1,  # Размер вокселя 5 метров
+            cell_size=1,
             fast_scan=False,
             boundingBoxX=500,
             boundingBoxY=500,
@@ -523,17 +556,14 @@ def main() -> None:
         )
         print(f"Scan отправлен, seq={seq}. Ожидание телеметрии... (Ctrl+C для выхода)")
 
-        # Цикл отслеживания прогресса и ожидания
         last_progress = -1
         try:
             while True:
-                # Проверка на отмену
                 if cancel_requested:
                     print("Отправка команды отмены сканирования...")
                     device.cancel_scan()
-                    cancel_requested = False  # Сбросить флаг
+                    cancel_requested = False
 
-                # Печатать прогресс сканирования
                 scan = last_scan_state
                 if scan:
                     in_progress = scan.get("inProgress", False)
@@ -543,13 +573,19 @@ def main() -> None:
                     elapsed = scan.get("elapsedSeconds", 0)
 
                     if in_progress and progress != last_progress:
-                        print(f"[scan progress] {progress:.1f}% ({processed}/{total} tiles, {elapsed:.1f}s)")
+                        print(
+                            f"[scan progress] {progress:.1f}% "
+                            f"({processed}/{total} tiles, {elapsed:.1f}s)"
+                        )
                         last_progress = progress
                     elif not in_progress and last_progress != -1:
-                        print(f"[scan] Завершено: {progress:.1f}% ({processed}/{total} tiles, {elapsed:.1f}s)")
+                        print(
+                            f"[scan] Завершено: {progress:.1f}% "
+                            f"({processed}/{total} tiles, {elapsed:.1f}s)"
+                        )
                         last_progress = -1
 
-                time.sleep(5)  # Пауза 5 сек
+                time.sleep(5)
                 device.update()
 
         except KeyboardInterrupt:
