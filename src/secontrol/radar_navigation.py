@@ -13,7 +13,7 @@ from __future__ import annotations
 import heapq
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -44,7 +44,7 @@ class RawRadarMap:
     contacts: Sequence[RadarContact]
     gravity_vector: Optional[np.ndarray] = None
 
-    _inflation_cache: Dict[int, np.ndarray]
+    _inflation_cache: Dict[int, np.ndarray] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:  # pragma: no cover - simple defensive check
         if self.occ.shape != self.size:
@@ -132,7 +132,7 @@ class RawRadarMap:
         else:
             gravity_vector = None
 
-        return cls(
+        radar_map = cls(
             occ=occ,
             origin=origin,
             cell_size=cell_size,
@@ -141,8 +141,9 @@ class RawRadarMap:
             timestamp_ms=data.get("tsMs"),
             contacts=tuple(contacts),
             gravity_vector=gravity_vector,
-            _inflation_cache={},
         )
+
+        return radar_map
 
     # ------------------------------------------------------------------
     # Coordinate helpers

@@ -14,7 +14,6 @@ def _make_map(occ: np.ndarray) -> RawRadarMap:
         timestamp_ms=None,
         contacts=(),
         gravity_vector=np.array([0.0, -9.81, 0.0]),
-        _inflation_cache={},
     )
 
 
