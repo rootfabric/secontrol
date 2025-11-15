@@ -13,7 +13,7 @@ from __future__ import annotations
 import heapq
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -42,8 +42,9 @@ class RawRadarMap:
     revision: Optional[int]
     timestamp_ms: Optional[int]
     contacts: Sequence[RadarContact]
+    gravity_vector: Optional[np.ndarray] = None
 
-    _inflation_cache: Dict[int, np.ndarray]
+    _inflation_cache: Dict[int, np.ndarray] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:  # pragma: no cover - simple defensive check
         if self.occ.shape != self.size:
@@ -120,7 +121,18 @@ class RawRadarMap:
                 )
             )
 
-        return cls(
+        gravity_raw = data.get("gravityVector")
+        gravity_vector: Optional[np.ndarray]
+        if isinstance(gravity_raw, Sequence):
+            arr = np.asarray(list(gravity_raw), dtype=np.float64)
+            if arr.shape == (3,) and np.linalg.norm(arr) > 1e-9:
+                gravity_vector = arr
+            else:
+                gravity_vector = None
+        else:
+            gravity_vector = None
+
+        radar_map = cls(
             occ=occ,
             origin=origin,
             cell_size=cell_size,
@@ -128,8 +140,10 @@ class RawRadarMap:
             revision=data.get("rev"),
             timestamp_ms=data.get("tsMs"),
             contacts=tuple(contacts),
-            _inflation_cache={},
+            gravity_vector=gravity_vector,
         )
+
+        return radar_map
 
     # ------------------------------------------------------------------
     # Coordinate helpers
@@ -214,6 +228,16 @@ class PathFinder:
         self.radar_map = radar_map
         self.profile = profile or PassabilityProfile()
         self._occ = radar_map.occupancy(self.profile.robot_radius)
+        self._gravity_vector: Optional[np.ndarray] = None
+        self._gravity_direction: Optional[np.ndarray] = None
+
+        gravity = getattr(radar_map, "gravity_vector", None)
+        if gravity is not None:
+            vec = np.asarray(gravity, dtype=np.float64)
+            norm = float(np.linalg.norm(vec))
+            if norm > 1e-9:
+                self._gravity_vector = vec
+                self._gravity_direction = vec / norm
 
         if self.profile.max_step_cells < 0:
             raise ValueError("max_step_cells must be non-negative")
@@ -299,6 +323,12 @@ class PathFinder:
                 continue
             if not self._transition_allowed(idx, neighbor):
                 continue
+            if (
+                self._gravity_direction is not None
+                and not self.profile.allow_vertical_movement
+                and not self._has_support(neighbor)
+            ):
+                continue
 
             step_cost = math.sqrt(dx * dx + dy * dy + dz * dz)
             yield neighbor, step_cost
@@ -308,16 +338,40 @@ class PathFinder:
         dy = abs(neighbor[1] - current[1])
         dz = abs(neighbor[2] - current[2])
 
-        if dy > self.profile.max_step_cells:
-            return False
+        if self._gravity_direction is None:
+            if dy > self.profile.max_step_cells:
+                return False
 
-        horizontal = math.sqrt((dx * self.radar_map.cell_size) ** 2 + (dz * self.radar_map.cell_size) ** 2)
-        vertical = dy * self.radar_map.cell_size
+            horizontal = math.sqrt((dx * self.radar_map.cell_size) ** 2 + (dz * self.radar_map.cell_size) ** 2)
+            vertical = dy * self.radar_map.cell_size
 
-        if horizontal == 0.0:
-            return self.profile.allow_vertical_movement and vertical <= self.profile.max_step_cells * self.radar_map.cell_size
+            if horizontal == 0.0:
+                return (
+                    self.profile.allow_vertical_movement
+                    and vertical <= self.profile.max_step_cells * self.radar_map.cell_size
+                )
 
-        slope_deg = math.degrees(math.atan2(vertical, horizontal))
+            slope_deg = math.degrees(math.atan2(vertical, horizontal))
+        else:
+            current_world = np.asarray(self.radar_map.index_to_world_center(current))
+            neighbor_world = np.asarray(self.radar_map.index_to_world_center(neighbor))
+            delta = neighbor_world - current_world
+            projection = float(np.dot(delta, self._gravity_direction))
+            vertical = abs(projection)
+            horizontal = float(np.linalg.norm(delta - self._gravity_direction * projection))
+
+            max_step = self.profile.max_step_cells * self.radar_map.cell_size
+            if vertical > max_step + 1e-9:
+                return False
+
+            if horizontal <= 1e-9:
+                return (
+                    self.profile.allow_vertical_movement
+                    and vertical <= max_step + 1e-9
+                )
+
+            slope_deg = math.degrees(math.atan2(vertical, horizontal))
+
         if slope_deg > self.profile.max_slope_degrees:
             return False
 
@@ -345,6 +399,28 @@ class PathFinder:
 
     def _is_blocked(self, idx: Index3) -> bool:
         return bool(self._occ[idx])
+
+    def _has_support(self, idx: Index3) -> bool:
+        support_idx = self._support_index(idx)
+        if support_idx is None:
+            return False
+        if not self.radar_map.is_within_bounds(support_idx):
+            return False
+        return bool(self._occ[support_idx])
+
+    def _support_index(self, idx: Index3) -> Optional[Index3]:
+        if self._gravity_direction is None:
+            candidate = (idx[0], idx[1] + 1, idx[2])
+            return candidate if self.radar_map.is_within_bounds(candidate) else None
+
+        center = np.asarray(self.radar_map.index_to_world_center(idx))
+        offsets = (0.51, 1.01, 1.51)
+        for multiplier in offsets:
+            point = center + self._gravity_direction * (self.radar_map.cell_size * multiplier)
+            support_idx = self.radar_map.world_to_index(tuple(point))
+            if support_idx is not None and support_idx != idx:
+                return support_idx
+        return None
 
     @staticmethod
     def _reconstruct_path(parents: Dict[Index3, Index3], current: Index3) -> List[Index3]:
