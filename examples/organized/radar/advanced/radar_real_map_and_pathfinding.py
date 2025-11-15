@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import sys
 import threading
 import time
@@ -198,10 +199,10 @@ def process_and_visualize(
     axis_candidates = [vertical_guess] + [axis for axis in range(3) if axis != vertical_guess]
 
     profile = PassabilityProfile(
-        robot_radius=0.1,
-        max_slope_degrees=15.0,
+        robot_radius=1,
+        max_slope_degrees=35.0,
         max_step_cells=1,
-        allow_vertical_movement=True,
+        allow_vertical_movement=False,
         allow_diagonal=False,
     )
     print(
@@ -408,8 +409,28 @@ def process_and_visualize(
         snapped_goal_world = goal_center
         goal_display_world = snapped_goal_world
 
-        def get_reachable_indices(start_idx_local, occ_local, sx, sy, sz):
+        def get_reachable_indices(start_idx_local, occ_local, sx, sy, sz, profile, cell_size):
             from collections import deque
+
+            def transition_allowed(current, neighbor):
+                dx = abs(neighbor[0] - current[0])
+                dy = abs(neighbor[1] - current[1])
+                dz = abs(neighbor[2] - current[2])
+
+                if dy > profile.max_step_cells:
+                    return False
+
+                horizontal = math.sqrt((dx * cell_size) ** 2 + (dz * cell_size) ** 2)
+                vertical = dy * cell_size
+
+                if horizontal == 0.0:
+                    return profile.allow_vertical_movement and vertical <= profile.max_step_cells * cell_size
+
+                slope_deg = math.degrees(math.atan2(vertical, horizontal))
+                if slope_deg > profile.max_slope_degrees:
+                    return False
+
+                return True
 
             visited = np.zeros((sx, sy, sz), dtype=bool)
             queue = deque([start_idx_local])
@@ -431,13 +452,14 @@ def process_and_visualize(
                 for dx, dy, dz in directions:
                     nx, ny, nz = cx + dx, cy + dy, cz + dz
                     if 0 <= nx < sx and 0 <= ny < sy and 0 <= nz < sz:
-                        if not occ_local[(nx, ny, nz)] and not visited[(nx, ny, nz)]:
-                            visited[(nx, ny, nz)] = True
-                            queue.append((nx, ny, nz))
-                            reachable.append((nx, ny, nz))
+                        neighbor = (nx, ny, nz)
+                        if not occ_local[neighbor] and not visited[neighbor] and transition_allowed(current, neighbor):
+                            visited[neighbor] = True
+                            queue.append(neighbor)
+                            reachable.append(neighbor)
             return reachable
 
-        reachable_indices = get_reachable_indices(start_idx, inflated_occ, size_x, size_y, size_z)
+        reachable_indices = get_reachable_indices(start_idx, inflated_occ, size_x, size_y, size_z, profile, cell_size)
         print(f"Reachable точек от start: {len(reachable_indices)}")
 
         closest_reachable_idx = None
