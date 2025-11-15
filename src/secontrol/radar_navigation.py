@@ -205,6 +205,7 @@ class PassabilityProfile:
     max_step_cells: int = 1
     allow_vertical_movement: bool = False
     allow_diagonal: bool = True
+    is_ground_vehicle: bool = False
 
 
 class PathFinder:

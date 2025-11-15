@@ -122,10 +122,10 @@ def input_thread() -> None:
 
 
 def process_and_visualize(
-    solid: List[List[float]],
-    metadata: Dict[str, Any],
-    contacts: List[Dict[str, Any]],
-    grid,
+        solid: List[List[float]],
+        metadata: Dict[str, Any],
+        contacts: List[Dict[str, Any]],
+        grid,
 ) -> None:
     """Обрабатывает solid данные, строит карту, ищет путь и визуализирует."""
     global last_solid_data, plotter
@@ -159,12 +159,12 @@ def process_and_visualize(
             rel = (arr - origin.reshape(1, 3)) / cell_size - 0.5
             idx = np.rint(rel).astype(np.int64)
             valid = (
-                (idx[:, 0] >= 0)
-                & (idx[:, 0] < size_x)
-                & (idx[:, 1] >= 0)
-                & (idx[:, 1] < size_y)
-                & (idx[:, 2] >= 0)
-                & (idx[:, 2] < size_z)
+                    (idx[:, 0] >= 0)
+                    & (idx[:, 0] < size_x)
+                    & (idx[:, 1] >= 0)
+                    & (idx[:, 1] < size_y)
+                    & (idx[:, 2] >= 0)
+                    & (idx[:, 2] < size_z)
             )
             idx = idx[valid]
             if idx.size:
@@ -175,7 +175,30 @@ def process_and_visualize(
     air = ~occ_solid
 
     def build_walkable(vertical_axis: int) -> np.ndarray:
-        return occ_solid
+        if profile.is_ground_vehicle:
+            # For ground vehicle, traversable are air voxels directly above solid
+            ground = np.zeros((size_x, size_y, size_z), dtype=bool)
+            for i in range(size_x):
+                for j in range(size_y):
+                    for k in range(size_z):
+                        if vertical_axis == 0:  # x vertical
+                            below = i - 1
+                            if below >= 0 and not occ_solid[i, j, k] and occ_solid[below, j, k]:
+                                ground[i, j, k] = True
+                        elif vertical_axis == 1:  # y vertical
+                            below = j - 1
+                            if below >= 0 and not occ_solid[i, j, k] and occ_solid[i, below, k]:
+                                ground[i, j, k] = True
+                        elif vertical_axis == 2:  # z vertical
+                            below = k - 1
+                            if below >= 0 and not occ_solid[i, j, k] and occ_solid[i, j, below]:
+                                ground[i, j, k] = True
+            # blocked = not ground (solid or air not above solid)
+            print(f"ground.sum() = {ground.sum()}")
+            blocked = ~ground
+            return blocked
+        else:
+            return occ_solid
 
     axis_world_vectors = []
     base_center = (
@@ -199,11 +222,12 @@ def process_and_visualize(
     axis_candidates = [vertical_guess] + [axis for axis in range(3) if axis != vertical_guess]
 
     profile = PassabilityProfile(
-        robot_radius=0.5,
-        max_slope_degrees=90.0,
-        max_step_cells=1,
-        allow_vertical_movement=False,
+        robot_radius=0.0,
+        max_slope_degrees=35.0,
+        max_step_cells=10,
+        allow_vertical_movement=True,
         allow_diagonal=False,
+        is_ground_vehicle=False,
     )
     print(
         f"PassabilityProfile: robot_radius={profile.robot_radius}, "
@@ -269,23 +293,34 @@ def process_and_visualize(
         inflated_occ = pathfinder._occ
 
         def find_nearest_free_index(world_pos: List[float] | np.ndarray):
+            print(f"find_nearest_free_index: world_pos = {world_pos}")
             try:
                 idx = radar_map.world_to_index(world_pos)
+                print(f"idx = {idx}")
                 if idx and 0 <= idx[0] < size_x and 0 <= idx[1] < size_y and 0 <= idx[2] < size_z:
+                    print(f"inflated_occ[idx] = {inflated_occ[idx]}")
                     # Check if current position is free
                     if not inflated_occ[idx]:
+                        print("returning idx")
                         return idx
                     # Search vertically upward for the first free voxel
+                    print("searching upward")
                     for dz in range(1, size_z - idx[2]):
                         check_idx = (idx[0], idx[1], idx[2] + dz)
+                        print(f"check_idx = {check_idx}, inflated_occ = {inflated_occ[check_idx]}")
                         if not inflated_occ[check_idx]:
+                            print("found upward")
                             return check_idx
-            except Exception:
+            except Exception as e:
+                print(f"Exception: {e}")
                 pass
 
             # Fallback: find the closest free voxel by distance
+            print("fallback")
             free_indices_local = np.where(~inflated_occ)
+            print(f"free_indices_local size = {len(free_indices_local[0])}")
             if len(free_indices_local[0]) == 0:
+                print("no free")
                 return None
 
             world_pos_arr = np.array(world_pos, dtype=float)
@@ -302,6 +337,7 @@ def process_and_visualize(
                 if best_dist_local is None or dist_candidate < best_dist_local:
                     best_dist_local = dist_candidate
                     best_idx_local = idx_local
+            print(f"best_idx_local = {best_idx_local}")
             return best_idx_local
 
         free_indices = np.where(~occ)
@@ -636,7 +672,7 @@ def process_and_visualize(
     img.origin = origin
     img.cell_data["solid"] = occ.ravel(order="F")
     solid_grid = img.threshold(0.5, scalars="solid")
-    plotter.add_mesh(solid_grid, style="wireframe",  color="gray", label="Solid Voxels")
+    plotter.add_mesh(solid_grid, style="wireframe", color="gray", label="Solid Voxels")
 
     img.cell_data["traversable"] = (~inflated_occ).ravel(order="F")
     traversable_grid = img.threshold(0.5, scalars="traversable")
@@ -746,9 +782,9 @@ def main() -> None:
         print(f"Ключ телеметрии: {device.telemetry_key}")
 
         def on_telemetry_update(
-            dev: OreDetectorDevice,
-            telemetry: Dict[str, Any],
-            source_event: str,
+                dev: OreDetectorDevice,
+                telemetry: Dict[str, Any],
+                source_event: str,
         ) -> None:
             global last_scan_state
             if not isinstance(telemetry, dict):
