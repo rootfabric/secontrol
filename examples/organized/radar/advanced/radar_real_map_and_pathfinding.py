@@ -292,6 +292,7 @@ def process_and_visualize(
     # Для дальнейших расчётов и метрик используем центры выбранных вокселей
     snapped_start_world = start_center
     snapped_goal_world = goal_center
+    goal_display_world = snapped_goal_world
 
     # BFS по walkable-ячейкам — reachable область от старта
     def get_reachable_indices(start_idx_local, occ_local, sx, sy, sz):
@@ -393,6 +394,19 @@ def process_and_visualize(
         else:
             path_points = []
 
+    if path_points and goal_world is not None:
+        goal_world_tuple = tuple(float(coord) for coord in goal_world)
+        last_point = np.array(path_points[-1], dtype=float)
+        distance_to_goal = float(np.linalg.norm(last_point - np.array(goal_world, dtype=float)))
+        if distance_to_goal > 1e-3:
+            path_points.append(goal_world_tuple)
+            actual_goal_world = goal_world_tuple
+            goal_display_world = goal_world_tuple
+            print(
+                "Appended original goal position to the path for visualization, "
+                f"distance from last path point was {distance_to_goal:.2f}"
+            )
+
     # Визуализация
     print("Создаем/обновляем визуализацию...")
 
@@ -424,23 +438,24 @@ def process_and_visualize(
         label="Start",
     )
     if fallback_path_used and fallback_goal_world is not None:
+        if goal_world is not None:
+            plotter.add_points(
+                np.array([goal_world]),
+                color="orange",
+                render_points_as_spheres=True,
+                point_size=10,
+                label="Original Goal",
+            )
         plotter.add_points(
-            np.array([goal_world]),
-            color="orange",
-            render_points_as_spheres=True,
-            point_size=10,
-            label="Original Goal",
-        )
-        plotter.add_points(
-            np.array([actual_goal_world]),
+            np.array([fallback_goal_world]),
             color="red",
             render_points_as_spheres=True,
             point_size=10,
-            label="Fallback Goal",
+            label="Closest Reachable",
         )
     else:
         plotter.add_points(
-            np.array([snapped_goal_world]),
+            np.array([goal_display_world]),
             color="red",
             render_points_as_spheres=True,
             point_size=10,
