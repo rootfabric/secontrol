@@ -189,6 +189,17 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
     except Exception as e:
         print(f"Failed to rebuild occupancy from solidPoints: {e}")
 
+    # Build walkable-surface occupancy without inventing voxels.
+    # Walkable = air voxel with solid directly below; holes remain non-walkable.
+    occ_solid = occ.copy()
+    air = ~occ_solid
+    solid_below = np.zeros_like(occ_solid, dtype=bool)
+    solid_below[:, 1:, :] = occ_solid[:, 0:-1, :]
+    walkable = air & solid_below
+    # Replace occ with BLOCKED mask for path planning: True = blocked, False = walkable
+    occ = ~walkable
+    print(f"Walkable cells: {int((~occ).sum())}, blocked: {int(occ.sum())}")
+
     radar_map = RawRadarMap(
         occ=occ,
         origin=origin,
@@ -203,8 +214,8 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
     # PathFinder с либеральным профилем для отладки
     profile = PassabilityProfile(
         robot_radius=0.0,
-        max_slope_degrees=90.0,
-        max_step_cells=20,
+        max_slope_degrees=45.0,
+        max_step_cells=1,
         allow_vertical_movement=False,
         allow_diagonal=True,
     )
@@ -298,6 +309,10 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
 
     reachable_indices = get_reachable_indices(start_idx, occ, size_x, size_y, size_z)
     print(f"Reachable точек от start: {len(reachable_indices)}")
+    closest_reachable_idx = None
+    partial_path = []
+    partial_path_points = []
+
 
     # Найти ближайшую reachable точку к goal
     if reachable_indices:
@@ -321,25 +336,40 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
             print(f"Partial путь не найден, хотя {closest_reachable_idx} reachable от {start_idx}")
     else:
         closest_reachable_idx = None
+        partial_path = []
         partial_path_points = []
+
+    fallback_path_used = False
+    fallback_goal_world = None
 
     print(f"Finding full path from {start_idx} to {goal_idx}")
     path = pathfinder.find_path_indices(start_idx, goal_idx)
 
+    path_points: List[Any] = []
+    actual_goal_world = goal_world
+
     if path:
-        print(f"Найден путь из {len(path)} индексов")
+        print(f"Found path with {len(path)} nodes")
         print(f"Path indices: {path}")
-        # Проверить проходимость
         blocked_in_path = [idx for idx in path if occ[idx]]
         if blocked_in_path:
             print(f"Blocked indices in path: {blocked_in_path}")
         path_points = [radar_map.index_to_world_center(idx) for idx in path]
-        # Путь на поверхности вокселей
         path_points = [(x, y, z) for x, y, z in path_points]
-        print(f"Первая точка пути: {path_points[0]}")
+        actual_goal_world = path_points[-1]
+        print(f"Path starts at: {path_points[0]}")
     else:
-        print(f"Путь не найден, хотя goal {goal_idx} reachable от start {start_idx}")
-        path_points = []
+        print(f"Goal {goal_idx} unreachable from {start_idx}")
+        if partial_path_points:
+            print("Using fallback path to the closest reachable voxel.")
+            path_points = partial_path_points
+            fallback_path_used = True
+            if closest_reachable_idx is not None:
+                fallback_goal_world = radar_map.index_to_world_center(closest_reachable_idx)
+                actual_goal_world = fallback_goal_world
+        else:
+            path_points = []
+
 
     # Визуализация с pyvista
     print("Создаем/обновляем визуализацию...")
@@ -351,6 +381,7 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
     plotter.clear()
 
     # Визуализировать воксельную сетку только для traversable вокселей
+    # Traversable voxel grid drawing disabled (per earlier request).
     grid = pv.ImageData()
     grid.dimensions = np.array([size_x + 1, size_y + 1, size_z + 1])
     grid.spacing = (cell_size, cell_size, cell_size)
@@ -359,8 +390,9 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
     grid.cell_data["traversable"] = (~occ).ravel(order='F')
     # Показать только traversable воксели
     traversable_grid = grid.threshold(0.5, scalars="traversable")
-    # plotter.add_mesh(traversable_grid, style='wireframe', color='blue', label="Traversable Voxels")
-    plotter.add_mesh(traversable_grid, color='blue', label="Traversable Voxels")
+    plotter.add_mesh(traversable_grid, style='wireframe', color='blue', label="Traversable Voxels")
+    # plotter.add_mesh(traversable_grid, color='blue', label="Traversable Voxels")
+
 
     # Добавить start и goal точки
     plotter.add_points(
@@ -370,13 +402,29 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
         point_size=10,
         label="Start",
     )
-    plotter.add_points(
-        np.array([goal_world]),
-        color="red",
-        render_points_as_spheres=True,
-        point_size=10,
-        label="Goal",
-    )
+    if fallback_path_used and fallback_goal_world is not None:
+        plotter.add_points(
+            np.array([goal_world]),
+            color="orange",
+            render_points_as_spheres=True,
+            point_size=10,
+            label="Original Goal",
+        )
+        plotter.add_points(
+            np.array([actual_goal_world]),
+            color="red",
+            render_points_as_spheres=True,
+            point_size=10,
+            label="Fallback Goal",
+        )
+    else:
+        plotter.add_points(
+            np.array([goal_world]),
+            color="red",
+            render_points_as_spheres=True,
+            point_size=10,
+            label="Goal",
+        )
 
     # Добавить желтые точки для проверки
     # test_points = np.array([[1036536, 184299, 1660050], [1036536 + 100, 184299 + 100, 1660050 + 10]])
@@ -390,7 +438,7 @@ def process_and_visualize(solid: List[List[float]], metadata: Dict[str, Any], co
         label="Test Points",
     )
 
-    if partial_path_points:
+    if partial_path_points and not fallback_path_used:
         partial_line = pv.lines_from_points(partial_path_points)
         partial_tube = partial_line.tube(radius=0.5)
         plotter.add_mesh(partial_tube, color="yellow", label="Partial Path to Closest Reachable")
@@ -466,12 +514,12 @@ def main() -> None:
             include_voxels=True,
             fullSolidScan=True,
             voxel_step=1,
-            cell_size=5,  # Размер вокселя 5 метров
+            cell_size=1,  # Размер вокселя 5 метров
             fast_scan=False,
             boundingBoxX=500,
             boundingBoxY=500,
             boundingBoxZ=40,
-            radius=500,
+            radius=50,
         )
         print(f"Scan отправлен, seq={seq}. Ожидание телеметрии... (Ctrl+C для выхода)")
 
