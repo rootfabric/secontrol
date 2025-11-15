@@ -228,8 +228,17 @@ class PathFinder:
         """Find a path between two world coordinates."""
 
         start_idx = self.radar_map.world_to_index(start)
+        if start_idx is None:
+            return []
+        start_idx = self._find_nearest_free_index(start_idx)
+        if start_idx is None:
+            return []
+
         goal_idx = self.radar_map.world_to_index(goal)
-        if start_idx is None or goal_idx is None:
+        if goal_idx is None:
+            return []
+        goal_idx = self._find_nearest_free_index(goal_idx)
+        if goal_idx is None:
             return []
 
         path_idx = self.find_path_indices(start_idx, goal_idx)
@@ -346,6 +355,31 @@ class PathFinder:
     def _is_blocked(self, idx: Index3) -> bool:
         return bool(self._occ[idx])
 
+    def _find_nearest_free_index(self, start_idx: Index3) -> Optional[Index3]:
+        """Find the nearest free cell to start_idx using BFS."""
+        from collections import deque
+        visited = set()
+        queue = deque([start_idx])
+        visited.add(start_idx)
+        while queue:
+            current = queue.popleft()
+            if not self._is_blocked(current):
+                return current
+            x, y, z = current
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        if dx == 0 and dy == 0 and dz == 0:
+                            continue
+                        nx, ny, nz = x + dx, y + dy, z + dz
+                        neighbor = (nx, ny, nz)
+                        if not self.radar_map.is_within_bounds(neighbor):
+                            continue
+                        if neighbor not in visited:
+                            visited.add(neighbor)
+                            queue.append(neighbor)
+        return None
+
     @staticmethod
     def _reconstruct_path(parents: Dict[Index3, Index3], current: Index3) -> List[Index3]:
         path: List[Index3] = [current]
@@ -362,4 +396,3 @@ __all__ = [
     "PathFinder",
     "RadarContact",
 ]
-

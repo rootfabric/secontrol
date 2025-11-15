@@ -198,11 +198,11 @@ def process_and_visualize(
     axis_candidates = [vertical_guess] + [axis for axis in range(3) if axis != vertical_guess]
 
     profile = PassabilityProfile(
-        robot_radius=0.0,
+        robot_radius=0.1,
         max_slope_degrees=45.0,
-        max_step_cells=5,
+        max_step_cells=2,
         allow_vertical_movement=True,
-        allow_diagonal=True,
+        allow_diagonal=False,
     )
     print(
         f"PassabilityProfile: robot_radius={profile.robot_radius}, "
@@ -246,7 +246,7 @@ def process_and_visualize(
 
     for vertical_axis in axis_candidates:
         walkable = build_walkable(vertical_axis)
-        occ = ~walkable
+        occ = walkable
 
         print(
             "--",
@@ -265,6 +265,7 @@ def process_and_visualize(
         )
 
         pathfinder = PathFinder(radar_map, profile)
+        inflated_occ = pathfinder._occ
 
         def find_nearest_free_index(world_pos: List[float] | np.ndarray):
             try:
@@ -273,13 +274,13 @@ def process_and_visualize(
                     0 <= idx[0] < size_x
                     and 0 <= idx[1] < size_y
                     and 0 <= idx[2] < size_z
-                    and not occ[idx]
+                    and not inflated_occ[idx]
                 ):
                     return idx
             except Exception:
                 pass
 
-            free_indices_local = np.where(~occ)
+            free_indices_local = np.where(~inflated_occ)
             if len(free_indices_local[0]) == 0:
                 return None
 
@@ -436,7 +437,7 @@ def process_and_visualize(
                             reachable.append((nx, ny, nz))
             return reachable
 
-        reachable_indices = get_reachable_indices(start_idx, occ, size_x, size_y, size_z)
+        reachable_indices = get_reachable_indices(start_idx, inflated_occ, size_x, size_y, size_z)
         print(f"Reachable точек от start: {len(reachable_indices)}")
 
         closest_reachable_idx = None
@@ -648,16 +649,16 @@ def process_and_visualize(
             label="Goal",
         )
 
-    # Тестовая точка (форма 1x3, чтобы PyVista не ругался)
-    test_points = np.array([[1036773.708, 184439.29, 1660005.359]])
-
-    plotter.add_points(
-        test_points,
-        color="yellow",
-        render_points_as_spheres=True,
-        point_size=15,
-        label="Test Points",
-    )
+    # # Тестовая точка (форма 1x3, чтобы PyVista не ругался)
+    # test_points = np.array([[1036773.708, 184439.29, 1660005.359]])
+    #
+    # plotter.add_points(
+    #     test_points,
+    #     color="yellow",
+    #     render_points_as_spheres=True,
+    #     point_size=15,
+    #     label="Test Points",
+    # )
 
     if partial_path_points and not fallback_path_used:
         partial_line = pv.lines_from_points(partial_path_points)
