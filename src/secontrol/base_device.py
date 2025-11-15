@@ -10,6 +10,7 @@ import colorsys
 import copy
 import json
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Type
@@ -594,6 +595,10 @@ class Grid:
             return
         if not listeners:
             self._listeners.pop(event, None)
+
+    def __str__(self) -> str:
+        return f"{self.name}: {len(self.devices)} device(s)"
+
 
     # ------------------------------------------------------------------
     def _emit(self, event: str, payload: Any, source_event: str) -> None:
@@ -1889,6 +1894,8 @@ class Grid:
         special: dict[str, str] = {
             # Cargo containers публикуют телеметрию как 'cargo_container'
             "container": "cargo_container",
+            # Connectors публикуют телеметрию как 'ship_connector'
+            "connector": "ship_connector",
             # Text panels (LCD) используют сегмент 'text_panel'
             "textpanel": "text_panel",
             # Wheels публикуют телеметрию как 'motor_suspension'
@@ -1929,6 +1936,7 @@ class BaseDevice:
         )
         self.metadata = metadata
         self.telemetry: Optional[Dict[str, Any]] = None
+        self._telemetry_event = threading.Event()
 
         self._enabled: bool = self._extract_optional_bool(
             metadata.extra,
@@ -1977,6 +1985,7 @@ class BaseDevice:
 
         if snapshot is not None:
             self._on_telemetry_change(self.telemetry_key, snapshot, "initial")
+            self._telemetry_event.set()
 
     # ------------------------------------------------------------------
     # Публичный событийный API
@@ -2078,6 +2087,8 @@ class BaseDevice:
 
         # Сообщаем наружу
         self._emit("telemetry", telemetry_payload, event)
+
+        self._telemetry_event.set()
 
     # ------------------------------------------------------------------
     def handle_telemetry(self, telemetry: Dict[str, Any]) -> None:
@@ -2667,6 +2678,16 @@ class BaseDevice:
 
     def update(self):
         self.send_command({"cmd": "update"})
+
+    def wait_for_telemetry(self, timeout: float = 10.0) -> bool:
+        """Wait for telemetry to become available.
+
+        Returns True if telemetry is available within the timeout, False otherwise.
+        """
+        if self.telemetry is not None:
+            return True
+        return self._telemetry_event.wait(timeout)
+
     # ------------------------------------------------------------------
     def close(self) -> None:
         """Отписываемся от Redis и чистим слушателей."""
