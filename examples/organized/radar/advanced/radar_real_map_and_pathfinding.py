@@ -200,7 +200,7 @@ def process_and_visualize(
 
     profile = PassabilityProfile(
         robot_radius=0.5,
-        max_slope_degrees=35.0,
+        max_slope_degrees=90.0,
         max_step_cells=1,
         allow_vertical_movement=False,
         allow_diagonal=False,
@@ -542,7 +542,7 @@ def process_and_visualize(
             else:
                 path_points = []
 
-        if path_points and local_goal_world is not None:
+        if path_points and local_goal_world is not None and not fallback_path_used:
             goal_world_tuple = tuple(float(coord) for coord in local_goal_world)
             last_point = np.array(path_points[-1], dtype=float)
             distance_to_goal = float(
@@ -640,7 +640,7 @@ def process_and_visualize(
 
     img.cell_data["traversable"] = (~inflated_occ).ravel(order="F")
     traversable_grid = img.threshold(0.5, scalars="traversable")
-    plotter.add_mesh(traversable_grid, style="wireframe", color="green", label="Traversable Voxels")
+    # plotter.add_mesh(traversable_grid, style="wireframe", color="green", label="Traversable Voxels")
 
     # Старт/цель
     plotter.add_points(
