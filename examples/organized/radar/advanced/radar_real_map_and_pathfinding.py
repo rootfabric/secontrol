@@ -199,7 +199,7 @@ def process_and_visualize(
     axis_candidates = [vertical_guess] + [axis for axis in range(3) if axis != vertical_guess]
 
     profile = PassabilityProfile(
-        robot_radius=1,
+        robot_radius=0.5,
         max_slope_degrees=35.0,
         max_step_cells=1,
         allow_vertical_movement=False,
@@ -271,16 +271,19 @@ def process_and_visualize(
         def find_nearest_free_index(world_pos: List[float] | np.ndarray):
             try:
                 idx = radar_map.world_to_index(world_pos)
-                if (
-                    0 <= idx[0] < size_x
-                    and 0 <= idx[1] < size_y
-                    and 0 <= idx[2] < size_z
-                    and not inflated_occ[idx]
-                ):
-                    return idx
+                if idx and 0 <= idx[0] < size_x and 0 <= idx[1] < size_y and 0 <= idx[2] < size_z:
+                    # Check if current position is free
+                    if not inflated_occ[idx]:
+                        return idx
+                    # Search vertically upward for the first free voxel
+                    for dz in range(1, size_z - idx[2]):
+                        check_idx = (idx[0], idx[1], idx[2] + dz)
+                        if not inflated_occ[check_idx]:
+                            return check_idx
             except Exception:
                 pass
 
+            # Fallback: find the closest free voxel by distance
             free_indices_local = np.where(~inflated_occ)
             if len(free_indices_local[0]) == 0:
                 return None
@@ -777,7 +780,7 @@ def main() -> None:
             boundingBoxX=500,
             boundingBoxY=500,
             boundingBoxZ=30,
-            radius=80,
+            radius=150,
         )
         print(f"Scan отправлен, seq={seq}. Ожидание телеметрии... (Ctrl+C для выхода)")
 
