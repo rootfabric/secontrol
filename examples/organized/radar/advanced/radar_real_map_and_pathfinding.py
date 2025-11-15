@@ -624,19 +624,14 @@ def process_and_visualize(
 
     plotter.clear()
 
-    # Воксельная сетка: показываем walkable ячейки
+    # Воксельная сетка: показываем solid ячейки
     img = pv.ImageData()
     img.dimensions = np.array([size_x + 1, size_y + 1, size_z + 1])
     img.spacing = (cell_size, cell_size, cell_size)
     img.origin = origin
-    img.cell_data["traversable"] = (~occ).ravel(order="F")
-    traversable_grid = img.threshold(0.5, scalars="traversable")
-    plotter.add_mesh(
-        traversable_grid,
-        style="wireframe",
-        color="blue",
-        label="Traversable Voxels",
-    )
+    img.cell_data["solid"] = occ.ravel(order="F")
+    solid_grid = img.threshold(0.5, scalars="solid")
+    plotter.add_mesh(solid_grid, style="wireframe", color="gray", label="Solid Voxels")
 
     # Старт/цель
     plotter.add_points(
@@ -771,12 +766,12 @@ def main() -> None:
             include_voxels=True,
             fullSolidScan=True,
             voxel_step=1,
-            cell_size=2,
+            cell_size=10,
             fast_scan=False,
             boundingBoxX=500,
             boundingBoxY=500,
-            boundingBoxZ=20,
-            radius=50,
+            boundingBoxZ=100,
+            radius=500,
         )
         print(f"Scan отправлен, seq={seq}. Ожидание телеметрии... (Ctrl+C для выхода)")
 
