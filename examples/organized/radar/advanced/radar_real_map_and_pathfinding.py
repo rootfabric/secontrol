@@ -557,6 +557,7 @@ def process_and_visualize(
         result = {
             "vertical_axis": vertical_axis,
             "occ": occ,
+            "inflated_occ": inflated_occ,
             "walkable": walkable,
             "radar_map": radar_map,
             "start_idx": start_idx,
@@ -606,6 +607,7 @@ def process_and_visualize(
     )
 
     occ = selected_result["occ"]
+    inflated_occ = selected_result["inflated_occ"]
     radar_map = selected_result["radar_map"]
     snapped_start_world = selected_result["snapped_start_world"]
     goal_display_world = selected_result["goal_display_world"]
@@ -624,14 +626,18 @@ def process_and_visualize(
 
     plotter.clear()
 
-    # Воксельная сетка: показываем solid ячейки
+    # Воксельная сетка: показываем solid и traversable ячейки
     img = pv.ImageData()
     img.dimensions = np.array([size_x + 1, size_y + 1, size_z + 1])
     img.spacing = (cell_size, cell_size, cell_size)
     img.origin = origin
     img.cell_data["solid"] = occ.ravel(order="F")
     solid_grid = img.threshold(0.5, scalars="solid")
-    plotter.add_mesh(solid_grid, style="wireframe", color="gray", label="Solid Voxels")
+    plotter.add_mesh(solid_grid, style="wireframe",  color="gray", label="Solid Voxels")
+
+    img.cell_data["traversable"] = (~inflated_occ).ravel(order="F")
+    traversable_grid = img.threshold(0.5, scalars="traversable")
+    plotter.add_mesh(traversable_grid, style="wireframe", color="green", label="Traversable Voxels")
 
     # Старт/цель
     plotter.add_points(
@@ -770,8 +776,8 @@ def main() -> None:
             fast_scan=False,
             boundingBoxX=500,
             boundingBoxY=500,
-            boundingBoxZ=100,
-            radius=500,
+            boundingBoxZ=30,
+            radius=80,
         )
         print(f"Scan отправлен, seq={seq}. Ожидание телеметрии... (Ctrl+C для выхода)")
 
