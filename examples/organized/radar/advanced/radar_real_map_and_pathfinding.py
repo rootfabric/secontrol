@@ -174,14 +174,7 @@ def process_and_visualize(
     air = ~occ_solid
 
     def build_walkable(vertical_axis: int) -> np.ndarray:
-        solid_below = np.zeros_like(occ_solid, dtype=bool)
-        if vertical_axis == 0:
-            solid_below[1:, :, :] = occ_solid[0:-1, :, :]
-        elif vertical_axis == 1:
-            solid_below[:, 1:, :] = occ_solid[:, 0:-1, :]
-        else:
-            solid_below[:, :, 1:] = occ_solid[:, :, 0:-1]
-        return air & solid_below
+        return occ_solid
 
     axis_world_vectors = []
     base_center = (
@@ -207,8 +200,8 @@ def process_and_visualize(
     profile = PassabilityProfile(
         robot_radius=0.0,
         max_slope_degrees=45.0,
-        max_step_cells=1,
-        allow_vertical_movement=False,
+        max_step_cells=5,
+        allow_vertical_movement=True,
         allow_diagonal=True,
     )
     print(
@@ -384,6 +377,31 @@ def process_and_visualize(
         print(f"Goal world original (player pos): {local_goal_original}")
         print(f"Goal idx is walkable: {not occ[goal_idx]}")
 
+        # Логи для клеток выше
+        print("Checking cells above start:")
+        for dz in range(1, 6):
+            idx_up = (start_idx[0], start_idx[1], start_idx[2] + dz)
+            if 0 <= idx_up[2] < size_z:
+                if occ[idx_up]:
+                    print(f"  Cell at {idx_up} is occupied (solid)")
+                else:
+                    print(f"  Cell at {idx_up} is free")
+            else:
+                print(f"  Cell at {idx_up} is out of bounds")
+                break
+
+        print("Checking cells above goal:")
+        for dz in range(1, 6):
+            idx_up = (goal_idx[0], goal_idx[1], goal_idx[2] + dz)
+            if 0 <= idx_up[2] < size_z:
+                if occ[idx_up]:
+                    print(f"  Cell at {idx_up} is occupied (solid)")
+                else:
+                    print(f"  Cell at {idx_up} is free")
+            else:
+                print(f"  Cell at {idx_up} is out of bounds")
+                break
+
         # Для дальнейших расчётов и метрик используем центры выбранных вокселей
         snapped_start_world = start_center
         snapped_goal_world = goal_center
@@ -479,6 +497,15 @@ def process_and_visualize(
             print(f"Path ends at: {path_points[-1]}")
         else:
             print(f"Goal {goal_idx} unreachable from {start_idx}")
+            if goal_idx in reachable_indices:
+                print("Goal is reachable, but PathFinder failed. Possible reasons:")
+                print(f"  - robot_radius={profile.robot_radius}: inflation blocks cells near solid")
+                print(f"  - max_slope_degrees={profile.max_slope_degrees}: vertical has infinite slope")
+                print(f"  - allow_vertical_movement={profile.allow_vertical_movement}")
+                print(f"  - max_step_cells={profile.max_step_cells}")
+                print("  - Path may be blocked by inflation or other constraints")
+            else:
+                print("Goal not reachable from start")
             if partial_path_points:
                 print("Using fallback path to the closest reachable voxel.")
                 path_points = partial_path_points
@@ -658,7 +685,7 @@ def process_and_visualize(
     device_points = []
     for contact in contacts:
         if contact.get("type") == "grid":
-            print(contact)
+            # print(contact)
             pos = contact.get("position")
             if pos:
                 device_points.append(pos)
