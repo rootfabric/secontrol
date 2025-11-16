@@ -2782,6 +2782,7 @@ TYPE_ALIASES = {
     "panel": "textpanel",
     "text_panel": "textpanel",
     "wheel": "wheel",
+    "MyObjectBuilder_Drill": "nanobot_drill_system",
 }
 
 

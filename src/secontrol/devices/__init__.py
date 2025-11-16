@@ -12,7 +12,8 @@ except ImportError:  # pragma: no cover - Python <3.10 compatibility
 
 from secontrol.base_device import DEVICE_TYPE_MAP
 
-# Import rover device
+# Import devices
+from .build_and_repair_device import BuildAndRepairDevice
 from .rover_device import RoverDevice
 
 
@@ -20,6 +21,7 @@ __all__ = [
     "DEVICE_TYPE_MAP",
     "load_builtin_devices",
     "load_external_plugins",
+    "BuildAndRepairDevice",
     "RoverDevice",
 ]
 
@@ -27,6 +29,7 @@ _BUILTIN_MODULES = [
     "ai_device",
     "assembler_device",
     "battery_device",
+    "build_and_repair_device",
     "cockpit_device",
     "connector_device",
     "container_device",
@@ -36,6 +39,7 @@ _BUILTIN_MODULES = [
     "gyro_device",
     "lamp_device",
     "large_turret_device",
+    "nanobot_drill_system_device",
     "projector_device",
     "reactor_device",
     "refinery_device",
@@ -75,4 +79,3 @@ def load_external_plugins(groups: Iterable[str] | None = None) -> None:
 
 # Ensure built-in devices are registered by default.
 load_builtin_devices()
-
