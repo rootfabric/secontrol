@@ -14,6 +14,7 @@ from secontrol.base_device import DEVICE_TYPE_MAP
 
 # Import devices
 from .build_and_repair_device import BuildAndRepairDevice
+from .projector_device import ProjectorDevice
 from .rover_device import RoverDevice
 
 
@@ -22,6 +23,7 @@ __all__ = [
     "load_builtin_devices",
     "load_external_plugins",
     "BuildAndRepairDevice",
+    "ProjectorDevice",
     "RoverDevice",
 ]
 

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+# Import device module to register all device classes
+from . import devices
+
 from .base_device import (
     BaseDevice,
     BlockInfo,

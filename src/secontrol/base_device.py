@@ -654,7 +654,26 @@ class Grid:
                 self.devices[metadata.device_id] = device
                 added_devices.append(device)
             else:
-                device.update_metadata(metadata)
+                # check if device class needs to be updated (e.g., upgrade from GenericDevice)
+                if (device.__class__.__name__ == 'GenericDevice' and
+                    metadata.device_type != 'generic' and
+                    DEVICE_TYPE_MAP.get(metadata.device_type.lower())):
+                    # replace with correct device class
+                    self.devices[metadata.device_id] = None  # temp
+                    old_device = device
+                    device = create_device(self, metadata)
+                    self.devices[metadata.device_id] = device
+                    removed_devices.append(
+                        RemovedDeviceInfo(
+                            device_id=metadata.device_id,
+                            device_type='generic',
+                            name=getattr(old_device, "name", None),
+                        )
+                    )
+                    added_devices.append(device)
+                    old_device.close()
+                else:
+                    device.update_metadata(metadata)
 
             try:
                 did_int = int(metadata.device_id)
@@ -683,6 +702,29 @@ class Grid:
                 device.close()
             except Exception:
                 pass
+
+        # Upgrade GenericDevice to specific class if available
+        for device in list(self.devices.values()):
+            if (device.__class__.__name__ == 'GenericDevice' and
+                getattr(device, 'device_type', '').lower() != 'generic'):
+                cls_to_use = DEVICE_TYPE_MAP.get(getattr(device, 'device_type', '').lower())
+                if cls_to_use and cls_to_use != GenericDevice:
+                    new_device = create_device(self, device.metadata)
+                    self.devices[device.metadata.device_id] = new_device
+                    try:
+                        num_id = int(device.metadata.device_id)
+                        self.devices_by_num[num_id] = new_device
+                    except ValueError:
+                        pass
+                    removed_devices.append(
+                        RemovedDeviceInfo(
+                            device_id=device.metadata.device_id,
+                            device_type='generic',
+                            name=getattr(device, 'name', None),
+                        )
+                    )
+                    added_devices.append(new_device)
+                    device.close()
 
         if added_devices or removed_devices:
             self._emit(

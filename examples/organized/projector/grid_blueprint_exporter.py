@@ -15,7 +15,11 @@ from secontrol.common import close, prepare_grid
 
 def find_projector(grid) -> Optional[any]:
     """Найти проектор на гриде."""
+    print("Поиск проектор устройств:")
+    for device in grid.devices.values():
+        print(f"  {device.device_type}: {device.name}")
     for device in grid.find_devices_by_type("projector"):
+        print(f"Найден projector: {device}, type: {type(device)}, device_type: {device.device_type}")
         return device
     print("Проектор не найден на гриде.")
     return None
@@ -105,6 +109,9 @@ def main():
     grid = prepare_grid("95416675777277504")
 
     try:
+        # Refresh devices to ensure correct classes
+        grid.refresh_devices()
+
         # Найти проектор
         projector = find_projector(grid)
         if not projector:
