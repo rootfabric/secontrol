@@ -24,7 +24,7 @@ def find_projector(grid) -> Optional[any]:
     return None
 
 
-def load_blueprint(projector, input_file: str) -> bool:
+def load_blueprint(projector, input_file: str, keep = False) -> bool:
     """Загрузить blueprint из файла в проектор."""
     print(f"Начинаем загрузку blueprint в проектор '{projector.name}' из файла '{input_file}'...")
 
@@ -55,7 +55,7 @@ def load_blueprint(projector, input_file: str) -> bool:
 
     # Загрузить в проектор (keep=False: не сохранять текущую проекцию)
     try:
-        seq_id = projector.load_blueprint_xml(xml, keep=False)
+        seq_id = projector.load_blueprint_xml(xml, keep=keep)
         print(f"Команда загрузки отправлена (seq_id: {seq_id})")
     except Exception as e:
         print(f"Ошибка загрузки blueprint: {e}")
@@ -84,7 +84,8 @@ def main():
         projector.reset_projection()
 
         # Загрузить blueprint
-        success = load_blueprint(projector, "grid_blueprint.xml")
+        success = load_blueprint(projector, "grid_blueprint.xml", keep=True)
+
 
         projector.move_offset(dy=1)
         projector.rotate(dx=45)
