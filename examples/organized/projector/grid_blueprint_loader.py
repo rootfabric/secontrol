@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from secontrol.common import close, prepare_grid
+from secontrol.devices.projector_device import ProjectorDevice
 
 
 def find_projector(grid) -> Optional[any]:
@@ -68,23 +69,26 @@ def load_blueprint(projector, input_file: str) -> bool:
 
 
 def main():
-    grid = prepare_grid("95416675777277504")
+    grid = prepare_grid()
 
     try:
         # Refresh devices to ensure correct classes
         grid.refresh_devices()
 
         # Найти проектор
-        projector = find_projector(grid)
+        projector:ProjectorDevice = find_projector(grid)
         if not projector:
             return
 
+        # projector.clear_projection()
+        projector.reset_projection()
+
         # Загрузить blueprint
         success = load_blueprint(projector, "grid_blueprint.xml")
-        if success:
-            print("Операция завершена успешно.")
-        else:
-            print("Операция завершена с ошибкой.")
+
+        projector.move_offset(dy=1)
+        projector.rotate(dx=45)
+
 
     finally:
         close(grid)

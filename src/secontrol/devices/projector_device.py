@@ -91,8 +91,18 @@ class ProjectorDevice(BaseDevice):
             "state": {"x": int(dx), "y": int(dy), "z": int(dz)},
         })
 
+    def position_projection_after_display(self) -> None:
+        """Опустить проекцию на один блок вниз и повернуть на 45 градусов влево после отображения."""
+        # Сначала опускаем вниз (dy=-1)
+        self.move_offset(dy=1)
+        # Затем поворачиваем влево (dy=-45, предполагая положительное Y = поворот вправо)
+        self.rotate(dy=45)
+
     def reset_projection(self) -> int:
         return self.send_command({"cmd": "reset_projection"})
+
+    def clear_projection(self) -> int:
+        return self.send_command({"cmd": "clear_projection"})
 
     def lock_projection(self) -> int:
         return self.send_command({"cmd": "lock_projection"})
@@ -204,4 +214,3 @@ class ProjectorDevice(BaseDevice):
 
 
 DEVICE_TYPE_MAP[ProjectorDevice.device_type] = ProjectorDevice
-

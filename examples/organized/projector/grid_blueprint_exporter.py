@@ -106,7 +106,7 @@ def show_format_info():
 def main():
 
 
-    grid = prepare_grid("95416675777277504")
+    grid = prepare_grid()
 
     try:
         # Refresh devices to ensure correct classes
