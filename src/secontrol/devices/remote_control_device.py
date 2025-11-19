@@ -14,10 +14,26 @@ from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
 class RemoteControlDevice(BaseDevice):
     device_type = "remote_control"
 
-    def enable_autopilot(self) -> int:
+    def enable(self) -> int:
         return self.send_command({
             "cmd": "remote_control",
             "state": "autopilot_enabled",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    def set_mode(self, mode: str = "oneway") -> int:
+        return self.send_command({
+            "cmd": "set_mode",
+            "mode": mode,  # "patrol", "circle", "oneway"
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    def disable(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "autopilot_disable",
             "targetId": int(self.device_id),
             "targetName": self.name or "Remote Control",
         })
@@ -32,6 +48,14 @@ class RemoteControlDevice(BaseDevice):
         if self.name:
             payload["targetName"] = self.name
         return self.send_command(payload)
+
+    def set_collision_avoidance(self, enabled: bool) -> int:
+        return self.send_command({
+            "cmd": "collision_avoidance",
+            "enabled": enabled,
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
 
     @staticmethod
     def _format_state(target: str, *, speed: Optional[float], gps_name: str) -> str:
