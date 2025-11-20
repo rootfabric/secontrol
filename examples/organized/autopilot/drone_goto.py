@@ -22,7 +22,7 @@ from secontrol.devices.remote_control_device import RemoteControlDevice
 from secontrol.devices.cockpit_device import CockpitDevice
 
 # Настройки точности и таймаутов
-MIN_DISTANCE = 0.3           # "идеальная" точность (м)
+MIN_DISTANCE = 0.1           # "идеальная" точность (м)
 UNLOCK_OFFSET_METERS = 50.0  # подъём "наверх" при отлёте
 MAX_FLIGHT_TIME = 300.0      # секунд на манёвр
 CHECK_INTERVAL = 0.2         # секунд между проверками
@@ -162,6 +162,9 @@ def fly_to(
     # Запускаем автопилот с выбранной скоростью
     remote.goto(gps, speed=speed, gps_name=gps_name, dock=dock)
 
+    # Переменная для отслеживания текущей установленной скорости
+    current_speed = speed
+
     # Даем автопилоту немного времени включиться и обновить телеметрию
     arm_start = time.time()
     while time.time() - arm_start < AUTOPILOT_ARM_TIME:
@@ -211,6 +214,18 @@ def fly_to(
             )
 
             last_print = now
+
+        # Динамическая смена скорости
+        if d <= SPEED_DISTANCE_THRESHOLD:
+            if current_speed != speed_near:
+                print(f"[fly_to] {gps_name}: switching to near speed {speed_near:.2f}")
+                remote.goto(gps, speed=speed_near, gps_name=gps_name, dock=dock)
+                current_speed = speed_near
+        else:
+            if current_speed != speed_far:
+                print(f"[fly_to] {gps_name}: switching to far speed {speed_far:.2f}")
+                remote.goto(gps, speed=speed_far, gps_name=gps_name, dock=dock)
+                current_speed = speed_far
 
         # Идеальный случай — сами по нашему порогу считаем точку достигнутой
         if d <= arrival_distance:
@@ -306,7 +321,7 @@ def main() -> None:
             remote=remote,
             cockpit=cockpit,
             target_pos=undock_pos,
-            speed_far=10.0,
+            speed_far=20.0,
             speed_near=1.0,
             gps_name="Undock",
             dock=False,
@@ -321,8 +336,8 @@ def main() -> None:
             remote=remote,
             cockpit=cockpit,
             target_pos=start_pos,
-            speed_far=5.0,
-            speed_near=1.0,
+            speed_far=10.0,
+            speed_near=0.5,
             gps_name="Return",
             dock=True,
             arrival_distance=MIN_DISTANCE,
