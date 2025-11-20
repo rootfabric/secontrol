@@ -78,6 +78,14 @@ def get_remote_planet_position(remote: RemoteControlDevice) -> Tuple[float, floa
         return None
 
 
+def get_cockpit_position(cockpit: CockpitDevice) -> Tuple[float, float, float]:
+    t = cockpit.telemetry
+    pos = t.get("position")
+    if not pos:
+        raise RuntimeError("Cockpit telemetry does not contain position (x/y/z)")
+    return float(pos["x"]), float(pos["y"]), float(pos["z"])
+
+
 def normalize(v: Tuple[float, float, float]) -> Tuple[float, float, float]:
     x, y, z = v
     length = math.sqrt(x * x + y * y + z * z)
@@ -110,7 +118,6 @@ def distance(
 
 def fly_to(
     remote: RemoteControlDevice,
-    cockpit: CockpitDevice,
     target_pos: Tuple[float, float, float],
     *,
     speed_far: float,
@@ -185,10 +192,7 @@ def fly_to(
             remote.disable()
             break
 
-        cockpit.update()
         remote.update()
-
-        cockpit.wait_for_telemetry()
         remote.wait_for_telemetry()
 
         current_pos = get_remote_position(remote)
@@ -210,7 +214,9 @@ def fly_to(
                 f"[fly_to] {gps_name}: distance={d:.2f} m, "
                 f"autopilot={'on' if autopilot_enabled else 'off'}, "
                 f"speed={ship_speed:.2f} m/s, "
-                f"stuck_ticks={stuck_counter}"
+                f"stuck_ticks={stuck_counter}, "
+                f"RC_pos={current_pos} "
+
             )
 
             last_print = now
@@ -319,7 +325,6 @@ def main() -> None:
         # если запускали почти в точке — медленнее.
         fly_to(
             remote=remote,
-            cockpit=cockpit,
             target_pos=undock_pos,
             speed_far=20.0,
             speed_near=1.0,
@@ -331,20 +336,37 @@ def main() -> None:
 
         input("Нажмите Enter, чтобы ВЕРНУТЬСЯ на стартовую точку...")
 
-        # Возврат обратно. Тоже: далеко — быстрее, близко — медленнее.
-        fly_to(
-            remote=remote,
-            cockpit=cockpit,
-            target_pos=start_pos,
-            speed_far=10.0,
-            speed_near=0.5,
-            gps_name="Return",
-            dock=True,
-            arrival_distance=MIN_DISTANCE,
-            rc_stop_tolerance=5.0,
-        )
+        while True:
+            # Возврат обратно. Тоже: далеко — быстрее, близко — медленнее.
+            fly_to(
+                remote=remote,
+                target_pos=start_pos,
+                speed_far=10.0,
+                speed_near=0.5,
+                gps_name="Return",
+                dock=False,
+                arrival_distance=MIN_DISTANCE,
+                rc_stop_tolerance=0.1,
+            )
 
-        print("Последовательность завершена.")
+            print("Последовательность завершена.")
+            # === ПРОВЕРКА ФАКТИЧЕСКОГО СМЕЩЕНИЯ RC ===
+            remote.update()
+            remote.wait_for_telemetry()
+            final_pos = get_remote_position(remote)
+
+            dx = final_pos[0] - start_pos[0]
+            dy = final_pos[1] - start_pos[1]
+            dz = final_pos[2] - start_pos[2]
+            dist = distance(final_pos, start_pos)
+
+            print(
+                "Final RC offset from start:",
+                f"dx={dx:.3f} m, dy={dy:.3f} m, dz={dz:.3f} m, dist={dist:.3f} m",
+            )
+
+
+            input("Нажмите Enter, чтобы ВЕРНУТЬСЯ на стартовую точку...")
 
     finally:
         close(grid)
