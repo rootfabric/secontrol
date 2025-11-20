@@ -1,11 +1,3 @@
-"""Remote control device implementation for Space Engineers grid control.
-
-This module provides functionality to control remote control blocks on SE grids,
-including enabling autopilot and navigating to GPS coordinates.
-"""
-
-from __future__ import annotations
-
 from typing import Optional
 
 from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
@@ -17,7 +9,7 @@ class RemoteControlDevice(BaseDevice):
     def enable(self) -> int:
         return self.send_command({
             "cmd": "remote_control",
-            "state": "autopilot_enabled",
+            "state": "autopilot_enable",
             "targetId": int(self.device_id),
             "targetName": self.name or "Remote Control",
         })
@@ -39,22 +31,22 @@ class RemoteControlDevice(BaseDevice):
         })
 
     def goto(
-            self,
-            gps: str,
-            *,
-            speed: Optional[float] = None,
-            gps_name: str = "Target",
-            dock: bool = False,
-        ) -> int:
-            formatted = self._format_state(gps, speed=speed, gps_name=gps_name, dock=dock)
-            payload = {
-                "cmd": "remote_goto",
-                "state": formatted,
-                "targetId": int(self.device_id),
-            }
-            if self.name:
-                payload["targetName"] = self.name
-            return self.send_command(payload)
+        self,
+        gps: str,
+        *,
+        speed: Optional[float] = None,
+        gps_name: str = "Target",
+        dock: bool = False,
+    ) -> int:
+        formatted = self._format_state(gps, speed=speed, gps_name=gps_name, dock=dock)
+        payload = {
+            "cmd": "remote_goto",
+            "state": formatted,
+            "targetId": int(self.device_id),
+        }
+        if self.name:
+            payload["targetName"] = self.name
+        return self.send_command(payload)
 
     def set_collision_avoidance(self, enabled: bool) -> int:
         return self.send_command({
@@ -64,13 +56,13 @@ class RemoteControlDevice(BaseDevice):
             "targetName": self.name or "Remote Control",
         })
 
-        @staticmethod
+    @staticmethod
     def _format_state(
         target: str,
         *,
         speed: Optional[float],
         gps_name: str,
-        dock: bool = False,
+        dock: bool,
     ) -> str:
         target = target.strip()
         if target.upper().startswith("GPS:"):
@@ -87,12 +79,12 @@ class RemoteControlDevice(BaseDevice):
         if speed is not None:
             options.append(f"speed={speed:.2f}")
         if dock:
-            options.append("dock=true")
+            # флажок для докинга, будет распознан на стороне плагина
+            options.append("dock")
 
         if options:
             return coords + ";" + ";".join(options)
         return coords
-
 
 
 DEVICE_TYPE_MAP[RemoteControlDevice.device_type] = RemoteControlDevice

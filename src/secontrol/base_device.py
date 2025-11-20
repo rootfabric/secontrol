@@ -1614,7 +1614,7 @@ class Grid:
                 device_type_normalized = normalize_device_type(device_type_raw)
                 telemetry_key = key
 
-                # Fetch snapshot to get name
+                # Fetch snapshot to get name and potentially correct device type for AI blocks
                 snapshot = self.redis.get_json(telemetry_key)
                 name = None
                 if isinstance(snapshot, dict):
@@ -1622,6 +1622,22 @@ class Grid:
                         if snapshot.get(name_key):
                             name = str(snapshot[name_key])
                             break
+
+                    # Special handling for AI blocks
+                    ai_role = snapshot.get("aiRole")
+                    ai_subtype = snapshot.get("aiSubtype")
+                    if ai_role:
+                        if ai_role == "Mission" and ai_subtype == "FlightAutopilot":
+                            device_type_normalized = "ai_flight_autopilot"
+                        elif ai_role == "Behavior":
+                            device_type_normalized = "ai_behavior"
+                        elif ai_role == "Task":
+                            if ai_subtype == "Defensive":
+                                device_type_normalized = "ai_defensive"
+                            elif ai_subtype == "Offensive":
+                                device_type_normalized = "ai_offensive"
+                        elif ai_role == "Recorder":
+                            device_type_normalized = "ai_recorder"
 
                 metadata = DeviceMetadata(
                     device_type=device_type_normalized,

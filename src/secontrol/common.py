@@ -139,6 +139,37 @@ def get_all_grids(existing_client: RedisEventClient | str | None = None,
     return result
 
 
+def _resolve_grid_identifier(client: RedisEventClient, owner_id: str, identifier: str) -> str:
+    """Resolve grid identifier which can be either ID or name."""
+    # If identifier consists only of digits, treat as grid ID
+    if identifier.isdigit():
+        return identifier
+
+    # Otherwise, treat as grid name and search for matching grid
+    all_grids = get_all_grids(client, exclude_subgrids=True)
+    matching_grids = [(gid, name) for gid, name in all_grids if name == identifier]
+
+    # If no exact match, try partial case-insensitive match
+    if not matching_grids:
+        matching_grids = [(gid, name) for gid, name in all_grids if identifier.lower() in name.lower()]
+
+    if not matching_grids:
+        available_names = [name for _, name in all_grids]
+        raise ValueError(
+            f"No grid found containing '{identifier}' in name. Available grid names: {available_names}"
+        )
+
+    if len(matching_grids) > 1:
+        grid_ids = [gid for gid, _ in matching_grids]
+        matched_names = [name for _, name in matching_grids]
+        raise ValueError(
+            f"Multiple grids found containing '{identifier}': {matched_names} (IDs: {grid_ids}). Use a more specific name or grid ID."
+        )
+
+    grid_id, matched_name = matching_grids[0]
+    return grid_id
+
+
 def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
     grid_id = os.getenv("SE_GRID_ID")
     if grid_id:
@@ -196,6 +227,7 @@ def prepare_grid(
 
     - ``prepare_grid()`` — автоматический выбор грида.
     - ``prepare_grid("<grid_id>")`` — передача идентификатора грида первой позицией.
+    - ``prepare_grid("<grid_name>")`` — передача имени грида первой позицией (поиск по имени).
     - ``prepare_grid(existing_client)`` — повторное использование готового :class:`RedisEventClient`.
     - ``prepare_grid(existing_client, grid_id)`` — явное указание грида при повторном использовании клиента.
 
@@ -218,7 +250,14 @@ def prepare_grid(
 
     try:
         owner_id = resolve_owner_id()
-        resolved_grid_id = grid_id or resolve_grid_id(client, owner_id)
+        if grid_id is not None:
+            resolved_grid_id = _resolve_grid_identifier(client, owner_id, grid_id)
+            # Get the name for display
+            all_grids = get_all_grids(client, exclude_subgrids=True)
+            grid_name = next((name for gid, name in all_grids if gid == resolved_grid_id), f"Grid_{resolved_grid_id}")
+            print(f"Resolved grid '{grid_id}' to: {resolved_grid_id} ({grid_name})")
+        else:
+            resolved_grid_id = resolve_grid_id(client, owner_id)
         player_id = resolve_player_id(owner_id)
 
         grid = Grid(client, owner_id, resolved_grid_id, player_id)

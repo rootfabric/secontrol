@@ -13,7 +13,7 @@ from typing import Tuple
 
 from secontrol.common import prepare_grid, close
 from secontrol.devices.cockpit_device import CockpitDevice
-from secontrol.devices.ai_devices import AiFlightAutopilotDevice
+from secontrol.devices.ai_device import AiFlightAutopilotDevice
 
 
 # Настройки точности и поведения
@@ -150,7 +150,8 @@ def fly_to(
 
 def main() -> None:
     # Пример: конкретный gridId; при необходимости поменяешь на свой
-    grid = prepare_grid("110178923215948443")
+    # Для теста используем известный grid_id из телеметрии
+    grid = prepare_grid("Owl")
 
     try:
         # Ищем кокпит
