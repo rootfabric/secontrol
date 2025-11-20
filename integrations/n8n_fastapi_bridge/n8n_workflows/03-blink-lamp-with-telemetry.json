@@ -1,0 +1,424 @@
+{
+  "name": "Blink lamp with telemetry",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/login",
+        "authentication": "basicAuth",
+        "responseFormat": "json"
+      },
+      "id": "2",
+      "name": "Login to FastAPI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [440, 300],
+      "credentials": {
+        "httpBasicAuth": {
+          "name": "SE Grid Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:8000/grids",
+        "responseFormat": "json",
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node['Login to FastAPI'].json['access_token']}}"
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Get Grids",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "json": [
+            {
+              "name": "grids",
+              "value": "={{$node['Get Grids'].json}}"
+            }
+          ],
+          "string": [
+            {
+              "name": "gridId",
+              "value": "={{$node['Get Grids'].json.map(grid => ({name: grid.name || grid.id, value: grid.id}))}}"
+            }
+          ]
+        }
+      },
+      "id": "4",
+      "name": "Select Grid",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{'http://localhost:8000/grids/' + $json[\"gridId\"] + '/devices'}}",
+        "responseFormat": "json",
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node['Login to FastAPI'].json['access_token']}}"
+            }
+          ]
+        }
+      },
+      "id": "5",
+      "name": "Get Devices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1220, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.filter(item => item.json.deviceType === 'lamp');"
+      },
+      "id": "6",
+      "name": "Filter Lamps",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1460, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.length ? [items[0]] : items;"
+      },
+      "id": "7",
+      "name": "Pick First Lamp",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1700, 300]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "gridId",
+              "value": "={{$json['gridId']}}"
+            },
+            {
+              "name": "deviceId",
+              "value": "={{$json['id']}}"
+            }
+          ],
+          "number": [
+            {
+              "name": "blinkCount",
+              "value": 5
+            },
+            {
+              "name": "delayMs",
+              "value": 500
+            }
+          ]
+        }
+      },
+      "id": "8",
+      "name": "Blink Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1940, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const count = $json.blinkCount || 5;\nconst gridId = $json.gridId;\nconst deviceId = $json.deviceId;\nconst delay = $json.delayMs || 500;\nconst result = [];\nfor (let i = 1; i <= count; i++) {\n  result.push({ json: { iteration: i, gridId, deviceId, delay } });\n}\nreturn result;"
+      },
+      "id": "9",
+      "name": "Build Iterations",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [2180, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{'http://localhost:8000/grids/' + $json.gridId + '/devices/' + $json.deviceId + '/command'}}",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ { \"cmd\": \"enable\" } }}",
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node['Login to FastAPI'].json['access_token']}}"
+            }
+          ]
+        }
+      },
+      "id": "10",
+      "name": "Enable Lamp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [2440, 180]
+    },
+    {
+      "parameters": {
+        "waitFor": "duration",
+        "unit": "milliseconds",
+        "value": "={{$json.delay}}"
+      },
+      "id": "11",
+      "name": "Wait On",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2680, 180]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{'http://localhost:8000/grids/' + $json.gridId + '/devices/' + $json.deviceId + '/telemetry'}}",
+        "responseFormat": "json",
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node['Login to FastAPI'].json['access_token']}}"
+            }
+          ]
+        }
+      },
+      "id": "12",
+      "name": "Telemetry On",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [2920, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{'http://localhost:8000/grids/' + $json.gridId + '/devices/' + $json.deviceId + '/command'}}",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ { \"cmd\": \"disable\" } }}",
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node['Login to FastAPI'].json['access_token']}}"
+            }
+          ]
+        }
+      },
+      "id": "13",
+      "name": "Disable Lamp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [2440, 420]
+    },
+    {
+      "parameters": {
+        "waitFor": "duration",
+        "unit": "milliseconds",
+        "value": "={{$json.delay}}"
+      },
+      "id": "14",
+      "name": "Wait Off",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2680, 420]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{'http://localhost:8000/grids/' + $json.gridId + '/devices/' + $json.deviceId + '/telemetry'}}",
+        "responseFormat": "json",
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $node['Login to FastAPI'].json['access_token']}}"
+            }
+          ]
+        }
+      },
+      "id": "15",
+      "name": "Telemetry Off",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [2920, 420]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Login to FastAPI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login to FastAPI": {
+      "main": [
+        [
+          {
+            "node": "Get Grids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Grids": {
+      "main": [
+        [
+          {
+            "node": "Select Grid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Grid": {
+      "main": [
+        [
+          {
+            "node": "Get Devices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Devices": {
+      "main": [
+        [
+          {
+            "node": "Filter Lamps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Lamps": {
+      "main": [
+        [
+          {
+            "node": "Pick First Lamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick First Lamp": {
+      "main": [
+        [
+          {
+            "node": "Blink Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Blink Config": {
+      "main": [
+        [
+          {
+            "node": "Build Iterations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Iterations": {
+      "main": [
+        [
+          {
+            "node": "Enable Lamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enable Lamp": {
+      "main": [
+        [
+          {
+            "node": "Wait On",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait On": {
+      "main": [
+        [
+          {
+            "node": "Telemetry On",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telemetry On": {
+      "main": [
+        [
+          {
+            "node": "Disable Lamp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Disable Lamp": {
+      "main": [
+        [
+          {
+            "node": "Wait Off",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Off": {
+      "main": [
+        [
+          {
+            "node": "Telemetry Off",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "active": false,
+  "id": "3"
+}
