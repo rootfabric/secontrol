@@ -233,6 +233,61 @@ class AiRecorderDevice(AiFunctionalBlockDevice):
         return self._send_ai_command("recorder_clear")
 
 
+from __future__ import annotations
+
+from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
+
+
+class AiBehaviorDevice(BaseDevice):
+    """
+    Обёртка для AI Behavior (Task) блока.
+
+    Ожидается, что в телеметрии type соответствует строке "ai_behavior"
+    (это должно быть настроено на стороне плагина / конфигов устройств).
+    """
+    device_type = "ai_behavior"
+
+    def set_behavior(self, behavior: str) -> int:
+        """
+        Выбор профиля поведения (Behavior profile) для AI Behavior блока.
+        """
+        payload = {
+            "cmd": "set_behavior",
+            "state": behavior,
+            "targetId": int(self.device_id),
+        }
+        if self.name:
+            payload["targetName"] = self.name
+        return self.send_command(payload)
+
+    def start_behavior(self) -> int:
+        """
+        Включить AI Behavior (аналог кнопки 'Enable AI Behavior' в терминале).
+        """
+        payload = {
+            "cmd": "behavior_start",
+            "targetId": int(self.device_id),
+        }
+        if self.name:
+            payload["targetName"] = self.name
+        return self.send_command(payload)
+
+    def stop_behavior(self) -> int:
+        """
+        Выключить AI Behavior.
+        """
+        payload = {
+            "cmd": "behavior_stop",
+            "targetId": int(self.device_id),
+        }
+        if self.name:
+            payload["targetName"] = self.name
+        return self.send_command(payload)
+
+
+DEVICE_TYPE_MAP[AiBehaviorDevice.device_type] = AiBehaviorDevice
+
+
 class AiMoveGroundDevice(AiMissionBlockDevice):
     """Wrapper for the AI Basic Move (Ground) block."""
 
@@ -263,3 +318,100 @@ DEVICE_TYPE_MAP[AiOffensiveDevice.device_type] = AiOffensiveDevice
 DEVICE_TYPE_MAP[AiDefensiveDevice.device_type] = AiDefensiveDevice
 DEVICE_TYPE_MAP[AiBehaviorDevice.device_type] = AiBehaviorDevice
 DEVICE_TYPE_MAP[AiRecorderDevice.device_type] = AiRecorderDevice
+
+
+from __future__ import annotations
+
+from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
+
+
+class AiFlightAutopilotDevice(BaseDevice):
+    """
+    Обёртка для AI Flight (Move) блока, который управляет движением грида.
+
+    Ожидается, что type в телеметрии соответствует "ai_flight_autopilot"
+    (это задаётся на стороне плагина через конфиг устройства).
+    """
+    device_type = "ai_flight_autopilot"
+
+    # --- Precision Mode (Docking) ---
+
+    def enable_precision(self) -> int:
+        """
+        Включить Precision Mode (Docking) на AI Flight блоке.
+        """
+        payload = {
+            "cmd": "precision_on",
+            "targetId": int(self.device_id),
+        }
+        if self.name:
+            payload["targetName"] = self.name
+        return self.send_command(payload)
+
+    def disable_precision(self) -> int:
+        """
+        Выключить Precision Mode (Docking).
+        """
+        payload = {
+            "cmd": "precision_off",
+            "targetId": int(self.device_id),
+        }
+        if self.name:
+            payload["targetName"] = self.name
+        return self.send_command(payload)
+
+    # --- Collision Avoidance ---
+
+    def enable_collision_avoidance(self) -> int:
+        """
+        Включить Collision Avoidance для AI Flight.
+        """
+        payload = {
+            "cmd": "collision_avoidance_on",
+            "targetId": int(self.device_id),
+        }
+        if self.name:
+            payload["targetName"] = self.name
+        return self.send_command(payload)
+
+    def disable_collision_avoidance(self) -> int:
+        """
+        Выключить Collision Avoidance.
+        """
+        payload = {
+            "cmd": "collision_avoidance_off",
+            "targetId": int(self.device_id),
+        }
+        if self.name:
+            payload["targetName"] = self.name
+        return self.send_command(payload)
+
+    # --- AI Behavior ON/OFF для move-блока ---
+
+    def start_behavior(self) -> int:
+        """
+        Включить AI Behavior именно на AI Flight (Move) блоке.
+        Обычно его надо включать вместе с AI Behavior (Task).
+        """
+        payload = {
+            "cmd": "behavior_start",
+            "targetId": int(self.device_id),
+        }
+        if self.name:
+            payload["targetName"] = self.name
+        return self.send_command(payload)
+
+    def stop_behavior(self) -> int:
+        """
+        Выключить AI Behavior на AI Flight.
+        """
+        payload = {
+            "cmd": "behavior_stop",
+            "targetId": int(self.device_id),
+        }
+        if self.name:
+            payload["targetName"] = self.name
+        return self.send_command(payload)
+
+
+DEVICE_TYPE_MAP[AiFlightAutopilotDevice.device_type] = AiFlightAutopilotDevice
