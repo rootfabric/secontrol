@@ -641,6 +641,14 @@ class Grid:
         from .common import _is_subgrid
         self.is_subgrid = _is_subgrid(self.metadata)
         device_metadata = list(self._extract_devices(payload))
+        # Add devices from subgrids
+        for sub_id in payload.get("subGridIds", []):
+            if sub_id:
+                sub_id_str = str(sub_id)
+                sub_key = f"se:{self.owner_id}:grid:{sub_id_str}:gridinfo"
+                subpayload = self.redis.get_json(sub_key)
+                if subpayload:
+                    device_metadata.extend(self._extract_devices_for_payload(subpayload, sub_id_str))
         metadata_ids = {meta.device_id for meta in device_metadata}
 
         added_devices: List[BaseDevice] = []
@@ -734,6 +742,14 @@ class Grid:
             )
 
         block_entries = list(self._extract_blocks(payload))
+        # Add blocks from subgrids
+        for sub_id in payload.get("subGridIds", []):
+            if sub_id:
+                sub_id_str = str(sub_id)
+                sub_key = f"se:{self.owner_id}:grid:{sub_id_str}:gridinfo"
+                subpayload = self.redis.get_json(sub_key)
+                if subpayload:
+                    block_entries.extend(self._extract_blocks(subpayload))
         new_blocks = {block.block_id: block for block in block_entries}
         if block_entries or self.blocks:
             integrity_changes = self._detect_integrity_changes(previous_blocks, new_blocks)
@@ -1469,29 +1485,26 @@ class Grid:
 
     # ------------------------------------------------------------------
     def _extract_devices(self, payload: Dict[str, Any]) -> Iterable[DeviceMetadata]:
-        # собираем кандидатов из всех известных мест: payload['devices'] и payload['comp']['devices']
+        """Extract devices from main grid's payload."""
+        yield from self._extract_devices_for_payload(payload, self.grid_id)
+
+    def _extract_devices_for_payload(self, payload: Dict[str, Any], grid_id: str) -> Iterable[DeviceMetadata]:
+        # собираем кандидатов из новых мест: payload['blocks']
         candidates: list[Dict[str, Any]] = []
 
-        # examples_direct_connect) корневой devices (если вдруг существует)
-        root_devices = payload.get("devices")
-        if isinstance(root_devices, dict):
-            candidates.extend([d for d in root_devices.values() if isinstance(d, dict)])
-        elif isinstance(root_devices, list):
-            candidates.extend([d for d in root_devices if isinstance(d, dict)])
-
-        # 2) devices под comp
-        comp = payload.get("comp")
-        if isinstance(comp, dict):
-            comp_devices = comp.get("devices")
-            if isinstance(comp_devices, dict):
-                candidates.extend([d for d in comp_devices.values() if isinstance(d, dict)])
-            elif isinstance(comp_devices, list):
-                candidates.extend([d for d in comp_devices if isinstance(d, dict)])
+        # 1) devices из blocks (новый формат)
+        blocks_entries = payload.get("blocks")
+        if isinstance(blocks_entries, list):
+            candidates.extend([b for b in blocks_entries if isinstance(b, dict)])
 
         if not candidates:
             return
 
         for entry in candidates:
+            # Проверяем, является ли блок устройством
+            if not entry.get("isDevice", False):
+                continue
+
             # из вашего JSON: поля называются id/type/subtype/name
             raw_type = (
                 entry.get("type")
@@ -1526,33 +1539,20 @@ class Grid:
             )
             raw_name = entry.get("name") or entry.get("Name")
             name = custom_name or display_name or raw_name
-            extra = {
-                k: v
-                for k, v in entry.items()
-                if k
-                not in {
-                    "type",
-                    "deviceType",
-                    "subtype",
-                    "deviceId",
-                    "entityId",
-                    "id",
-                    "telemetryKey",
-                    "key",
-                }
-            }
+            extra = dict(entry)
+            # Приоритезация имен
             if custom_name is not None:
-                extra.setdefault("customName", custom_name)
+                extra["customName"] = custom_name
             if raw_name is not None:
-                extra.setdefault("name", raw_name)
+                extra["name"] = raw_name
             if display_name is not None:
-                extra.setdefault("displayName", display_name)
+                extra["displayName"] = display_name
 
             yield DeviceMetadata(
                 device_type=device_type,
                 device_id=device_id,
                 telemetry_key=str(telemetry_key),
-                grid_id=self.grid_id,
+                grid_id=grid_id,
                 name=name,
                 extra=extra,
             )
@@ -1668,18 +1668,13 @@ class Grid:
         """
         if not self.metadata:
             return
-        subgrids = self.metadata.get("subgrids") or []
-        if not isinstance(subgrids, list):
+        subGridIds = self.metadata.get("subGridIds") or []
+        if not isinstance(subGridIds, list):
             return
-        for sub in subgrids:
-            if isinstance(sub, dict) and "id" in sub:
-                sub_id = str(sub["id"])
-            elif isinstance(sub, str):
-                sub_id = sub
-            else:
-                continue
+        for sub_id in subGridIds:
+            sub_id_str = str(sub_id)
             # Discover for this subgrid
-            self._discover_devices_from_telemetry_keys_for_grid(sub_id)
+            self._discover_devices_from_telemetry_keys_for_grid(sub_id_str)
 
     def _discover_devices_from_telemetry_keys_for_grid(self, sub_grid_id: str) -> None:
         """
@@ -2769,6 +2764,8 @@ TYPE_ALIASES = {
     "MyObjectBuilder_Reactor": "reactor",
     "MyObjectBuilder_ShipConnector": "connector",
     "MyObjectBuilder_RemoteControl": "remote_control",
+    "SmallBlockRemoteControl": "remote_control",
+    "Connector": "connector",
     "MyObjectBuilder_CargoContainer": "container",
     "MyObjectBuilder_Cockpit": "cockpit",
     "MyObjectBuilder_OxygenGenerator": "gas_generator",

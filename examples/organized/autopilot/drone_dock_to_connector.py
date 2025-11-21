@@ -43,7 +43,7 @@ from secontrol.devices.remote_control_device import RemoteControlDevice
 
 # Точность/таймауты
 ARRIVAL_DISTANCE = 0.25
-RC_STOP_TOLERANCE = 3.0
+RC_STOP_TOLERANCE = 0.1
 CHECK_INTERVAL = 0.2
 AUTOPILOT_ARM_TIME = 2.0
 MAX_FLIGHT_TIME = 240.0
@@ -512,7 +512,7 @@ def dock_to_base(
         print(f"Expected target RC (after alignment) = {base_pos}")
 
         print("Примите эту позицию (зацепитесь коннектором корабля к коннектору базы), затем нажмите Enter для продолжения...")
-        input("Нажмите Enter когда готовы: ")
+        # input("Нажмите Enter когда готовы: ")
 
         target_rc = _sub(base_pos, offset)
 
