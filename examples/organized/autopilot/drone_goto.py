@@ -4,7 +4,8 @@
 1. Запоминаем стартовую позицию REMOTE CONTROL и направление "вверх" по гравитации (если есть планета).
 2. Считаем точку "выше" на 50 м относительно позиции REMOTE CONTROL.
 3. Команда "отлететь": автопилот ведёт REMOTE CONTROL в эту точку.
-4. Команда "вернуться": автопилот возвращает REMOTE CONTROL в исходную точку.
+4. Команда "вернуться": автопилот возвращает REMOTE CONTROL в исходную точку
+   и доворотом гироскопов восстанавливает исходную ориентацию грида.
 
 Расстояние считаем по позиции REMOTE CONTROL, а не кокпита.
 
@@ -15,11 +16,11 @@
 
 import math
 import time
-from typing import Tuple
+from typing import Iterable, Sequence, Tuple
 
 from secontrol.common import close, prepare_grid
 from secontrol.devices.remote_control_device import RemoteControlDevice
-from secontrol.devices.cockpit_device import CockpitDevice
+from secontrol.devices.gyro_device import GyroDevice
 
 # Настройки точности и таймаутов
 MIN_DISTANCE = 0.1           # "идеальная" точность (м)
@@ -43,12 +44,54 @@ def vec_from_orientation(d: dict) -> Tuple[float, float, float]:
     return float(d["x"]), float(d["y"]), float(d["z"])
 
 
-def get_cockpit_up(cockpit: CockpitDevice) -> Tuple[float, float, float]:
-    ori = cockpit.telemetry.get("orientation") or {}
+def dot(a: Sequence[float], b: Sequence[float]) -> float:
+    return float(a[0] * b[0] + a[1] * b[1] + a[2] * b[2])
+
+
+def cross(a: Sequence[float], b: Sequence[float]) -> Tuple[float, float, float]:
+    return (
+        float(a[1] * b[2] - a[2] * b[1]),
+        float(a[2] * b[0] - a[0] * b[2]),
+        float(a[0] * b[1] - a[1] * b[0]),
+    )
+
+
+def clamp(x: float, min_value: float, max_value: float) -> float:
+    return float(max(min_value, min(max_value, x)))
+
+
+def get_remote_up(remote: RemoteControlDevice) -> Tuple[float, float, float]:
+    ori = remote.telemetry.get("orientation") or {}
     up = ori.get("up")
     if not up:
-        raise RuntimeError("Cockpit telemetry does not contain orientation.up")
+        raise RuntimeError("Remote telemetry does not contain orientation.up")
     return vec_from_orientation(up)
+
+
+def get_remote_basis(remote: RemoteControlDevice) -> Tuple[Tuple[float, float, float], ...]:
+    """Возвращает forward, up, right из телеметрии REMOTE CONTROL."""
+
+    ori = remote.telemetry.get("orientation") or {}
+    f_raw = ori.get("forward")
+    u_raw = ori.get("up")
+    r_raw = ori.get("right")
+    l_raw = ori.get("left")
+
+    if not f_raw or not u_raw:
+        raise RuntimeError("Remote telemetry does not contain orientation.forward/up")
+
+    forward = normalize(vec_from_orientation(f_raw))
+    up = normalize(vec_from_orientation(u_raw))
+
+    if r_raw:
+        right = normalize(vec_from_orientation(r_raw))
+    elif l_raw:
+        lx, ly, lz = vec_from_orientation(l_raw)
+        right = normalize((-lx, -ly, -lz))
+    else:
+        right = normalize(cross(forward, up))
+
+    return forward, up, right
 
 
 def get_remote_position(remote: RemoteControlDevice) -> Tuple[float, float, float]:
@@ -76,14 +119,6 @@ def get_remote_planet_position(remote: RemoteControlDevice) -> Tuple[float, floa
         return float(pp[0]), float(pp[1]), float(pp[2])
     except Exception:
         return None
-
-
-def get_cockpit_position(cockpit: CockpitDevice) -> Tuple[float, float, float]:
-    t = cockpit.telemetry
-    pos = t.get("position")
-    if not pos:
-        raise RuntimeError("Cockpit telemetry does not contain position (x/y/z)")
-    return float(pos["x"]), float(pos["y"]), float(pos["z"])
 
 
 def normalize(v: Tuple[float, float, float]) -> Tuple[float, float, float]:
@@ -116,6 +151,79 @@ def distance(
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 
 
+def correct_orientation(
+    remote: RemoteControlDevice,
+    gyros: Iterable[GyroDevice],
+    target_forward: Sequence[float],
+    target_up: Sequence[float],
+    *,
+    tolerance_dot: float = 0.999,
+    gain: float = 0.6,
+    max_time: float = 30.0,
+    sleep_interval: float = 0.1,
+) -> None:
+    """
+    Плавно доворачивает грид к сохранённым осям с помощью гироскопов.
+
+    Используется упрощённая схема: берём ошибки по forward и up, переводим в
+    угловую скорость (yaw/pitch/roll) в локальном базисе и подаём малыми
+    значениями в override гироскопов.
+    """
+
+    gyro_list = list(gyros)
+    if not gyro_list:
+        print("[orientation] No gyros found, skipping alignment")
+        return
+
+    start_time = time.time()
+    target_forward = normalize(tuple(target_forward))
+    target_up = normalize(tuple(target_up))
+
+    def _stop_gyros() -> None:
+        for g in gyro_list:
+            g.set_override(pitch=0.0, yaw=0.0, roll=0.0)
+
+    try:
+        while True:
+            remote.update()
+            remote.wait_for_telemetry()
+
+            current_forward, current_up, current_right = get_remote_basis(remote)
+
+            df = dot(current_forward, target_forward)
+            du = dot(current_up, target_up)
+            if df >= tolerance_dot and du >= tolerance_dot:
+                print(f"[orientation] aligned: dotF={df:.4f}, dotU={du:.4f}")
+                break
+
+            err_f = cross(current_forward, target_forward)
+            err_u = cross(current_up, target_up)
+
+            err_vec = (
+                err_f[0] + err_u[0],
+                err_f[1] + err_u[1],
+                err_f[2] + err_u[2],
+            )
+
+            yaw = clamp(dot(err_vec, current_up) * gain, -1.0, 1.0)
+            pitch = clamp(dot(err_vec, current_right) * gain, -1.0, 1.0)
+            roll = clamp(dot(err_vec, current_forward) * gain, -1.0, 1.0)
+
+            for gyro in gyro_list:
+                gyro.set_override(pitch=pitch, yaw=yaw, roll=roll)
+
+            if time.time() - start_time > max_time:
+                print(
+                    f"[orientation] timeout after {max_time} s, "
+                    f"last dots: dotF={df:.4f}, dotU={du:.4f}"
+                )
+                break
+
+            time.sleep(sleep_interval)
+    finally:
+        _stop_gyros()
+
+
 def fly_to(
     remote: RemoteControlDevice,
     target_pos: Tuple[float, float, float],
@@ -127,6 +235,10 @@ def fly_to(
     arrival_distance: float = MIN_DISTANCE,
     rc_stop_tolerance: float = RC_STOP_TOLERANCE,
     max_time: float = MAX_FLIGHT_TIME,
+    align_orientation: bool = False,
+    gyros_for_alignment: Iterable[GyroDevice] | None = None,
+    target_forward: Sequence[float] | None = None,
+    target_up: Sequence[float] | None = None,
 ) -> None:
     """
     Общая функция перелёта:
@@ -267,6 +379,18 @@ def fly_to(
 
         time.sleep(CHECK_INTERVAL)
 
+    # После завершения подлёта — доворот в исходную ориентацию
+    if align_orientation and gyros_for_alignment:
+        if target_forward is None or target_up is None:
+            print("[fly_to] alignment requested but target basis not provided")
+        else:
+            correct_orientation(
+                remote=remote,
+                gyros=gyros_for_alignment,
+                target_forward=target_forward,
+                target_up=target_up,
+            )
+
 
 def main() -> None:
     grid = prepare_grid("Owl_1")
@@ -279,21 +403,21 @@ def main() -> None:
         remote: RemoteControlDevice = remotes[0]
         print(f"Remote control: {remote.name} (id={remote.device_id})")
 
-        cockpits = grid.find_devices_by_type("cockpit")
-        if not cockpits:
-            print("Cockpit not found on grid")
+        gyros = grid.find_devices_by_type("gyro")
+        if not gyros:
+            print("Gyroscopes not found on grid")
             return
-        cockpit: CockpitDevice = cockpits[0]
-        print(f"Cockpit: {cockpit.name} (id={cockpit.device_id})")
+        print(f"Gyros on grid: {len(gyros)}")
 
         # первая телеметрия
-        cockpit.update()
         remote.update()
-        cockpit.wait_for_telemetry()
         remote.wait_for_telemetry()
 
         # стартовая позиция REMOTE CONTROL
         start_pos = get_remote_position(remote)
+
+        # запоминаем стартовую ориентацию грида по REMOTE CONTROL
+        start_forward, start_up, _start_right = get_remote_basis(remote)
 
         # Пытаемся взять "вверх" по гравитации (от планеты)
         planet_pos = get_remote_planet_position(remote)
@@ -308,9 +432,9 @@ def main() -> None:
             print("Using gravity-based up vector (away from planet).")
         else:
             # fallback: up кокпита
-            up_vec = get_cockpit_up(cockpit)
+            up_vec = get_remote_up(remote)
             up_vec = normalize(up_vec)
-            print("No planetPosition found, using cockpit up vector.")
+            print("No planetPosition found, using remote up vector.")
 
         undock_pos = add_scaled(start_pos, up_vec, UNLOCK_OFFSET_METERS)
 
@@ -347,6 +471,10 @@ def main() -> None:
                 dock=False,
                 arrival_distance=MIN_DISTANCE,
                 rc_stop_tolerance=0.1,
+                align_orientation=True,
+                gyros_for_alignment=gyros,
+                target_forward=start_forward,
+                target_up=start_up,
             )
 
             print("Последовательность завершена.")
