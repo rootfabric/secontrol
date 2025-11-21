@@ -148,6 +148,16 @@ def _block_position(block: BlockInfo | None) -> Optional[Tuple[float, float, flo
 
 
 def _find_block_for_device(grid, device: BaseDevice) -> BlockInfo | None:
+    # First, try device.device_id as EntityId of the block
+    try:
+        cid = int(device.device_id)
+        block = grid.get_block(cid)
+        if block is not None:
+            return block
+    except Exception:
+        pass
+
+    # Fallback to extra fields
     candidates: list[int] = []
     for key in ("blockId", "block_id", "entityId", "entity_id", "id"):
         raw = device.metadata.extra.get(key)
@@ -155,7 +165,7 @@ def _find_block_for_device(grid, device: BaseDevice) -> BlockInfo | None:
             continue
         try:
             candidates.append(int(raw))
-        except (TypeError, ValueError):
+        except Exception:
             continue
     for cid in candidates:
         block = grid.get_block(cid)
@@ -186,7 +196,28 @@ def _orientation_from_payload(payload: Dict[str, object] | None) -> Optional[Tup
 def _device_world_position(device: BaseDevice) -> Optional[Tuple[float, float, float]]:
     telemetry = device.telemetry or {}
     pos = telemetry.get("worldPosition") or telemetry.get("position")
-    return _parse_vector(pos)
+    if pos:
+        return _parse_vector(pos)
+
+    # Fallback: compute from grid blocks relative_to_grid_center
+    block = _find_block_for_device(device.grid, device)
+    if not block:
+        return None
+    local_pos = _block_position(block)
+    if not local_pos:
+        return None
+    reference = _find_reference_device_for_grid_center(device.grid)
+    if reference:
+        grid_center, basis = _compute_grid_center_and_basis(reference)
+        if grid_center and basis:
+            return _device_world_from_grid(grid_center, local_pos, basis)
+    # approximate for stationary grids using bounding boxes
+    approx_center = _compute_approximate_grid_center(device.grid)
+    if approx_center:
+        # assume identity rotation
+        basis = Basis((0,0,1), (0,1,0))
+        return _device_world_from_grid(approx_center, local_pos, basis)
+    return None
 
 
 def _device_orientation(device: BaseDevice, block: BlockInfo | None = None) -> Optional[Basis]:
@@ -209,6 +240,71 @@ def _connector_forward(device: ConnectorDevice, block: BlockInfo | None) -> Opti
     if orientation:
         return orientation[0]
     return None
+
+
+def _find_reference_device_for_grid_center(grid):
+    # Prefer devices with position in telemetry and orientation available via _device_orientation
+    for pref_type in ['remote_control', 'cockpit']:
+        for dev in grid.devices.values():
+            tel = dev.telemetry or {}
+            if (tel.get("position") or tel.get("worldPosition")) and _device_orientation(dev):
+                return dev
+    # Any with position and orientation
+    for dev in grid.devices.values():
+        tel = dev.telemetry or {}
+        if (tel.get("position") or tel.get("worldPosition")) and _device_orientation(dev):
+            return dev
+    return None
+
+
+def _compute_grid_center_and_basis(reference_device):
+    world_pos = _device_world_position(reference_device)
+    if not world_pos:
+        return None, None
+    block = _find_block_for_device(reference_device.grid, reference_device)
+    if not block:
+        return None, None
+    local_pos = _block_position(block)
+    if not local_pos:
+        return None, None
+    basis = _device_orientation(reference_device, block)
+    if not basis:
+        return None, None
+    grid_center = _grid_center_world(world_pos, local_pos, basis)
+    return grid_center, basis
+
+
+def _compute_approximate_grid_center(grid):
+    blocks = list(grid.blocks.values())
+    if not blocks:
+        return None
+    # Find basis from any device
+    grid_basis = None
+    for dev in grid.devices.values():
+        ori = _device_orientation(dev)
+        if ori:
+            grid_basis = ori
+            break
+    if not grid_basis:
+        grid_basis = Basis((0,0,1), (0,1,0))  # identity
+    candidates = []
+    for block in blocks:
+        if block.relative_to_grid_center and block.bounding_box:
+            local = block.relative_to_grid_center
+            local_dist = sum(c**2 for c in local)**0.5
+            if 'min' in block.bounding_box and 'max' in block.bounding_box:
+                min_bb = block.bounding_box['min']
+                max_bb = block.bounding_box['max']
+                block_center = tuple((m + M)/2 for m, M in zip(min_bb, max_bb))
+                candidates.append((local_dist, local, block_center))
+    if not candidates:
+        return None
+    # sort by local_dist
+    candidates.sort(key=lambda x: x[0])
+    _, local, block_center = candidates[0]
+    # grid_center = block_center - grid_basis.to_world(local)
+    grid_center = tuple(bc - wc for bc, wc in zip(block_center, grid_basis.to_world(local)))
+    return grid_center
 
 
 # ---- Геометрия стыковки ---------------------------------------------------
@@ -359,13 +455,10 @@ def _compute_ship_offset(
     return offset, basis
 
 
-def _base_connector_world(base_connector: ConnectorDevice) -> Tuple[Tuple[float, float, float], Optional[Tuple[float, float, float]]]:
+def _base_connector_world(base_connector: ConnectorDevice) -> Tuple[Optional[Tuple[float, float, float]], Optional[Tuple[float, float, float]]]:
     _ensure_telemetry(base_connector)
     world_pos = _device_world_position(base_connector)
     block = _find_block_for_device(base_connector.grid, base_connector)
-
-    if world_pos is None:
-        raise RuntimeError("Телеметрия коннектора базы не содержит position/worldPosition")
 
     forward = _connector_forward(base_connector, block)
     if forward:
@@ -402,8 +495,25 @@ def dock_to_base(
             return
         remote: RemoteControlDevice = remotes[0]
 
+        # First, compute and print positions without docking
         offset, basis = _compute_ship_offset(remote, ship_connector)
         base_pos, base_forward = _base_connector_world(base_connector)
+        if base_pos is None:
+            raise RuntimeError("Не удалось определить позицию коннектора базы")
+
+        # Compute ship connector world position
+        rc_world = _device_world_position(remote)
+        ship_conn_world = _add(rc_world, offset)
+
+        print(f"Ship RC @ {rc_world}")
+        print(f"Ship connector @ {ship_conn_world}")
+        print(f"Base connector @ {base_pos}")
+        print(f"Offset = {offset}")
+        print(f"Expected target RC (after alignment) = {base_pos}")
+
+        print("Примите эту позицию (зацепитесь коннектором корабля к коннектору базы), затем нажмите Enter для продолжения...")
+        input("Нажмите Enter когда готовы: ")
+
         target_rc = _sub(base_pos, offset)
 
         print(f"Target RC position: {target_rc}")
@@ -419,7 +529,7 @@ def dock_to_base(
 
         if approach_point:
             _fly_to(remote, approach_point, gps_name="Approach", speed_far=speed_far, speed_near=speed_near, dock=False)
-        _fly_to(remote, target_rc, gps_name="Dock", speed_far=speed_far, speed_near=speed_near, dock=True)
+        _fly_to(remote, target_rc, gps_name="Dock", speed_far=speed_far, speed_near=speed_near, dock=False)
         print("Манёвр завершён")
     finally:
         close(ship_grid)
@@ -431,8 +541,8 @@ def dock_to_base(
 # Заполните значения для своей сцены. Все параметры можно оставить None, чтобы использовать
 # значения по умолчанию (например, первый доступный корабль или первый коннектор).
 DOCKING_PARAMS = {
-    "base_grid_id": "ID_ИЛИ_ИМЯ_БАЗЫ",  # обязательно: ID или имя грида базы
-    "ship_grid_id": None,  # опционально: ID или имя летящего грида
+    "base_grid_id": "DroneBase",  # обязательно: ID или имя грида базы
+    "ship_grid_id": "Owl",  # опционально: ID или имя летящего грида
     "base_connector_hint": None,  # имя или ID коннектора на базе
     "ship_connector_hint": None,  # имя или ID коннектора корабля
     "approach": 5.0,  # дистанция точки подхода вдоль вектора базы (м)

@@ -69,16 +69,42 @@ def get_remote_up(remote: RemoteControlDevice) -> Tuple[float, float, float]:
 
 
 def get_remote_basis(remote: RemoteControlDevice) -> Tuple[Tuple[float, float, float], ...]:
-    """Возвращает forward, up, right из телеметрии REMOTE CONTROL."""
+    """
+    Возвращает базис forward, up, right для ВЫРАВНИВАНИЯ ГРИДА.
 
-    ori = remote.telemetry.get("orientation") or {}
-    f_raw = ori.get("forward")
-    u_raw = ori.get("up")
-    r_raw = ori.get("right")
-    l_raw = ori.get("left")
+    Приоритет:
+    1) Если в телеметрии есть gridOrientation (ориентация всего грида),
+       используем её — это лучше совпадает с осями гироскопов.
+    2) Иначе — падаем обратно на orientation (ориентация самого Remote).
+
+    Ожидаем структуру вида:
+      "gridOrientation": {
+          "forward": { "x": ..., "y": ..., "z": ... },
+          "up":      { "x": ..., "y": ..., "z": ... },
+          "right":   { "x": ..., "y": ..., "z": ... }  # опционально
+      }
+    """
+
+    t = remote.telemetry or {}
+
+    # 1. Пробуем взять ориентацию целого грида
+    grid_ori = t.get("gridOrientation") or {}
+
+    f_raw = grid_ori.get("forward")
+    u_raw = grid_ori.get("up")
+    r_raw = grid_ori.get("right")
+    l_raw = grid_ori.get("left")
+
+    # 2. Если gridOrientation нет или в нём чего-то не хватает — используем старое поле orientation
+    if not f_raw or not u_raw:
+        ori = t.get("orientation") or {}
+        f_raw = ori.get("forward")
+        u_raw = ori.get("up")
+        r_raw = ori.get("right")
+        l_raw = ori.get("left")
 
     if not f_raw or not u_raw:
-        raise RuntimeError("Remote telemetry does not contain orientation.forward/up")
+        raise RuntimeError("Telemetry does not contain forward/up either in gridOrientation or orientation")
 
     forward = normalize(vec_from_orientation(f_raw))
     up = normalize(vec_from_orientation(u_raw))
@@ -89,9 +115,13 @@ def get_remote_basis(remote: RemoteControlDevice) -> Tuple[Tuple[float, float, f
         lx, ly, lz = vec_from_orientation(l_raw)
         right = normalize((-lx, -ly, -lz))
     else:
-        right = normalize(cross(forward, up))
+        # Поддерживаем правую систему координат:
+        # x (right), y (up), z (forward) => right = up × forward
+        rx, ry, rz = cross(up, forward)
+        right = normalize((rx, ry, rz))
 
     return forward, up, right
+
 
 
 def get_remote_position(remote: RemoteControlDevice) -> Tuple[float, float, float]:
@@ -157,17 +187,18 @@ def correct_orientation(
     target_forward: Sequence[float],
     target_up: Sequence[float],
     *,
-    tolerance_dot: float = 0.999,
-    gain: float = 0.6,
-    max_time: float = 30.0,
+    up_tolerance_deg: float = 5.0,
+    yaw_tolerance_deg: float = 2.0,
+    gain_up_phase: float = 0.5,       # усиление в фазе UP
+    gain_up_stab: float = 0.3,        # усиление стабилизации UP во время YAW
+    gain_yaw: float = 0.5,
+    max_time: float = 20.0,
     sleep_interval: float = 0.1,
 ) -> None:
     """
-    Плавно доворачивает грид к сохранённым осям с помощью гироскопов.
-
-    Используется упрощённая схема: берём ошибки по forward и up, переводим в
-    угловую скорость (yaw/pitch/roll) в локальном базисе и подаём малыми
-    значениями в override гироскопов.
+    1) Фаза UP: ставим корабль "на ноги" (current_up -> target_up).
+    2) Фаза YAW: выравниваем курс по горизонту, при этом постоянно
+       подравниваем UP, чтобы не заваливало.
     """
 
     gyro_list = list(gyros)
@@ -175,53 +206,204 @@ def correct_orientation(
         print("[orientation] No gyros found, skipping alignment")
         return
 
-    start_time = time.time()
-    target_forward = normalize(tuple(target_forward))
-    target_up = normalize(tuple(target_up))
+    t_f = normalize(tuple(target_forward))
+    t_u = normalize(tuple(target_up))
+
+    up_tol_rad = math.radians(up_tolerance_deg)
+    yaw_tol_rad = math.radians(yaw_tolerance_deg)
+
+    def _project_to_plane(
+        v: Tuple[float, float, float],
+        n: Tuple[float, float, float],
+    ) -> Tuple[float, float, float]:
+        d = dot(v, n)
+        return (
+            v[0] - n[0] * d,
+            v[1] - n[1] * d,
+            v[2] - n[2] * d,
+        )
+
+    def _yaw_angle_and_sign(
+        current_forward: Tuple[float, float, float],
+        target_forward: Tuple[float, float, float],
+        up_axis: Tuple[float, float, float],
+    ) -> Tuple[float, float]:
+        """
+        Угол и знак вращения вокруг up_axis.
+        sign подобран так, чтобы УМЕНЬШАТЬ угол.
+        """
+        cf = _project_to_plane(current_forward, up_axis)
+        tf = _project_to_plane(target_forward, up_axis)
+
+        try:
+            cf = normalize(cf)
+            tf = normalize(tf)
+        except ValueError:
+            return 0.0, 0.0
+
+        c = clamp(dot(cf, tf), -1.0, 1.0)
+        angle = math.acos(c)
+        if angle < 1e-6:
+            return 0.0, 0.0
+
+        cross_cf_tf = cross(cf, tf)
+        s = dot(cross_cf_tf, up_axis)
+
+        # важно: знак инвертирован, чтобы крутить в сторону уменьшения угла
+        sign = -1.0 if s > 0.0 else 1.0
+        return angle, sign
 
     def _stop_gyros() -> None:
         for g in gyro_list:
             g.set_override(pitch=0.0, yaw=0.0, roll=0.0)
+        print("[orientation] Gyros stopped")
+
+    print(
+        "[orientation] Starting 2-phase orientation correction\n"
+        f"  target_forward={t_f}\n"
+        f"  target_up={t_u}"
+    )
+
+    start_time = time.time()
+    last_log = start_time
 
     try:
+        # ===========================
+        # ФАЗА 1 — ВЫРАВНИВАЕМ UP
+        # ===========================
         while True:
+            now = time.time()
+            if now - start_time > max_time:
+                print(f"[orientation] TIMEOUT during UP phase after {max_time:.1f} s")
+                _stop_gyros()
+                return
+
             remote.update()
             remote.wait_for_telemetry()
 
             current_forward, current_up, current_right = get_remote_basis(remote)
 
-            df = dot(current_forward, target_forward)
-            du = dot(current_up, target_up)
-            if df >= tolerance_dot and du >= tolerance_dot:
-                print(f"[orientation] aligned: dotF={df:.4f}, dotU={du:.4f}")
+            du = clamp(dot(current_up, t_u), -1.0, 1.0)
+            up_angle = math.acos(du)
+
+            if up_angle <= up_tol_rad:
+                print(
+                    "[orientation] UP aligned:\n"
+                    f"  up_angle={math.degrees(up_angle):.2f}° (dotU={du:.4f})"
+                )
+                _stop_gyros()
                 break
 
-            err_f = cross(current_forward, target_forward)
-            err_u = cross(current_up, target_up)
+            err_u = cross(current_up, t_u)
 
-            err_vec = (
-                err_f[0] + err_u[0],
-                err_f[1] + err_u[1],
-                err_f[2] + err_u[2],
-            )
+            yaw_cmd = clamp(dot(err_u, current_up) * gain_up_phase, -0.5, 0.5)
+            pitch_cmd = clamp(dot(err_u, current_right) * gain_up_phase, -0.5, 0.5)
+            roll_cmd = clamp(dot(err_u, current_forward) * gain_up_phase, -0.5, 0.5)
 
-            yaw = clamp(dot(err_vec, current_up) * gain, -1.0, 1.0)
-            pitch = clamp(dot(err_vec, current_right) * gain, -1.0, 1.0)
-            roll = clamp(dot(err_vec, current_forward) * gain, -1.0, 1.0)
+            for g in gyro_list:
+                g.set_override(pitch=pitch_cmd, yaw=yaw_cmd, roll=roll_cmd)
 
-            for gyro in gyro_list:
-                gyro.set_override(pitch=pitch, yaw=yaw, roll=roll)
-
-            if time.time() - start_time > max_time:
+            if now - last_log >= 0.5:
                 print(
-                    f"[orientation] timeout after {max_time} s, "
-                    f"last dots: dotF={df:.4f}, dotU={du:.4f}"
+                    "[orientation][UP] step:\n"
+                    f"  up_angle={math.degrees(up_angle):.2f}° (dotU={du:.4f})\n"
+                    f"  cmd: pitch={pitch_cmd:.4f}, yaw={yaw_cmd:.4f}, roll={roll_cmd:.4f}"
+                )
+                last_log = now
+
+            time.sleep(sleep_interval)
+
+        # ===========================
+        # ФАЗА 2 — ВЫРАВНИВАЕМ YAW
+        # ===========================
+        yaw_phase_start = time.time()
+        last_log = yaw_phase_start
+
+        # для простого «анти-разгона» — отслеживаем предыдущий yaw_angle
+        prev_yaw_angle = None
+        worse_steps = 0
+
+        while True:
+            now = time.time()
+            if now - yaw_phase_start > max_time:
+                print(f"[orientation] TIMEOUT during YAW phase after {max_time:.1f} s")
+                break
+
+            remote.update()
+            remote.wait_for_telemetry()
+
+            current_forward, current_up, current_right = get_remote_basis(remote)
+
+            # угол по горизонту считаем вокруг ТЕКУЩЕГО up,
+            # чтобы соответствовать оси yaw гироскопов
+            yaw_angle, yaw_sign = _yaw_angle_and_sign(current_forward, t_f, current_up)
+
+            df = clamp(dot(current_forward, t_f), -1.0, 1.0)
+            f_angle = math.degrees(math.acos(df))
+
+            du = clamp(dot(current_up, t_u), -1.0, 1.0)
+            up_angle_deg = math.degrees(math.acos(du))
+
+            # если курс уже достаточно близко — выходим
+            if yaw_angle <= yaw_tol_rad:
+                print(
+                    "[orientation] YAW aligned:\n"
+                    f"  yaw_angle={math.degrees(yaw_angle):.2f}°\n"
+                    f"  angleF={f_angle:.2f}° (dotF={df:.4f})\n"
+                    f"  angleU={up_angle_deg:.2f}° (dotU={du:.4f})"
                 )
                 break
 
+            # простая защита: если up сильно ушёл — прекращаем, чтобы не улететь в переворот
+            if up_angle_deg > 30.0:
+                print(
+                    "[orientation] UP drift too large during YAW "
+                    f"({up_angle_deg:.2f}°) — stopping"
+                )
+                break
+
+            # защита от «разгона»: если несколько шагов подряд yaw_angle не уменьшается — выходим
+            if prev_yaw_angle is not None and yaw_angle >= prev_yaw_angle - math.radians(0.1):
+                worse_steps += 1
+                if worse_steps >= 5:
+                    print(
+                        "[orientation] YAW not improving for several steps "
+                        f"(last angle={math.degrees(yaw_angle):.2f}°) — stopping"
+                    )
+                    break
+            else:
+                worse_steps = 0
+            prev_yaw_angle = yaw_angle
+
+            # ======= СТАБИЛИЗАЦИЯ UP во время YAW =======
+            err_u = cross(current_up, t_u)
+            stab_pitch = clamp(dot(err_u, current_right) * gain_up_stab, -0.3, 0.3)
+            stab_roll = clamp(dot(err_u, current_forward) * gain_up_stab, -0.3, 0.3)
+
+            # yaw вокруг текущего up
+            yaw_cmd = clamp(yaw_sign * yaw_angle * gain_yaw, -0.5, 0.5)
+            pitch_cmd = stab_pitch
+            roll_cmd = stab_roll
+
+            for g in gyro_list:
+                g.set_override(pitch=pitch_cmd, yaw=yaw_cmd, roll=roll_cmd)
+
+            if now - last_log >= 0.5:
+                print(
+                    "[orientation][YAW] step:\n"
+                    f"  yaw_angle={math.degrees(yaw_angle):.2f}° (cmd yaw={yaw_cmd:.4f})\n"
+                    f"  angleF={f_angle:.2f}° (dotF={df:.4f})\n"
+                    f"  angleU={up_angle_deg:.2f}° (dotU={du:.4f})\n"
+                    f"  stab: pitch={stab_pitch:.4f}, roll={stab_roll:.4f}"
+                )
+                last_log = now
+
             time.sleep(sleep_interval)
+
     finally:
         _stop_gyros()
+
+
 
 
 def fly_to(
