@@ -42,7 +42,7 @@ from secontrol.devices.connector_device import ConnectorDevice
 from secontrol.devices.remote_control_device import RemoteControlDevice
 
 # Точность/таймауты
-ARRIVAL_DISTANCE = 0.25
+ARRIVAL_DISTANCE = 0.05
 RC_STOP_TOLERANCE = 0.1
 CHECK_INTERVAL = 0.2
 AUTOPILOT_ARM_TIME = 2.0
@@ -545,7 +545,7 @@ DOCKING_PARAMS = {
     "ship_grid_id": "Owl",  # опционально: ID или имя летящего грида
     "base_connector_hint": None,  # имя или ID коннектора на базе
     "ship_connector_hint": None,  # имя или ID коннектора корабля
-    "approach": 5.0,  # дистанция точки подхода вдоль вектора базы (м)
+    "approach": 1.0,  # дистанция точки подхода вдоль вектора базы (м)
     "speed_far": 12.0,  # скорость на удалении (м/с)
     "speed_near": 2.0,  # скорость при подлёте (м/с)
 }

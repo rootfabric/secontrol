@@ -19,6 +19,10 @@ SPEED_DISTANCE_THRESHOLD = 15.0
 # У тебя автопилот стабильно недоливает ~0.2 м, поэтому 0.3–0.4 м — нормальный запас.
 DOCK_FORWARD_FUDGE = 0.35
 
+# ---- Connector status constants ------------------------------------------
+STATUS_UNCONNECTED = "Unconnected"
+STATUS_READY_TO_LOCK = "Connectable"
+STATUS_CONNECTED = "Connected"
 
 # ---- Math helpers --------------------------------------------------------
 
@@ -184,6 +188,27 @@ def _get_connector_world_pos(
     )
     base_pos = _add(anchor_pos, world_diff)
     return base_pos, "   [POS] Computed connector position via Anchor RC."
+
+
+# ---- Connector status functions ------------------------------------------
+
+
+def get_connector_status(connector: ConnectorDevice) -> str:
+    """Get current status of connector."""
+    tel = connector.telemetry or {}
+    return tel.get("connectorStatus") or "unknown"
+
+
+def is_already_docked(connector: ConnectorDevice) -> bool:
+    """Check if the connector is already docked (connected)."""
+    status = get_connector_status(connector)
+    return status == STATUS_CONNECTED
+
+
+def is_parking_possible(connector: ConnectorDevice) -> bool:
+    """Check if parking (docking) is possible on this connector."""
+    status = get_connector_status(connector)
+    return status in [STATUS_UNCONNECTED, STATUS_READY_TO_LOCK]
 
 
 # ---- Docking geometry ----------------------------------------------------
@@ -399,6 +424,24 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
         _ensure_telemetry(ship_conn)
         _ensure_telemetry(base_conn)
 
+        # ---- Check initial status ----
+        print(f"   [INITIAL] Ship connector status: {get_connector_status(ship_conn)}")
+        print(f"   [INITIAL] Base connector status: {get_connector_status(base_conn)}")
+
+        if get_connector_status(ship_conn)=='Connectable':
+            ship_conn.connect()
+        # Check if parking is possible
+        if not is_parking_possible(base_conn):
+            print(f"Base connector not ready for parking, status: {get_connector_status(base_conn)}")
+
+        # If already docked, undock
+        if is_already_docked(ship_conn):
+            print("   [INITIAL] Ship is already docked, undocking...")
+            ship_conn.disconnect()
+            time.sleep(1)  # Give time for disconnect
+            ship_conn.update()
+            print(f"   [INITIAL] After undock status: {get_connector_status(ship_conn)}")
+
         # Считаем точку, в которую надо поставить RC,
         # чтобы коннектор корабля оказался в правильном месте относительно коннектора базы.
         final_rc_pos, base_fwd, base_conn_pos = _calculate_docking_point(
@@ -433,16 +476,40 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
 
         input("\nPress Enter to Execute Docking Sequence...")
 
+        ship_conn.disconnect()
+        # base_conn.disconnect()
+
         _fly_to(rc, approach_rc_pos, "Approach", 15.0, 5.0)
         stop_pos_docking = _fly_to(rc, final_rc_pos, "Docking", 1.0, 0.5)
 
-        print("Locking...")
-        ship_conn.connect()
+        # Wait for ReadyToLock status and connect
+        print("   [DOCKING] Waiting for connector to become ready to lock...")
+        locked = False
+        last_status = ""
+        while not locked:
+            ship_conn.update()
+            status = get_connector_status(ship_conn)
+            if status != last_status:
+                print(f"   [DOCKING] Ship connector status: {status}")
+                last_status = status
 
-        time.sleep(0.5)
-        ship_conn.update()
-        status = ship_conn.telemetry.get("status") or ship_conn.telemetry.get("Status")
-        print(f"Final Connector Status: {status}")
+            if status == STATUS_READY_TO_LOCK:
+                print("   [DOCKING] Ready to lock detected, connecting...")
+                ship_conn.connect()
+                time.sleep(0.5)
+                ship_conn.update()
+                final_status = get_connector_status(ship_conn)
+                if final_status == STATUS_CONNECTED:
+                    print("   [DOCKING] Successfully connected!")
+                    locked = True
+                else:
+                    print(f"   [DOCKING] Connect failed, final status: {final_status}")
+                    # Could retry or raise error
+                    locked = True
+            time.sleep(CHECK_INTERVAL)
+
+        print(f"Final Connector Status: {get_connector_status(ship_conn)}")
+        rc.disable()  # Disable movement after successful docking
 
     except Exception as e:
         print(f"Error: {e}")
