@@ -682,7 +682,8 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
 
 if __name__ == "__main__":
     # FIXED_GPS — точные координаты коннектора на базе
-    FIXED_GPS = "GPS:root #2:1010037.18:170826.7:1672421.04:#FF75C9F1:"
+    # FIXED_GPS = "GPS:root #2:1010037.18:170826.7:1672421.04:#FF75C9F1:"
+    FIXED_GPS = None
 
     dock_procedure(
         base_grid_id="DroneBase",
