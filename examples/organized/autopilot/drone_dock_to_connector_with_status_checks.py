@@ -10,19 +10,19 @@ from secontrol.devices.remote_control_device import RemoteControlDevice
 
 # ---- Settings ------------------------------------------------------------
 ARRIVAL_DISTANCE = 0.20
-RC_STOP_TOLERANCE = 2.0
+RC_STOP_TOLERANCE = 0.7
 CHECK_INTERVAL = 0.2
 MAX_FLIGHT_TIME = 240.0
 SPEED_DISTANCE_THRESHOLD = 15.0
 
 # Насколько "продавить" коннектор корабля ЗА коннектор базы вдоль линии стыковки (метры).
-# У тебя автопилот стабильно недоливает ~0.2 м, поэтому 0.3–0.4 м — нормальный запас.
 DOCK_FORWARD_FUDGE = 0.35
 
 # ---- Connector status constants ------------------------------------------
 STATUS_UNCONNECTED = "Unconnected"
 STATUS_READY_TO_LOCK = "Connectable"
 STATUS_CONNECTED = "Connected"
+
 
 # ---- Math helpers --------------------------------------------------------
 
@@ -215,52 +215,38 @@ def is_parking_possible(connector: ConnectorDevice) -> bool:
 
 
 def _calculate_docking_point(
+    ship_grid,
     ship_rc: RemoteControlDevice,
     ship_conn: ConnectorDevice,
     base_conn: ConnectorDevice,
     base_grid,
     fixed_base_gps: str = None,
-) -> Tuple[Tuple[float, float, float],
-           Tuple[float, float, float],
-           Tuple[float, float, float],
-           Tuple[float, float, float],
-           Tuple[float, float, float]]:
+) -> Tuple[
+    Tuple[float, float, float],   # final_rc_pos
+    Tuple[float, float, float],   # base_forward
+    Tuple[float, float, float],   # base_pos
+    Tuple[float, float, float],   # base_up
+    Tuple[float, float, float],   # ship_conn_target
+    Tuple[float, float, float],   # rc_to_ship_conn (world, плановое)
+]:
     """
     Compute final RC position for docking ИМЕННО ПО КОННЕКТОРАМ.
 
-    Логика:
-    - Есть базовый коннектор (base_conn) с позицией base_pos.
-    - Есть коннектор корабля (ship_conn) с позицией ship_conn_pos.
-    - Есть Remote Control (ship_rc) с позицией rc_pos.
-
-    Шаги:
-    1) Считаем:
-         rc_to_ship_conn = ship_conn_pos - rc_pos
-       это вектор от RC к своему коннектору (геометрия грида).
-
-    2) Считаем направление стыковки:
-         approach_dir = norm(base_pos - ship_conn_pos)
-       (куда корабль должен двигаться, чтобы его коннектор пришёл в base_pos).
-
-    3) Делаем целевую точку коннектора корабля чуть ЗА базовый коннектор:
-         ship_conn_target = base_pos + approach_dir * DOCK_FORWARD_FUDGE
-
-       Если DOCK_FORWARD_FUDGE == 0.0 — целимся ровно в base_pos.
-
-    4) Отсюда целевая позиция RC:
-         final_rc_pos = ship_conn_target - rc_to_ship_conn
-
-       То есть RC ставим так, чтобы его коннектор оказался в ship_conn_target.
+    Важное отличие: вектор RC -> коннектор корабля берём из телеметрии
+    (разность мировых позиций), а не через grid-базис.
     """
 
-    # 1. Базис коннектора базы (для вектора подхода/логов/аппроуч-точки)
+    # 1. Базис коннектора базы (для ориентации докинга)
     base_basis = _get_orientation(base_conn)
 
     # 2. Позиция коннектора базы
     base_pos, pos_info = _get_connector_world_pos(base_conn, base_grid, fixed_base_gps)
     print(pos_info)
 
-    # 3. Позиция RC и собственного коннектора корабля
+    # 3. Позиции RC и коннектора корабля в мире
+    _ensure_telemetry(ship_rc)
+    _ensure_telemetry(ship_conn)
+
     rc_pos = _get_pos(ship_rc)
     if not rc_pos:
         raise RuntimeError("Cannot get RC world position for docking calculation.")
@@ -269,13 +255,13 @@ def _calculate_docking_point(
     if not ship_conn_pos:
         raise RuntimeError("Cannot get ship connector world position for docking calculation.")
 
-    start_dist = _dist(rc_pos, base_pos)
-    print(f"   [PLAN] RC distance to base connector at plan time: {start_dist:.2f}m")
-
     # Вектор от RC к своему коннектору в мировых координатах
     rc_to_ship_conn = _sub(ship_conn_pos, rc_pos)
+
+    start_dist = _dist(rc_pos, base_pos)
+    print(f"   [PLAN] RC distance to base connector at plan time: {start_dist:.2f}m")
     print(
-        "   [PLAN] RC->ShipConnector vector (world): "
+        "   [PLAN] RC->ShipConnector vector (world via telemetry): "
         f"({rc_to_ship_conn[0]:.2f}, {rc_to_ship_conn[1]:.2f}, {rc_to_ship_conn[2]:.2f})"
     )
 
@@ -283,7 +269,6 @@ def _calculate_docking_point(
     dir_vec = _sub(base_pos, ship_conn_pos)
     dir_len = math.sqrt(dir_vec[0] ** 2 + dir_vec[1] ** 2 + dir_vec[2] ** 2)
     if dir_len < 1e-6:
-        # Если вдруг мы уже почти в точке — fallback на forward коннектора базы
         approach_dir = base_basis.forward
         print("   [PLAN] Ship connector already at base, using base_forward as approach_dir.")
     else:
@@ -293,9 +278,7 @@ def _calculate_docking_point(
             f"({approach_dir[0]:.3f}, {approach_dir[1]:.3f}, {approach_dir[2]:.3f})"
         )
 
-    # 4. Целевая точка коннектора корабля:
-    #    - если DOCK_FORWARD_FUDGE == 0, летим строго в base_pos
-    #    - иначе целимся чуть за коннектор базы по линии стыковки
+    # Целевая точка коннектора корабля: чуть за коннектором базы
     if DOCK_FORWARD_FUDGE != 0.0:
         fudge_vec = _scale(approach_dir, DOCK_FORWARD_FUDGE)
         ship_conn_target = _add(base_pos, fudge_vec)
@@ -307,11 +290,12 @@ def _calculate_docking_point(
         ship_conn_target = base_pos
         print("   [PLAN] Ship connector target = Base connector position (no fudge).")
 
-    # 5. Целевая позиция RC так, чтобы его коннектор оказался в ship_conn_target
+    # Целевая позиция RC: чтобы его коннектор оказался в ship_conn_target
     final_rc_pos = _sub(ship_conn_target, rc_to_ship_conn)
 
     base_forward = base_basis.forward
-    return final_rc_pos, base_forward, base_pos, base_basis.up, ship_conn_target
+    base_up = base_basis.up
+    return final_rc_pos, base_forward, base_pos, base_up, ship_conn_target, rc_to_ship_conn
 
 
 # ---- Autopilot with logging ----------------------------------------------
@@ -326,6 +310,7 @@ def _fly_to(
     check_callback: Optional[Callable[[], bool]] = None,
     ship_conn: ConnectorDevice = None,
     ship_conn_target: Optional[Tuple[float, float, float]] = None,
+    fixed_base_pos: Optional[Tuple[float, float, float]] = None,
 ):
     """Send RC to a waypoint with step-by-step logging."""
 
@@ -396,11 +381,16 @@ def _fly_to(
                 f"Dist: {d:.2f}m | "
                 f"Delta(XYZ): ({dx:.2f}, {dy:.2f}, {dz:.2f})"
             )
-            if ship_conn_target and ship_conn:
+
+            if ship_conn and ship_conn_target is not None:
                 ship_conn_pos = _get_pos(ship_conn)
                 if ship_conn_pos:
                     conn_dist = _dist(ship_conn_pos, ship_conn_target)
                     log += f" | ShipConn Dist: {conn_dist:.2f}m"
+                    if fixed_base_pos is not None:
+                        conn_dist_fixed = _dist(ship_conn_pos, fixed_base_pos)
+                        log += f" | ShipConn->FixedBase: {conn_dist_fixed:.2f}m"
+
             print(log)
             last_print = now
 
@@ -438,9 +428,20 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
     stop_pos_docking = None
 
     try:
-        rc = ship_grid.find_devices_by_type(RemoteControlDevice)[0]
-        ship_conn = ship_grid.find_devices_by_type(ConnectorDevice)[0]
-        base_conn = base_grid.find_devices_by_type(ConnectorDevice)[0]
+        rc_list = ship_grid.find_devices_by_type(RemoteControlDevice)
+        ship_conn_list = ship_grid.find_devices_by_type(ConnectorDevice)
+        base_conn_list = base_grid.find_devices_by_type(ConnectorDevice)
+
+        if not rc_list:
+            raise RuntimeError("No RemoteControl found on ship grid.")
+        if not ship_conn_list:
+            raise RuntimeError("No Connector found on ship grid.")
+        if not base_conn_list:
+            raise RuntimeError("No Connector found on base grid.")
+
+        rc = rc_list[0]
+        ship_conn = ship_conn_list[0]
+        base_conn = base_conn_list[0]
 
         _ensure_telemetry(rc)
         _ensure_telemetry(ship_conn)
@@ -450,7 +451,7 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
         print(f"   [INITIAL] Ship connector status: {get_connector_status(ship_conn)}")
         print(f"   [INITIAL] Base connector status: {get_connector_status(base_conn)}")
 
-        if get_connector_status(ship_conn)=='Connectable':
+        if get_connector_status(ship_conn) == STATUS_READY_TO_LOCK:
             ship_conn.connect()
         # Check if parking is possible
         if not is_parking_possible(base_conn):
@@ -460,13 +461,23 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
         if is_already_docked(ship_conn):
             print("   [INITIAL] Ship is already docked, undocking...")
             ship_conn.disconnect()
-            time.sleep(1)  # Give time for disconnect
+            time.sleep(1)
             ship_conn.update()
             print(f"   [INITIAL] After undock status: {get_connector_status(ship_conn)}")
 
-        # Считаем точку, в которую надо поставить RC,
-        # чтобы коннектор корабля оказался в правильном месте относительно коннектора базы.
-        final_rc_pos, base_fwd, base_conn_pos, base_up, ship_conn_target = _calculate_docking_point(
+        # Разбираем FIXED_GPS в вектор (если задан)
+        fixed_base_pos = _parse_vector(fixed_base_gps) if fixed_base_gps else None
+
+        # Считаем точку, в которую надо поставить RC
+        (
+            final_rc_pos,
+            base_fwd,
+            base_conn_pos,
+            base_up,
+            ship_conn_target,
+            rc_to_ship_conn,
+        ) = _calculate_docking_point(
+            ship_grid,
             rc,
             ship_conn,
             base_conn,
@@ -474,8 +485,12 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
             fixed_base_gps,
         )
 
-        # Поднять точку парковки на 1 метр вверх
-        # final_rc_pos = _add(final_rc_pos, _scale(base_up, 4.0))
+        # Для контроля: dist от ShipConnTarget до FixedBase
+        if fixed_base_pos is not None:
+            dist_target_to_fixed = _dist(ship_conn_target, fixed_base_pos)
+            print(
+                f"   [PLAN] Dist ShipConnTarget -> FixedBaseGPS: {dist_target_to_fixed:.3f}m"
+            )
 
         # Точка подхода: на линии коннектора, но дальше в открытое пространство
         approach_rc_pos = _add(final_rc_pos, _scale(base_fwd, 5.0))
@@ -501,11 +516,22 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
             "🎯 Final RC Position (Docking Point): "
             f"(X={final_rc_pos[0]:.2f}, Y={final_rc_pos[1]:.2f}, Z={final_rc_pos[2]:.2f})"
         )
+
         ship_conn.disconnect()
-        # base_conn.disconnect()
 
         _fly_to(rc, approach_rc_pos, "Approach", 15.0, 5.0)
-        stop_pos_docking = _fly_to(rc, final_rc_pos, "Docking", 1.0, 0.5, check_callback=lambda: get_connector_status(ship_conn) == STATUS_READY_TO_LOCK, ship_conn=ship_conn, ship_conn_target=ship_conn_target)
+
+        stop_pos_docking = _fly_to(
+            rc,
+            final_rc_pos,
+            "Docking",
+            1.0,
+            0.5,
+            check_callback=lambda: get_connector_status(ship_conn) == STATUS_READY_TO_LOCK,
+            ship_conn=ship_conn,
+            ship_conn_target=ship_conn_target,
+            fixed_base_pos=fixed_base_pos,
+        )
 
         # Wait for ReadyToLock status and connect
         print("   [DOCKING] Waiting for connector to become ready to lock...")
@@ -529,12 +555,11 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
                     locked = True
                 else:
                     print(f"   [DOCKING] Connect failed, final status: {final_status}")
-                    # Could retry or raise error
                     locked = True
             time.sleep(CHECK_INTERVAL)
 
         print(f"Final Connector Status: {get_connector_status(ship_conn)}")
-        rc.disable()  # Disable movement after successful docking
+        rc.disable()
 
     except Exception as e:
         print(f"Error: {e}")
@@ -580,7 +605,6 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
 
 
 if __name__ == "__main__":
-    # FIXED_GPS сейчас не нужен, коннектор базы даёт position в телеметрии.
     FIXED_GPS = "GPS:root #2:1010037.18:170826.7:1672421.04:#FF75C9F1:"
 
     dock_procedure(
