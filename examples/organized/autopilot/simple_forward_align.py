@@ -132,10 +132,10 @@ def align_grid_to_vector(grid, desired_forward: Tuple[float, float, float], rada
     print(f"Целевой вектор: ({desired_forward[0]:.3f}, {desired_forward[1]:.3f}, {desired_forward[2]:.3f})")
 
     # Настройки PID (здесь только P - пропорциональный)
-    GAIN = 5.0  # Коэффициент усиления ("резкость" поворота)
+    GAIN = 4.0  # Коэффициент усиления ("резкость" поворота)
     MAX_RATE = 1.0  # Максимальная скорость вращения (1.0 = 100% override)
-    TOLERANCE = 0.02  # Допустимая ошибка (в радианах, ~1 градус)
-    SCAN_INTERVAL = 10  # Интервал сканирования в итерациях (10 * 0.1s = 1s)
+    TOLERANCE = 0.03  # Допустимая ошибка (в радианах, ~1 градус)
+    SCAN_INTERVAL = 5  # Интервал сканирования в итерациях (10 * 0.1s = 1s)
 
     counter = 0
 
