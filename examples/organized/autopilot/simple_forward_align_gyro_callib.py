@@ -198,10 +198,13 @@ def align_grid_robust(grid, desired_forward: Tuple[float, float, float], radar: 
                     # Режим "вслепую" (Fallback): Если ориентация гироскопа неизвестна,
                     # считаем, что он стоит так же, как RC.
                     # Это лучше, чем ничего.
+                    # Режим "вслепую" (Fallback): (активен из-за ошибки чтения ориентации)
                     local_rot = rc_basis.world_to_local(rot_cmd_world)
-                    p = -local_rot[0]
-                    y = -local_rot[1]
-                    r = -local_rot[2]
+
+                    # !!! ИСПРАВЛЕНИЕ ЗНАКОВ ДЛЯ ВАШЕЙ КОНФИГУРАЦИИ !!!
+                    p = -local_rot[0]  # Измените на +local_rot[0] если крутит вверх/вниз неверно
+                    y = -local_rot[1]  # Измените на +local_rot[1] если крутит влево/вправо неверно
+                    r = -local_rot[2]  # Roll обычно не нужен, но если грид крутится вокруг своей оси - инвертируйте
 
                     if counter % 10 == 0 and i == 0:
                         print(f"[DEBUG] Gyro{i} (Fallback/Blind): P={p:.2f}, Y={y:.2f}, R={r:.2f}")

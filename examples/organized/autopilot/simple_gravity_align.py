@@ -115,27 +115,28 @@ def align_grid_to_gravity(grid) -> None:
         print("Не найдены гироскопы")
         return
 
-    desired_up = get_gravity(rc_dev)
-    if not desired_up:
+    for gyro in gyros:
+        gyro.enable()
+
+
+    gravity_vec = get_gravity(rc_dev)
+    if not gravity_vec:
         print("Вектор гравитации не найден")
         return
 
-    desired_up = _normalize(desired_up)
+    # Desired up is opposite to gravity, normalized
+    desired_up = _normalize((-gravity_vec[0], -gravity_vec[1], -gravity_vec[2]))
 
-    # Избегать переворачивания верх ногами: если текущий up противоположен желаемому, перевернуть желаемый
-    try:
-        current_basis = get_orientation(rc_dev)
-        if _dot(current_basis.up, desired_up) < 0:
-            desired_up = (-desired_up[0], -desired_up[1], -desired_up[2])
-    except RuntimeError:
-        pass  # если нет ориентации, продолжаем
+    # Ensure always upright: Y component >= 0
+    if desired_up[1] < 0:
+        desired_up = (-desired_up[0], -desired_up[1], -desired_up[2])
 
     print(f"Целевой up вектор: ({desired_up[0]:.3f}, {desired_up[1]:.3f}, {desired_up[2]:.3f})")
 
     # Настройки PID (здесь только P - пропорциональный)
-    GAIN = 1.0  # Коэффициент усиления ("резкость" поворота)
+    GAIN = 2.0  # Коэффициент усиления ("резкость" поворота)
     MAX_RATE = 1.0  # Максимальная скорость вращения (1.0 = 100% override)
-    TOLERANCE = 0.1  # Допустимая ошибка (в радианах, ~6 градусов)
+    TOLERANCE = 0.01  # Допустимая ошибка (в радианах, ~2 градуса)
 
     try:
         while True:
@@ -150,7 +151,7 @@ def align_grid_to_gravity(grid) -> None:
             dot_val = max(-1.0, min(1.0, _dot(basis.up, desired_up)))
             angle_error = math.acos(dot_val)
 
-            if angle_error < TOLERANCE or abs(dot_val) > 0.99:
+            if angle_error < TOLERANCE or (abs(dot_val) > 0.99 and dot_val > 0):
                 # Выровнено
                 print(f"Выровнено. Ошибка: {angle_error:.4f} rad, команды отключены")
                 for gyro in gyros:
@@ -192,8 +193,8 @@ def align_grid_to_gravity(grid) -> None:
         # Всегда отключаем оверрайд при выходе
         print("Остановка гироскопов...")
         for gyro in gyros:
-            gyro.set_override(pitch=0, yaw=0, roll=0)
-            gyro.disable()
+            gyro.clear_override()
+
 
 
 # ---- Main -------------------------------------------------------------------

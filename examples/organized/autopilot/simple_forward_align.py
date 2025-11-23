@@ -128,11 +128,14 @@ def align_grid_to_vector(grid, desired_forward: Tuple[float, float, float], rada
         print("Не найдены гироскопы")
         return
 
+    for gyro in gyros:
+        gyro.enable()
+
     desired_forward = _normalize(desired_forward)
     print(f"Целевой вектор: ({desired_forward[0]:.3f}, {desired_forward[1]:.3f}, {desired_forward[2]:.3f})")
 
     # Настройки PID (здесь только P - пропорциональный)
-    GAIN = 4.0  # Коэффициент усиления ("резкость" поворота)
+    GAIN = 4.0  # Коэффициент усиле ("резкость" поворота)
     MAX_RATE = 1.0  # Максимальная скорость вращения (1.0 = 100% override)
     TOLERANCE = 0.03  # Допустимая ошибка (в радианах, ~1 градус)
     SCAN_INTERVAL = 5  # Интервал сканирования в итерациях (10 * 0.1s = 1s)
@@ -209,8 +212,8 @@ def align_grid_to_vector(grid, desired_forward: Tuple[float, float, float], rada
         # Всегда отключаем оверрайд при выходе
         print("Остановка гироскопов...")
         for gyro in gyros:
-            gyro.set_override(pitch=0, yaw=0, roll=0)
-            gyro.disable()
+            gyro.clear_override()
+
 
 
 # ---- Main -------------------------------------------------------------------
