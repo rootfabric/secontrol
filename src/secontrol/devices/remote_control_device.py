@@ -1,11 +1,130 @@
-from typing import Optional
+from __future__ import annotations
+
+from typing import Optional, Tuple
 
 from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
+
+
+Vec3 = Tuple[float, float, float]
 
 
 class RemoteControlDevice(BaseDevice):
     device_type = "remote_control"
 
+    # ------------------------------------------------------------------
+    # ВСПОМОГАТЕЛЬНЫЕ ГЕТТЕРЫ СОСТОЯНИЯ
+    # ------------------------------------------------------------------
+    def _get_state_dict(self) -> dict:
+        """
+        Аккуратно достаём словарь состояния из BaseDevice.
+        Пытаемся использовать self.state или self._state, чтобы не падать,
+        если в BaseDevice имя поля отличается.
+        """
+        state = getattr(self, "state", None)
+        if isinstance(state, dict):
+            return state
+
+        state2 = getattr(self, "_state", None)
+        if isinstance(state2, dict):
+            return state2
+
+        return {}
+
+    @staticmethod
+    def _vec_from_obj(obj: object) -> Vec3:
+        if not isinstance(obj, dict):
+            return (0.0, 0.0, 0.0)
+        try:
+            x = float(obj.get("x", 0.0))
+            y = float(obj.get("y", 0.0))
+            z = float(obj.get("z", 0.0))
+            return (x, y, z)
+        except Exception:
+            return (0.0, 0.0, 0.0)
+
+    @staticmethod
+    def _vec_from_str(text: object) -> Vec3:
+        if text is None:
+            return (0.0, 0.0, 0.0)
+        try:
+            parts = [p.strip() for p in str(text).split(",")]
+            if len(parts) != 3:
+                return (0.0, 0.0, 0.0)
+            x = float(parts[0])
+            y = float(parts[1])
+            z = float(parts[2])
+            return (x, y, z)
+        except Exception:
+            return (0.0, 0.0, 0.0)
+
+    @staticmethod
+    def _cross(a: Vec3, b: Vec3) -> Vec3:
+        ax, ay, az = a
+        bx, by, bz = b
+        return (
+            ay * bz - az * by,
+            az * bx - ax * bz,
+            ax * by - ay * bx,
+        )
+
+    # ------------------------------------------------------------------
+    # ОРИЕНТАЦИЯ В МИРОВЫХ КООРДИНАТАХ (для автопилота/выравнивания)
+    # ------------------------------------------------------------------
+    def get_orientation_vectors_world(self) -> Tuple[Vec3, Vec3, Vec3]:
+        """
+        Возвращает (forward, up, right) в мировых координатах, взятые из телеметрии
+        Remote Control.
+
+        Ожидаемые источники:
+          1) telemetry["orientation"]["forward"/"up"/"left"]
+          2) поля telemetry["forward"] и telemetry["up"] (строки "X,Y,Z")
+
+        Если есть только forward/up — right вычисляется как up × forward.
+        Если что-то не найдено, вектора могут быть (0,0,0) — это повод
+        выкинуть ошибку наверху и не пытаться выравниваться вслепую.
+        """
+        state = self._get_state_dict()
+
+        forward: Vec3 = (0.0, 0.0, 0.0)
+        up: Vec3 = (0.0, 0.0, 0.0)
+        right: Vec3 = (0.0, 0.0, 0.0)
+
+        # 1) Пытаемся взять orientation.{forward,up,left}
+        ori = state.get("orientation")
+        if isinstance(ori, dict):
+            f_obj = ori.get("forward")
+            u_obj = ori.get("up")
+            l_obj = ori.get("left")
+
+            if f_obj is not None:
+                forward = self._vec_from_obj(f_obj)
+            if u_obj is not None:
+                up = self._vec_from_obj(u_obj)
+            if l_obj is not None:
+                left = self._vec_from_obj(l_obj)
+                # В SE Right = -Left
+                right = (-left[0], -left[1], -left[2])
+
+        # 2) Фолбэк на строковые поля "forward"/"up"
+        if forward == (0.0, 0.0, 0.0):
+            f_str = state.get("forward")
+            if f_str:
+                forward = self._vec_from_str(f_str)
+
+        if up == (0.0, 0.0, 0.0):
+            u_str = state.get("up")
+            if u_str:
+                up = self._vec_from_str(u_str)
+
+        # 3) Если right всё ещё нулевой, но есть forward/up — считаем up × forward
+        if right == (0.0, 0.0, 0.0) and forward != (0.0, 0.0, 0.0) and up != (0.0, 0.0, 0.0):
+            right = self._cross(up, forward)
+
+        return forward, up, right
+
+    # ------------------------------------------------------------------
+    # КОМАНДЫ АВТОПИЛОТА / РЕЖИМОВ
+    # ------------------------------------------------------------------
     def enable(self) -> int:
         return self.send_command({
             "cmd": "remote_control",
@@ -56,6 +175,9 @@ class RemoteControlDevice(BaseDevice):
             "targetName": self.name or "Remote Control",
         })
 
+    # ------------------------------------------------------------------
+    # ФОРМАТИРОВАНИЕ STATE ДЛЯ remote_goto (GPS + speed + dock)
+    # ------------------------------------------------------------------
     @staticmethod
     def _format_state(
         target: str,
@@ -79,7 +201,7 @@ class RemoteControlDevice(BaseDevice):
         if speed is not None:
             options.append(f"speed={speed:.2f}")
         if dock:
-            # флажок для докинга, будет распознан на стороне плагина
+            # флажок для докинга, разбирается на стороне плагина (TryParseRemoteGotoState)
             options.append("dock")
 
         if options:

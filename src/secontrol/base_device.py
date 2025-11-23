@@ -2806,6 +2806,7 @@ TYPE_ALIASES = {
     "shipgrinder": "ship_grinder",
     "ship_grinder": "ship_grinder",
     "shipdrill": "ship_drill",
+    "drill": "ship_drill",
     "ship_drill": "ship_drill",
     "largeturret": "large_turret",
     "large_turret": "large_turret",
@@ -2837,26 +2838,12 @@ TYPE_ALIASES = {
     "panel": "textpanel",
     "text_panel": "textpanel",
     "wheel": "wheel",
-    "MyObjectBuilder_Drill": "nanobot_drill_system",
 }
-
-
-def normalize_device_type(raw_type: Optional[str]) -> str:
-    if not raw_type:
-        return "generic"
-    t = str(raw_type)
-    # точное совпадение по объект билдеру
-    if t in TYPE_ALIASES:
-        return TYPE_ALIASES[t]
-    # запасной вариант: "MyObjectBuilder_Xxx" -> "xxx"
-    if t.startswith("MyObjectBuilder_"):
-        return t.split("_", 1)[1].lower()
-    return t.lower()
 
 
 def create_device(grid: Grid, metadata: DeviceMetadata) -> BaseDevice:
     # Проверим, есть ли в DEVICE_REGISTRY прямое сопоставление
-    device_cls_or_name = DEVICE_REGISTRY.get(metadata.device_type, None)
+    device_cls_or_name = DEVICE_REGISTRY.get(metadata.device_type)
     if device_cls_or_name is None:
         # Используем DEVICE_TYPE_MAP для разрешения по типу из метаданных
         device_cls = DEVICE_TYPE_MAP.get(metadata.device_type.lower(), GenericDevice)
@@ -2869,6 +2856,25 @@ def create_device(grid: Grid, metadata: DeviceMetadata) -> BaseDevice:
             device_cls = device_cls_or_name
 
     return device_cls(grid, metadata)
+
+
+def normalize_device_type(raw_type: Optional[str], subtype: Optional[str] = None) -> str:
+    if not raw_type:
+        return "generic"
+    t = str(raw_type)
+    # специальные случаи
+    if t == "MyObjectBuilder_Drill":
+        if subtype and "nanobot" in subtype.lower():
+            return "nanobot_drill_system"
+        else:
+            return "ship_drill"
+    # точное совпадение по объект билдеру
+    if t in TYPE_ALIASES:
+        return TYPE_ALIASES[t]
+    # запасной вариант: "MyObjectBuilder_Xxx" -> "xxx"
+    if t.startswith("MyObjectBuilder_"):
+        return t.split("_", 1)[1].lower()
+    return t.lower()
 
 
 class GenericDevice(BaseDevice):

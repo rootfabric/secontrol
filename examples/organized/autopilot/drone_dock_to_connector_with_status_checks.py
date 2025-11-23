@@ -16,7 +16,7 @@ MAX_FLIGHT_TIME = 240.0
 SPEED_DISTANCE_THRESHOLD = 15.0
 
 # Насколько "продавить" коннектор корабля ЗА коннектор базы вдоль линии стыковки.
-DOCK_FORWARD_FUDGE = 0.35
+DOCK_FORWARD_FUDGE = 0.5
 
 # Максимум итераций "подползания" коннектором к базе
 MAX_DOCK_STEPS = 10
