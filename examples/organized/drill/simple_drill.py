@@ -9,18 +9,13 @@ from secontrol.devices.ship_drill_device import ShipDrillDevice
 
 
 def main() -> None:
-
-    grid = prepare_grid("Owl")
+    grid = prepare_grid("DroneBase")
 
     # Найти первый коннектор на гриде
-    drills = list(grid.find_devices_by_type(ShipDrillDevice))
-    if not drills:
+    drill: ShipDrillDevice = grid.get_first_device(ShipDrillDevice)
+    if not drill:
         print("No drills found on the grid")
         return
-
-    drill: ShipDrillDevice = drills[0]
-
-    print(f"Found {len(drills)} lamps: {[l.name for l in drills]}")
 
     drill.set_enabled(True)
 

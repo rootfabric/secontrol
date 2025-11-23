@@ -882,6 +882,31 @@ class Grid:
                     devices.append(device)
         return devices
 
+    def get_first_device(
+        self,
+        device_type: str | Type[BaseDevice],
+        name: Optional[str] = None,
+    ) -> Optional["BaseDevice"]:
+        """
+        Возвращает первое устройство указанного типа.
+
+        Если указано name, возвращает первое устройство с указанным именем среди устройств этого типа.
+
+        Принимает как нормализованные типы (например, "battery", "projector"),
+        исходные имена из Space Engineers (например, "MyObjectBuilder_BatteryBlock"),
+        так и классы устройств (например, DisplayDevice).
+
+        Если устройств нет, возвращает None.
+        """
+        devices = self.find_devices_by_type(device_type)
+        if name is None:
+            return devices[0] if devices else None
+        else:
+            for dev in devices:
+                if dev.name == name:
+                    return dev
+            return None
+
     def aggregate_device_load(self) -> Dict[str, float | int]:
         """Агрегирует показатели нагрузки всех устройств на гриде."""
 
