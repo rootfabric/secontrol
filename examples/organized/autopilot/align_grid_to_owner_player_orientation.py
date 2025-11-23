@@ -83,11 +83,16 @@ def get_remote_basis(remote: RemoteControlDevice) -> Tuple[Tuple[float, float, f
 
 
 def extract_player_orientation(contact: dict) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]] | None:
-    """Пытается вытащить forward/up из контакта игрока."""
+    """Пытается вытащить forward/up из контакта игрока.
 
-    orientation = None
-    if isinstance(contact.get("orientation"), dict):
-        orientation = contact["orientation"]
+    В данных радара встречаются варианты:
+    - ``orientation.forward``/``orientation.up`` (dict с x/y/z),
+    - ``forward``/``up`` как списки координат,
+    - ``headForward`` вместо ``forward`` (когда игрок смотрит в сторону),
+    - ``gravityVector`` — используем как источник up, если других нет.
+    """
+
+    orientation = contact.get("orientation") if isinstance(contact.get("orientation"), dict) else None
 
     forward_raw = None
     up_raw = None
@@ -96,10 +101,14 @@ def extract_player_orientation(contact: dict) -> Tuple[Tuple[float, float, float
         forward_raw = orientation.get("forward")
         up_raw = orientation.get("up")
 
-    if forward_raw is None:
-        forward_raw = contact.get("forward")
-    if up_raw is None:
-        up_raw = contact.get("up")
+    forward_raw = forward_raw or contact.get("forward") or contact.get("headForward")
+    up_raw = up_raw or contact.get("up") or contact.get("headUp")
+
+    # Если up не пришёл, а есть вектор гравитации — используем его как противоположный "вверх".
+    if up_raw is None and isinstance(contact.get("gravityVector"), (list, tuple)):
+        g = contact["gravityVector"]
+        if len(g) == 3:
+            up_raw = (-float(g[0]), -float(g[1]), -float(g[2]))
 
     if isinstance(forward_raw, dict):
         forward_raw = vec_from_orientation(forward_raw)
