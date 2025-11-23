@@ -82,14 +82,31 @@ def get_remote_basis(remote: RemoteControlDevice) -> Tuple[Tuple[float, float, f
     return forward, up, right
 
 
+def _orthonormal_from_forward(forward: Tuple[float, float, float]) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+    """Строит ортонормированный forward/up только по направлению forward.
+
+    Используем фиксированный опорный вектор (мировой Y), а если forward почти
+    параллелен ему, берём мировой X. Это позволяет обойтись без гравитации в
+    контакте игрока.
+    """
+
+    f = normalize(forward)
+    ref = (0.0, 1.0, 0.0) if abs(dot(f, (0.0, 1.0, 0.0))) < 0.99 else (1.0, 0.0, 0.0)
+    right = normalize(cross(ref, f))
+    up = normalize(cross(f, right))
+    return f, up
+
+
 def extract_player_orientation(contact: dict) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]] | None:
     """Пытается вытащить forward/up из контакта игрока.
 
     В данных радара встречаются варианты:
     - ``orientation.forward``/``orientation.up`` (dict с x/y/z),
     - ``forward``/``up`` как списки координат,
-    - ``headForward`` вместо ``forward`` (когда игрок смотрит в сторону),
-    - ``gravityVector`` — используем как источник up, если других нет.
+    - ``headForward`` вместо ``forward`` (когда игрок смотрит в сторону).
+
+    Если up недоступен или нулевой, строим его из forward без опоры на
+    гравитацию.
     """
 
     orientation = contact.get("orientation") if isinstance(contact.get("orientation"), dict) else None
@@ -104,22 +121,29 @@ def extract_player_orientation(contact: dict) -> Tuple[Tuple[float, float, float
     forward_raw = forward_raw or contact.get("forward") or contact.get("headForward")
     up_raw = up_raw or contact.get("up") or contact.get("headUp")
 
-    # Если up не пришёл, а есть вектор гравитации — используем его как противоположный "вверх".
-    if up_raw is None and isinstance(contact.get("gravityVector"), (list, tuple)):
-        g = contact["gravityVector"]
-        if len(g) == 3:
-            up_raw = (-float(g[0]), -float(g[1]), -float(g[2]))
-
     if isinstance(forward_raw, dict):
         forward_raw = vec_from_orientation(forward_raw)
     if isinstance(up_raw, dict):
         up_raw = vec_from_orientation(up_raw)
 
-    if not forward_raw or not up_raw:
+    if not forward_raw:
         return None
 
-    forward = normalize(forward_raw)
-    up = normalize(up_raw)
+    try:
+        forward = normalize(forward_raw)
+    except ValueError:
+        return None
+
+    up: Tuple[float, float, float] | None = None
+    if up_raw:
+        try:
+            up = normalize(up_raw)
+        except ValueError:
+            up = None
+
+    if up is None:
+        forward, up = _orthonormal_from_forward(forward)
+
     return forward, up
 
 
