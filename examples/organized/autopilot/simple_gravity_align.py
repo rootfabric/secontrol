@@ -133,9 +133,9 @@ def align_grid_to_gravity(grid) -> None:
     print(f"Целевой up вектор: ({desired_up[0]:.3f}, {desired_up[1]:.3f}, {desired_up[2]:.3f})")
 
     # Настройки PID (здесь только P - пропорциональный)
-    GAIN = 4.0  # Коэффициент усиления ("резкость" поворота)
+    GAIN = 1.0  # Коэффициент усиления ("резкость" поворота)
     MAX_RATE = 1.0  # Максимальная скорость вращения (1.0 = 100% override)
-    TOLERANCE = 0.03  # Допустимая ошибка (в радианах, ~1 градус)
+    TOLERANCE = 0.1  # Допустимая ошибка (в радианах, ~6 градусов)
 
     try:
         while True:
@@ -150,12 +150,12 @@ def align_grid_to_gravity(grid) -> None:
             dot_val = max(-1.0, min(1.0, _dot(basis.up, desired_up)))
             angle_error = math.acos(dot_val)
 
-            if angle_error < TOLERANCE:
-                # Выровнено, устанавливаем команды в ноль
-                roll_cmd = 0.0
-                pitch_cmd = 0.0
-                yaw_cmd = 0.0
+            if angle_error < TOLERANCE or abs(dot_val) > 0.99:
+                # Выровнено
                 print(f"Выровнено. Ошибка: {angle_error:.4f} rad, команды отключены")
+                for gyro in gyros:
+                    gyro.clear_override()
+                break
             else:
                 # 2. Переводим целевой вектор в ЛОКАЛЬНЫЕ координаты корабля.
                 # Для выравнивания Up: проекции на Forward и Right
@@ -164,9 +164,8 @@ def align_grid_to_gravity(grid) -> None:
 
                 roll_cmd = 0.0
 
-                # Для Up: pitch и yaw на 90 градусов от forward
-                # Если desired в forward направлении, pitch +
-                pitch_cmd = local_y * GAIN
+                # Для Up: исправленный знак
+                pitch_cmd = -local_y * GAIN
 
                 # Если desired в right направлении, yaw -
                 yaw_cmd = -local_x * GAIN
@@ -187,6 +186,7 @@ def align_grid_to_gravity(grid) -> None:
                 gyro.set_override(pitch=pitch_cmd, yaw=yaw_cmd, roll=roll_cmd)
 
             time.sleep(0.1)
+
 
     finally:
         # Всегда отключаем оверрайд при выходе
