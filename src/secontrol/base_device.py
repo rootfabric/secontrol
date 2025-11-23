@@ -29,12 +29,13 @@ DEVICE_REGISTRY = {
     "MyObjectBuilder_Projector": "projector",  # будет разрешено через DEVICE_TYPE_MAP
     "MyObjectBuilder_BatteryBlock": "battery",  # будет разрешено через DEVICE_TYPE_MAP
     "MyObjectBuilder_SmallGatlingGun": "weapon",
-    "MyObjectBuilder_SmallMissileLauncher": "weapon",
+    "MyObjectBuilder_SmallMissileLauncher": "artillery",
     "MyObjectBuilder_SmallMissileLauncherReload": "weapon",
     "MyObjectBuilder_LargeGatlingGun": "weapon",
     "MyObjectBuilder_LargeMissileLauncher": "weapon",
     "MyObjectBuilder_InteriorTurret": "interior_turret",
     "weapon": "weapon",
+    "artillery": "artillery",
     "interior_turret": "interior_turret",
     # дополняй по мере надобности
 }

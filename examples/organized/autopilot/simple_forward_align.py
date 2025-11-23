@@ -1,7 +1,7 @@
 from __future__ import annotations
 import math
 import time
-from typing import Dict, Tuple, List, Optional
+from typing import Tuple, Optional
 
 from secontrol.base_device import BaseDevice
 from secontrol.common import prepare_grid, close
@@ -10,28 +10,36 @@ from secontrol.devices.remote_control_device import RemoteControlDevice
 from secontrol.devices.ore_detector_device import OreDetectorDevice
 
 
-# ---- Математика --------------------------------------------------------------
+# ---- Вспомогательная математика ---------------------------------------------
 
 def _vec(value) -> Tuple[float, float, float]:
     return float(value[0]), float(value[1]), float(value[2])
-
-
-def _cross(a: Tuple[float, ...], b: Tuple[float, ...]) -> Tuple[float, float, float]:
-    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
 
 
 def _dot(a: Tuple[float, ...], b: Tuple[float, ...]) -> float:
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
 
+def _cross(a: Tuple[float, ...], b: Tuple[float, ...]) -> Tuple[float, float, float]:
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
+
+
+def _length(v: Tuple[float, ...]) -> float:
+    return math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2)
+
+
 def _normalize(v: Tuple[float, ...]) -> Tuple[float, float, float]:
-    length = math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2)
+    length = _length(v)
     if length < 1e-6:
         return (0.0, 0.0, 1.0)
     return (v[0] / length, v[1] / length, v[2] / length)
 
 
-def _parse_vector(value: dict) -> Optional[Tuple[float, float, float]]:
+def _parse_vector(value) -> Optional[Tuple[float, float, float]]:
     if isinstance(value, dict) and all(k in value for k in ("x", "y", "z")):
         return _vec((value["x"], value["y"], value["z"]))
     if isinstance(value, (list, tuple)) and len(value) == 3:
@@ -40,96 +48,38 @@ def _parse_vector(value: dict) -> Optional[Tuple[float, float, float]]:
 
 
 class Basis:
+    """
+    Ортонормированный базис корабля в мировых координатах.
+    forward, up, right и left соответствуют ориентации Remote Control.
+    """
+
     def __init__(self, forward: Tuple[float, float, float], up: Tuple[float, float, float]):
-        self.forward = _normalize(forward)
-        self.up = _normalize(up)
-        self.right = _normalize(_cross(self.forward, self.up))
+        f = _normalize(forward)
+        u = _normalize(up)
+
+        # right = forward × up
+        r = _cross(f, u)
+        if _length(r) < 1e-6:
+            # Защита от вырожденного случая
+            if abs(f[1]) < 0.9:
+                u = (0.0, 1.0, 0.0)
+            else:
+                u = (1.0, 0.0, 0.0)
+            u = _normalize(u)
+            r = _cross(f, u)
+
+        r = _normalize(r)
+        l = (-r[0], -r[1], -r[2])
+        # Пересчитаем up для строгой ортонормальности
+        u = _normalize(_cross(r, f))
+
+        self.forward = f
+        self.up = u
+        self.right = r
+        self.left = l
 
 
-# ---- Quaternion functions ---------------------------------------------------
-
-def quaternion_multiply(q1: Tuple[float, float, float, float], q2: Tuple[float, float, float, float]) -> Tuple[float, float, float, float]:
-    w1, x1, y1, z1 = q1
-    w2, x2, y2, z2 = q2
-    w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
-    x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
-    y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
-    z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
-    return (w, x, y, z)
-
-
-def quaternion_normalize(q: Tuple[float, float, float, float]) -> Tuple[float, float, float, float]:
-    w, x, y, z = q
-    length = math.sqrt(w**2 + x**2 + y**2 + z**2)
-    return (w / length, x / length, y / length, z / length)
-
-
-def matrix_to_quaternion(matrix: List[List[float]]) -> Tuple[float, float, float, float]:
-    # Из rotation matrix в quaternion
-    trace = matrix[0][0] + matrix[1][1] + matrix[2][2]
-    if trace > 0:
-        S = math.sqrt(trace + 1.0) * 2
-        w = 0.25 * S
-        x = (matrix[2][1] - matrix[1][2]) / S
-        y = (matrix[0][2] - matrix[2][0]) / S
-        z = (matrix[1][0] - matrix[0][1]) / S
-    elif matrix[0][0] > matrix[1][1] and matrix[0][0] > matrix[2][2]:
-        S = math.sqrt(1.0 + matrix[0][0] - matrix[1][1] - matrix[2][2]) * 2
-        w = (matrix[2][1] - matrix[1][2]) / S
-        x = 0.25 * S
-        y = (matrix[0][1] + matrix[1][0]) / S
-        z = (matrix[0][2] + matrix[2][0]) / S
-    elif matrix[1][1] > matrix[2][2]:
-        S = math.sqrt(1.0 + matrix[1][1] - matrix[0][0] - matrix[2][2]) * 2
-        w = (matrix[0][2] - matrix[2][0]) / S
-        x = (matrix[0][1] + matrix[1][0]) / S
-        y = 0.25 * S
-        z = (matrix[1][2] + matrix[2][1]) / S
-    else:
-        S = math.sqrt(1.0 + matrix[2][2] - matrix[0][0] - matrix[1][1]) * 2
-        w = (matrix[1][0] - matrix[0][1]) / S
-        x = (matrix[0][2] + matrix[2][0]) / S
-        y = (matrix[1][2] + matrix[2][1]) / S
-        z = 0.25 * S
-    return quaternion_normalize((w, x, y, z))
-
-
-def quaternion_to_euler(q: Tuple[float, float, float, float]) -> Tuple[float, float, float]:
-    # To pitch, yaw, roll
-    w, x, y, z = q
-    siny_cosp = 2 * (w * z + x * y)
-    cosy_cosp = 1 - 2 * (y * y + z * z)
-    yaw = math.atan2(siny_cosp, cosy_cosp)
-
-    sinp = 2 * (w * y - z * x)
-    if abs(sinp) >= 1:
-        pitch = math.copysign(math.pi / 2, sinp)
-    else:
-        pitch = math.asin(sinp)
-
-    sinr_cosp = 2 * (w * x + y * z)
-    cosr_cosp = 1 - 2 * (x * x + y * y)
-    roll = math.atan2(sinr_cosp, cosr_cosp)
-
-    return pitch, yaw, roll
-
-
-def quaternion_inverse(q: Tuple[float, float, float, float]) -> Tuple[float, float, float, float]:
-    w, x, y, z = q
-    return (w, -x, -y, -z)
-
-
-def basis_to_quaternion(basis: Basis) -> Tuple[float, float, float, float]:
-    # Basis.forward, up, right to rotation matrix then to quaternion
-    matrix = [
-        [basis.right[0], basis.up[0], basis.forward[0]],
-        [basis.right[1], basis.up[1], basis.forward[1]],
-        [basis.right[2], basis.up[2], basis.forward[2]]
-    ]
-    return matrix_to_quaternion(matrix)
-
-
-# ---- Получение ориентации ---------------------------------------------------
+# ---- Ориентация устройств ---------------------------------------------------
 
 def get_orientation(device: BaseDevice) -> Basis:
     tel = device.telemetry or {}
@@ -141,32 +91,11 @@ def get_orientation(device: BaseDevice) -> Basis:
     up = _parse_vector(ori.get("up"))
     if fwd and up:
         return Basis(fwd, up)
-    raise RuntimeError(f"Неправильный format ориентации для {device.name}")
+
+    raise RuntimeError(f"Неправильный формат ориентации для {device.name}")
 
 
-# ---- Вычисление углов для поворота ------------------------------------------
-
-def compute_rotation_angles(current_basis: Basis, desired_basis: Basis, threshold_rad: float = 0.002) -> Tuple[float, float, float]:
-    # Compute relative quaternion
-    q_current = basis_to_quaternion(current_basis)
-    q_desired = basis_to_quaternion(desired_basis)
-    q_rel = quaternion_multiply(q_desired, quaternion_inverse(q_current))
-    # Normalize
-    q_rel = quaternion_normalize(q_rel)
-
-    # To euler angles
-    pitch, yaw, roll = quaternion_to_euler(q_rel)
-
-    # If angle small, set to 0
-    if abs(pitch) < threshold_rad:
-        pitch = 0.0
-    if abs(yaw) < threshold_rad:
-        yaw = 0.0
-    if abs(roll) < threshold_rad:
-        roll = 0.0
-
-    return pitch, yaw, roll
-
+# ---- Ориентация игрока ------------------------------------------------------
 
 def get_player_forward(radar: OreDetectorDevice) -> Optional[Tuple[float, float, float]]:
     print("Сканируем игроков...")
@@ -186,54 +115,173 @@ def get_player_forward(radar: OreDetectorDevice) -> Optional[Tuple[float, float,
             continue
 
         forward = _vec(forward_list)
-        print(f"Найден игрок, forward: {forward}")
+        forward = _normalize(forward)
+        print(
+            f"Найден игрок, forward: "
+            f"({forward[0]:.3f}, {forward[1]:.3f}, {forward[2]:.3f})"
+        )
         return forward
 
     print("Игрок не найден.")
     return None
 
 
-def simple_align_forward(grid, player_forward: Tuple[float, float, float]):
+# ---- Управление гироскопами -------------------------------------------------
+
+def compute_gyro_commands(
+    basis: Basis,
+    desired_forward: Tuple[float, float, float],
+    max_rate: float = 0.8,
+) -> Tuple[float, float, float, float]:
     """
-    Однократный поворот грида к форварду игрока, сохраняя текущий up.
+    Возвращает (pitch_cmd, yaw_cmd, roll_cmd, angle_between) в системе pitch/yaw/roll.
+    Используем вектор вращения axis = cross(current_forward, desired_forward).
     """
-    rc = grid.find_devices_by_type(RemoteControlDevice)
-    if not rc:
+
+    f = basis.forward
+    d = _normalize(desired_forward)
+
+    dot_fd = max(-1.0, min(1.0, _dot(f, d)))
+    angle = math.acos(dot_fd)
+
+    # Почти выровнялись
+    if angle < math.radians(0.5):
+        return 0.0, 0.0, 0.0, angle
+
+    # Почти строго назад — ось вращения не определена (sin(pi) ≈ 0)
+    if dot_fd < -0.999:
+        # крутимся вокруг up, чтобы уйти из этой зоны
+        axis = basis.up
+    else:
+        axis = _cross(f, d)
+        axis_len = _length(axis)
+        if axis_len < 1e-6:
+            return 0.0, 0.0, 0.0, angle
+        axis = (axis[0] / axis_len, axis[1] / axis_len, axis[2] / axis_len)
+
+    # Перевод в локальный базис корабля:
+    # axis = wx * right + wy * up + wz * forward
+    wx = _dot(axis, basis.right)
+    wy = _dot(axis, basis.up)
+    wz = _dot(axis, basis.forward)
+
+    # Замедляемся при малых углах, чтобы не раскачиваться
+    slow_angle = math.radians(30.0)
+    k = min(1.0, angle / slow_angle)
+
+    # Базовые команды (без учёта возможного инверта знака гироскопов)
+    pitch_cmd = k * wx
+    yaw_cmd = k * wy
+    roll_cmd = k * wz
+
+    # Ограничим по максимальной скорости
+    def clamp(v: float) -> float:
+        if v > max_rate:
+            return max_rate
+        if v < -max_rate:
+            return -max_rate
+        return v
+
+    return clamp(pitch_cmd), clamp(yaw_cmd), clamp(roll_cmd), angle
+
+
+# ---- Основное выравнивание --------------------------------------------------
+
+def simple_align_forward(grid, player_forward: Tuple[float, float, float]) -> None:
+    """
+    Поворачивает грид так, чтобы forward корабля совпал с forward игрока.
+    Используем векторное управление и авто-подбор знака гироскопов.
+    """
+    rc_list = grid.find_devices_by_type(RemoteControlDevice)
+    if not rc_list:
         print("Не найден RemoteControlDevice")
         return
-    rc_dev = rc[0]
-    rc_dev.update()
-
-    try:
-        current_basis = get_orientation(rc_dev)
-    except RuntimeError as e:
-        print(f"Ошибка ориентации грида: {e}")
-        return
-
-    desired_up = current_basis.up  # сохранение up
-    desired_basis = Basis(player_forward, desired_up)
+    rc_dev = rc_list[0]
 
     gyros = grid.find_devices_by_type(GyroDevice)
     if not gyros:
         print("Не найдены гироскопы")
         return
 
-    print(f"Желаемый forward: ({player_forward[0]:.3f}, {player_forward[1]:.3f}, {player_forward[2]:.3f})")
-    print(".3f")
-    print(".3f")
+    desired_forward = _normalize(player_forward)
 
-    # Расчитать углы
-    pitch, yaw, roll = compute_rotation_angles(current_basis, desired_basis)
+    rc_dev.update()
+    try:
+        basis = get_orientation(rc_dev)
+    except RuntimeError as e:
+        print(f"Ошибка ориентации грида: {e}")
+        return
 
-    print(".3f")
+    print(
+        "Желаемый forward: "
+        f"({desired_forward[0]:.3f}, {desired_forward[1]:.3f}, {desired_forward[2]:.3f})"
+    )
 
-    # Установить override на все gyro
-    for gyro in gyros:
-        gyro.set_override(pitch=pitch, yaw=yaw, roll=roll)
+    max_time = 40.0               # секунд
+    sleep_interval = 0.1          # шаг цикла
+    angle_threshold = math.radians(2.0)
 
-    time.sleep(1.0)  # дать повернуться
+    start_time = time.time()
+    prev_dot = None
+    worsen_steps = 0
 
-    # Остановить
+    # sign_correction позволяет автоматически подобрать правильный знак управления
+    sign_correction = -1.0
+
+    while True:
+        rc_dev.update()
+        try:
+            basis = get_orientation(rc_dev)
+        except RuntimeError as e:
+            print(f"Ошибка ориентации грида в цикле: {e}")
+            break
+
+        pitch_cmd, yaw_cmd, roll_cmd, angle = compute_gyro_commands(
+            basis, desired_forward, max_rate=0.6
+        )
+
+        dot_fd = _dot(basis.forward, desired_forward)
+
+        print(
+            "Текущий forward: "
+            f"({basis.forward[0]:.3f}, {basis.forward[1]:.3f}, {basis.forward[2]:.3f}), "
+            f"dot={dot_fd:.4f}, angle={angle:.3f} rad, "
+            f"raw_cmd(p,y,r)=({pitch_cmd:.3f}, {yaw_cmd:.3f}, {roll_cmd:.3f}), "
+            f"sign={sign_correction:+.1f}"
+        )
+
+        # Условие выхода
+        if angle < angle_threshold:
+            print("Целевой поворот достигнут.")
+            break
+
+        # Отслеживаем, улучшается ли dot (становится ближе к 1)
+        if prev_dot is not None:
+            if dot_fd < prev_dot - 1e-4:
+                worsen_steps += 1
+            else:
+                worsen_steps = 0
+        prev_dot = dot_fd
+
+        # Если несколько шагов подряд только хуже — пробуем перевернуть знак гироскопов
+        if worsen_steps >= 15:
+            sign_correction *= -1.0
+            worsen_steps = 0
+            print(f"[align] Инвертируем знак управления гироскопами, новый sign={sign_correction:+.1f}")
+
+        pitch_cmd *= sign_correction
+        yaw_cmd *= sign_correction
+        roll_cmd *= sign_correction
+
+        for gyro in gyros:
+            gyro.set_override(pitch=pitch_cmd, yaw=yaw_cmd, roll=0.0)
+
+        if time.time() - start_time > max_time:
+            print("Таймаут выравнивания по forward, выходим.")
+            break
+
+        time.sleep(sleep_interval)
+
     for gyro in gyros:
         gyro.disable()
 
@@ -243,8 +291,6 @@ def simple_align_forward(grid, player_forward: Tuple[float, float, float]):
 # ---- Main -------------------------------------------------------------------
 
 if __name__ == "__main__":
-
-
     grid = prepare_grid("taburet")
     try:
         radars = grid.find_devices_by_type(OreDetectorDevice)

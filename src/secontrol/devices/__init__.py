@@ -29,6 +29,7 @@ __all__ = [
 
 _BUILTIN_MODULES = [
     "ai_device",
+    "artillery_device",
     "assembler_device",
     "battery_device",
     "build_and_repair_device",
