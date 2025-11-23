@@ -12,6 +12,7 @@ from secontrol.devices.ore_detector_device import OreDetectorDevice
 
 # ---- Вспомогательная математика ---------------------------------------------
 
+
 def _vec(value) -> Tuple[float, float, float]:
     return float(value[0]), float(value[1]), float(value[2])
 
@@ -50,17 +51,15 @@ def _parse_vector(value) -> Optional[Tuple[float, float, float]]:
 class Basis:
     """
     Ортонормированный базис корабля в мировых координатах.
-    forward, up, right и left соответствуют ориентации Remote Control.
     """
 
     def __init__(self, forward: Tuple[float, float, float], up: Tuple[float, float, float]):
         f = _normalize(forward)
         u = _normalize(up)
-
-        # right = forward × up
         r = _cross(f, u)
+
+        # Обработка вырожденных случаев
         if _length(r) < 1e-6:
-            # Защита от вырожденного случая
             if abs(f[1]) < 0.9:
                 u = (0.0, 1.0, 0.0)
             else:
@@ -68,18 +67,14 @@ class Basis:
             u = _normalize(u)
             r = _cross(f, u)
 
-        r = _normalize(r)
-        l = (-r[0], -r[1], -r[2])
-        # Пересчитаем up для строгой ортонормальности
-        u = _normalize(_cross(r, f))
-
+        self.right = _normalize(r)
+        # Пересчитываем Up, чтобы он был строго перпендикулярен Forward и Right
+        self.up = _normalize(_cross(self.right, f))
         self.forward = f
-        self.up = u
-        self.right = r
-        self.left = l
 
 
-# ---- Ориентация устройств ---------------------------------------------------
+# ---- Ориентация -------------------------------------------------------------
+
 
 def get_orientation(device: BaseDevice) -> Basis:
     tel = device.telemetry or {}
@@ -95,103 +90,33 @@ def get_orientation(device: BaseDevice) -> Basis:
     raise RuntimeError(f"Неправильный формат ориентации для {device.name}")
 
 
-# ---- Ориентация игрока ------------------------------------------------------
-
 def get_player_forward(radar: OreDetectorDevice) -> Optional[Tuple[float, float, float]]:
     print("Сканируем игроков...")
-    radar.scan(
-        include_players=True,
-        include_grids=False,
-        include_voxels=False,
-    )
+    radar.scan(include_players=True, include_grids=False, include_voxels=False)
 
     contacts = radar.telemetry.get("radar", {}).get("contacts") or []
     for p in contacts:
         if p.get("type") != "player":
             continue
 
+        # Пытаемся получить направление взгляда, или просто направление тела
         forward_list = p.get("headForward") or p.get("forward")
         if not forward_list:
             continue
 
-        forward = _vec(forward_list)
-        forward = _normalize(forward)
+        forward = _normalize(_vec(forward_list))
         print(
-            f"Найден игрок, forward: "
-            f"({forward[0]:.3f}, {forward[1]:.3f}, {forward[2]:.3f})"
-        )
+            f"Найден игрок {p.get('name', 'Unknown')}, forward: ({forward[0]:.3f}, {forward[1]:.3f}, {forward[2]:.3f})")
         return forward
 
     print("Игрок не найден.")
     return None
 
 
-# ---- Управление гироскопами -------------------------------------------------
-
-def compute_gyro_commands(
-    basis: Basis,
-    desired_forward: Tuple[float, float, float],
-    max_rate: float = 0.8,
-) -> Tuple[float, float, float, float]:
-    """
-    Возвращает (pitch_cmd, yaw_cmd, roll_cmd, angle_between) в системе pitch/yaw/roll.
-    Используем вектор вращения axis = cross(current_forward, desired_forward).
-    """
-
-    f = basis.forward
-    d = _normalize(desired_forward)
-
-    dot_fd = max(-1.0, min(1.0, _dot(f, d)))
-    angle = math.acos(dot_fd)
-
-    # Почти выровнялись
-    if angle < math.radians(0.5):
-        return 0.0, 0.0, 0.0, angle
-
-    # Почти строго назад — ось вращения не определена (sin(pi) ≈ 0)
-    if dot_fd < -0.999:
-        # крутимся вокруг up, чтобы уйти из этой зоны
-        axis = basis.up
-    else:
-        axis = _cross(f, d)
-        axis_len = _length(axis)
-        if axis_len < 1e-6:
-            return 0.0, 0.0, 0.0, angle
-        axis = (axis[0] / axis_len, axis[1] / axis_len, axis[2] / axis_len)
-
-    # Перевод в локальный базис корабля:
-    # axis = wx * right + wy * up + wz * forward
-    wx = _dot(axis, basis.right)
-    wy = _dot(axis, basis.up)
-    wz = _dot(axis, basis.forward)
-
-    # Замедляемся при малых углах, чтобы не раскачиваться
-    slow_angle = math.radians(30.0)
-    k = min(1.0, angle / slow_angle)
-
-    # Базовые команды (без учёта возможного инверта знака гироскопов)
-    pitch_cmd = k * wx
-    yaw_cmd = k * wy
-    roll_cmd = k * wz
-
-    # Ограничим по максимальной скорости
-    def clamp(v: float) -> float:
-        if v > max_rate:
-            return max_rate
-        if v < -max_rate:
-            return -max_rate
-        return v
-
-    return clamp(pitch_cmd), clamp(yaw_cmd), clamp(roll_cmd), angle
+# ---- Логика управления гироскопами (Прямая проекция) ------------------------
 
 
-# ---- Основное выравнивание --------------------------------------------------
-
-def simple_align_forward(grid, player_forward: Tuple[float, float, float]) -> None:
-    """
-    Поворачивает грид так, чтобы forward корабля совпал с forward игрока.
-    Используем векторное управление и авто-подбор знака гироскопов.
-    """
+def align_grid_to_vector(grid, desired_forward: Tuple[float, float, float]) -> None:
     rc_list = grid.find_devices_by_type(RemoteControlDevice)
     if not rc_list:
         print("Не найден RemoteControlDevice")
@@ -203,103 +128,105 @@ def simple_align_forward(grid, player_forward: Tuple[float, float, float]) -> No
         print("Не найдены гироскопы")
         return
 
-    desired_forward = _normalize(player_forward)
+    desired_forward = _normalize(desired_forward)
+    print(f"Целевой вектор: ({desired_forward[0]:.3f}, {desired_forward[1]:.3f}, {desired_forward[2]:.3f})")
 
-    rc_dev.update()
-    try:
-        basis = get_orientation(rc_dev)
-    except RuntimeError as e:
-        print(f"Ошибка ориентации грида: {e}")
-        return
-
-    print(
-        "Желаемый forward: "
-        f"({desired_forward[0]:.3f}, {desired_forward[1]:.3f}, {desired_forward[2]:.3f})"
-    )
-
-    max_time = 40.0               # секунд
-    sleep_interval = 0.1          # шаг цикла
-    angle_threshold = math.radians(2.0)
+    # Настройки PID (здесь только P - пропорциональный)
+    GAIN = 5.0  # Коэффициент усиления ("резкость" поворота)
+    MAX_RATE = 1.0  # Максимальная скорость вращения (1.0 = 100% override)
+    TOLERANCE = 0.02  # Допустимая ошибка (в радианах, ~1 градус)
+    TIMEOUT = 20.0  # Секунд до отключения
 
     start_time = time.time()
-    prev_dot = None
-    worsen_steps = 0
 
-    # sign_correction позволяет автоматически подобрать правильный знак управления
-    sign_correction = -1.0
+    try:
+        while True:
+            if time.time() - start_time > TIMEOUT:
+                print("Таймаут выравнивания.")
+                break
 
-    while True:
-        rc_dev.update()
-        try:
-            basis = get_orientation(rc_dev)
-        except RuntimeError as e:
-            print(f"Ошибка ориентации грида в цикле: {e}")
-            break
+            rc_dev.update()
+            try:
+                basis = get_orientation(rc_dev)
+            except RuntimeError:
+                continue
 
-        pitch_cmd, yaw_cmd, roll_cmd, angle = compute_gyro_commands(
-            basis, desired_forward, max_rate=0.6
-        )
+            # 1. Текущее отклонение (угол)
+            dot_val = max(-1.0, min(1.0, _dot(basis.forward, desired_forward)))
+            angle_error = math.acos(dot_val)
 
-        dot_fd = _dot(basis.forward, desired_forward)
+            if angle_error < TOLERANCE:
+                print(f"Выравнивание завершено. Ошибка: {angle_error:.4f} rad")
+                break
 
-        print(
-            "Текущий forward: "
-            f"({basis.forward[0]:.3f}, {basis.forward[1]:.3f}, {basis.forward[2]:.3f}), "
-            f"dot={dot_fd:.4f}, angle={angle:.3f} rad, "
-            f"raw_cmd(p,y,r)=({pitch_cmd:.3f}, {yaw_cmd:.3f}, {roll_cmd:.3f}), "
-            f"sign={sign_correction:+.1f}"
-        )
+            # 2. Переводим целевой вектор в ЛОКАЛЬНЫЕ координаты корабля.
+            # Это ключевой момент:
+            # local_x > 0 значит цель справа -> нужно Yaw вправо
+            # local_y > 0 значит цель сверху -> нужно Pitch вверх
+            local_x = _dot(desired_forward, basis.right)
+            local_y = _dot(desired_forward, basis.up)
+            # local_z нам не так важен для руления, он показывает, спереди цель или сзади
 
-        # Условие выхода
-        if angle < angle_threshold:
-            print("Целевой поворот достигнут.")
-            break
+            # 3. Рассчитываем команды для гироскопов
+            # В Space Engineers:
+            # Pitch: (+) нос вниз, (-) нос вверх.
+            # Yaw:   (+) нос влево, (-) нос вправо.
 
-        # Отслеживаем, улучшается ли dot (становится ближе к 1)
-        if prev_dot is not None:
-            if dot_fd < prev_dot - 1e-4:
-                worsen_steps += 1
-            else:
-                worsen_steps = 0
-        prev_dot = dot_fd
+            # Если цель сверху (local_y > 0), нам нужен Pitch ВВЕРХ (отрицательный override).
+            pitch_cmd = -local_y * GAIN
 
-        # Если несколько шагов подряд только хуже — пробуем перевернуть знак гироскопов
-        if worsen_steps >= 15:
-            sign_correction *= -1.0
-            worsen_steps = 0
-            print(f"[align] Инвертируем знак управления гироскопами, новый sign={sign_correction:+.1f}")
+            # Если цель справа (local_x > 0), нам нужен Yaw ВПРАВО (отрицательный override).
+            yaw_cmd = -local_x * GAIN
 
-        pitch_cmd *= sign_correction
-        yaw_cmd *= sign_correction
-        roll_cmd *= sign_correction
+            # Roll держим на нуле, чтобы не крутиться колбасой
+            roll_cmd = 0.0
 
+            # 4. Ограничиваем (Clamp) значения от -MAX_RATE до +MAX_RATE
+            pitch_cmd = max(-MAX_RATE, min(MAX_RATE, pitch_cmd))
+            yaw_cmd = max(-MAX_RATE, min(MAX_RATE, yaw_cmd))
+
+            # Логирование для отладки
+            print(
+                f"Angle: {angle_error:.3f} rad | "
+                f"Local tgt: [R={local_x:.2f}, U={local_y:.2f}] | "
+                f"CMD: P={pitch_cmd:.2f}, Y={yaw_cmd:.2f}"
+            )
+
+            # 5. Применяем
+            for gyro in gyros:
+                gyro.set_override(pitch=pitch_cmd, yaw=yaw_cmd, roll=roll_cmd)
+
+            time.sleep(0.1)
+
+    finally:
+        # Всегда отключаем оверрайд при выходе
+        print("Остановка гироскопов...")
         for gyro in gyros:
-            gyro.set_override(pitch=pitch_cmd, yaw=yaw_cmd, roll=0.0)
-
-        if time.time() - start_time > max_time:
-            print("Таймаут выравнивания по forward, выходим.")
-            break
-
-        time.sleep(sleep_interval)
-
-    for gyro in gyros:
-        gyro.disable()
-
-    print("Поворот завершён.")
+            gyro.set_override(pitch=0, yaw=0, roll=0)
+            gyro.disable()
 
 
 # ---- Main -------------------------------------------------------------------
 
+
 if __name__ == "__main__":
-    grid = prepare_grid("taburet")
+    # Замените 'taburet' на имя вашего грида
+    grid_name = "taburet"
+
+    grid = prepare_grid(grid_name)
     try:
         radars = grid.find_devices_by_type(OreDetectorDevice)
         if not radars:
-            print("Не найден OreDetectorDevice")
+            print("Не найден OreDetectorDevice (для сканирования игрока)")
         else:
             radar = radars[0]
-            player_forward = get_player_forward(radar)
-            if player_forward:
-                simple_align_forward(grid, player_forward)
+            player_fwd = get_player_forward(radar)
+
+            if player_fwd:
+                align_grid_to_vector(grid, player_fwd)
+            else:
+                print("Не удалось получить вектор игрока.")
+    except Exception as e:
+        print(f"Произошла ошибка: {e}")
     finally:
         close(grid)
