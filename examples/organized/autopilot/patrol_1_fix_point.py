@@ -1,7 +1,7 @@
 from __future__ import annotations
 import math
+import random
 import time
-from typing import Callable, Dict, Optional, Sequence, Tuple
 
 from secontrol.base_device import BaseDevice, BlockInfo
 from secontrol.common import close, prepare_grid
@@ -16,13 +16,13 @@ ARRIVAL_DISTANCE = 0.20            # точность прилёта RC к це�
 RC_STOP_TOLERANCE = 0.7            # если RC отключил АП < этого расстояния — считаем норм
 CHECK_INTERVAL = 0.2
 MAX_FLIGHT_TIME = 240.0
-SPEED_DISTANCE_THRESHOLD = 15.0
+SPEED_DISTANCE_THRESHOLD = 30.0
 
 # Насколько "продавить" коннектор корабля ЗА коннектор базы вдоль линии стыковки.
 DOCK_FORWARD_FUDGE = 0.5
 
 # Максимум итераций "подползания" коннектором к базе
-MAX_DOCK_STEPS = 10
+MAX_DOCK_STEPS = 1000
 
 # Считаем докинг успешным, если коннектор ближе к базе, чем это расстояние (метры)
 DOCK_SUCCESS_TOLERANCE = 0.6
@@ -709,7 +709,6 @@ if __name__ == "__main__":
 
     ship_name = "taburet"
     base_name = "DroneBase"
-    point_str = "GPS:root #1:1009572.67:170209.44:1673060.71:#FF75C9F1:"
 
     # Инициализация грида корабля
     ship_grid = prepare_grid(ship_name)
@@ -728,10 +727,13 @@ if __name__ == "__main__":
         if not start_pos:
             raise RuntimeError("Cannot get start position of RC.")
 
-        # Парсинг точки патрулирования
-        target = _parse_vector(point_str)
-        if not target:
-            raise RuntimeError(f"Invalid point string: {point_str}")
+        # Генерация случайной точки патрулирования
+        angle = random.uniform(0, 2 * math.pi)
+        distance = random.uniform(0, 1000)
+        height_offset = random.uniform(0, 100)
+        x_offset = distance * math.cos(angle)
+        z_offset = distance * math.sin(angle)
+        target = (start_pos[0] + x_offset, start_pos[1] + height_offset, start_pos[2] + z_offset)
 
         print("Starting patrol...")
         print(f"Start position: {start_pos}")
@@ -739,11 +741,12 @@ if __name__ == "__main__":
 
         # Перелет на точку
         print("Flying to patrol point...")
-        fly_to_point(rc, target, waypoint_name="Patrol Point", speed_far = 100)
+        fly_to_point(rc, target, waypoint_name="Patrol Point", speed_far = 300)
 
         # Как достигнута точка, лететь назад
-        print("Returning to start position...")
-        fly_to_point(rc, start_pos, waypoint_name="Return", speed_far = 100)
+        return_pos = (start_pos[0], start_pos[1] + 50, start_pos[2])
+        print(f"Returning to position above start: {return_pos}")
+        fly_to_point(rc, return_pos, waypoint_name="Return", speed_far = 300)
 
         # Парковка (докинг)
 
@@ -760,6 +763,7 @@ if __name__ == "__main__":
 
             ship_conn= ship_grid.find_devices_by_type(ConnectorDevice)[0]
 
+            print(f"Check is_already_docked { is_already_docked(ship_conn)}")
             if is_already_docked(ship_conn):
                 break
 
