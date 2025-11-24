@@ -204,6 +204,7 @@ if __name__ == "__main__":
     # Замените 'taburet' на имя вашего грида
     grid_name = "taburet"
 
+
     grid = prepare_grid(grid_name)
     try:
         align_grid_to_gravity(grid)

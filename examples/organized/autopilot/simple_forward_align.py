@@ -93,6 +93,7 @@ def get_orientation(device: BaseDevice) -> Basis:
 def get_player_forward(radar: OreDetectorDevice) -> Optional[Tuple[float, float, float]]:
     print("Сканируем игроков...")
     radar.scan(include_players=True, include_grids=False, include_voxels=False)
+    radar.wait_for_telemetry()
 
     contacts = radar.telemetry.get("radar", {}).get("contacts") or []
     for p in contacts:
@@ -231,6 +232,7 @@ if __name__ == "__main__":
         else:
             radar = radars[0]
             player_fwd = get_player_forward(radar)
+
 
             if player_fwd:
                 align_grid_to_vector(grid, player_fwd, radar)

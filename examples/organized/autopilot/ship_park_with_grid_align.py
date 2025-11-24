@@ -6,11 +6,12 @@ from typing import Callable, Dict, Optional, Sequence, Tuple
 from secontrol.base_device import BaseDevice, BlockInfo
 from secontrol.common import close, prepare_grid
 from secontrol.devices.connector_device import ConnectorDevice
+from secontrol.devices.gyro_device import GyroDevice
 from secontrol.devices.remote_control_device import RemoteControlDevice
 
 # ---- Settings ------------------------------------------------------------
 ARRIVAL_DISTANCE = 0.20            # точность прилёта RC к цели
-RC_STOP_TOLERANCE = 0.7            # если RC отключил АП < этого расстояния — считаем норм
+RC_STOP_TOLERANCE = 0.3            # если RC отключил АП < этого расстояния — считаем норм
 CHECK_INTERVAL = 0.2
 MAX_FLIGHT_TIME = 240.0
 SPEED_DISTANCE_THRESHOLD = 15.0
@@ -79,6 +80,10 @@ def _scale(v, s): return v[0] * s, v[1] * s, v[2] * s
 
 
 def _dist(a, b): return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
+
+
+def _dot(a: Tuple[float, ...], b: Tuple[float, ...]) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
 
 class Basis:
@@ -215,6 +220,252 @@ def is_parking_possible(connector: ConnectorDevice) -> bool:
     """Check if parking (docking) is possible on this connector."""
     status = get_connector_status(connector)
     return status in [STATUS_UNCONNECTED, STATUS_READY_TO_LOCK]
+
+
+# ---- Grid parking function -----------------------------------------------
+
+
+def park_ship_grid_procedure(
+    ship_grid,
+    ship_conn: ConnectorDevice,
+    timeout: float = 10.0,
+) -> bool:
+    """
+    Паркует корабль: ждёт состояния коннектора, соединяет при готовности
+    и паркует грид при соединении.
+    """
+    start_time = time.time()
+    last_status = ""
+
+    print("   [PARK] Monitoring connector status for parking...")
+
+    while time.time() - start_time < timeout:
+        ship_conn.update()
+        status = get_connector_status(ship_conn)
+
+        if status != last_status:
+            print(f"   [PARK] Ship connector status: {status}")
+            last_status = status
+
+        if status == STATUS_CONNECTED:
+            # Паркуем грид
+            try:
+                ship_grid.park()
+                print("   [PARK] Grid parked successfully!")
+                return True
+            except Exception as e:
+                print(f"   [PARK] Failed to park grid: {e}")
+                return False
+
+        if status == STATUS_READY_TO_LOCK:
+            print("   [PARK] Ready to lock detected, connecting...")
+            ship_conn.connect()
+            time.sleep(0.5)
+            ship_conn.update()
+            final_status = get_connector_status(ship_conn)
+            if final_status == STATUS_CONNECTED:
+                # Паркуем после соединения
+                try:
+                    ship_grid.park()
+                    print("   [PARK] Grid parked successfully!")
+                    return True
+                except Exception as e:
+                    print(f"   [PARK] Failed to park grid: {e}")
+                    return False
+            else:
+                print(f"   [PARK] Connect failed, final status: {final_status}")
+
+        time.sleep(0.1)
+
+    print("   [PARK] Timeout monitoring for parking.")
+    return False
+
+
+# ---- Grid alignment function ---------------------------------------------
+
+
+def get_gravity_vector(device: BaseDevice) -> Optional[Tuple[float, float, float]]:
+    """Получить вектор гравитации (up = -gravity_normalized)."""
+    tel = device.telemetry or {}
+    g = tel.get("gravitationalVector")
+    if g:
+        vec = _parse_vector(g)
+        if vec:
+            return vec
+    return None
+
+
+def align_ship_to_gravity(grid) -> None:
+    """Выровнять корабль по гравитации (up = -gravity_direction)."""
+    rc_list = grid.find_devices_by_type(RemoteControlDevice)
+    if not rc_list:
+        print("Не найден RemoteControlDevice")
+        return
+    rc_dev = rc_list[0]
+
+    gyros = grid.find_devices_by_type(GyroDevice)
+    if not gyros:
+        print("Не найдены гироскопы")
+        return
+
+    for gyro in gyros:
+        gyro.enable()
+
+    gravity_vec = get_gravity_vector(rc_dev)
+    if not gravity_vec:
+        print("Вектор гравитации не найден")
+        return
+
+    desired_up = _normalize((-gravity_vec[0], -gravity_vec[1], -gravity_vec[2]))
+
+    # Желательно upward
+    if desired_up[1] < 0:
+        desired_up = (-desired_up[0], -desired_up[1], -desired_up[2])
+
+    print(f"Целевой up вектор по гравитации: ({desired_up[0]:.3f}, {desired_up[1]:.3f}, {desired_up[2]:.3f})")
+
+    # Настройки PID (здесь только P - пропорциональный)
+    GAIN = 2.0  # Коэффициент усиления ("резкость" поворота)
+    MAX_RATE = 1.0  # Максимальная скорость вращения (1.0 = 100% override)
+    TOLERANCE = 0.01  # Допустимая ошибка (в радианах, ~2 градуса)
+
+    try:
+        while True:
+            rc_dev.update()
+
+            try:
+                basis = _get_orientation(rc_dev)
+            except RuntimeError:
+                continue
+
+            # 1. Текущее отклонение (угол)
+            dot_val = max(-1.0, min(1.0, _dot(basis.up, desired_up)))
+            angle_error = math.acos(dot_val)
+
+            if angle_error < TOLERANCE or (abs(dot_val) > 0.99 and dot_val > 0):
+                # Выровнено
+                print(f"Выровнено по гравитации. Ошибка: {angle_error:.4f} rad, команды отключены")
+                for gyro in gyros:
+                    gyro.clear_override()
+                break
+            else:
+                # 2. Переводим целевой вектор в ЛОКАЛЬНЫЕ координаты корабля.
+                # Для выравнивания Up: проекции на Forward и Right
+                local_y = _dot(desired_up, basis.forward)
+                local_x = _dot(desired_up, basis.right)
+
+                roll_cmd = 0.0
+
+                # Для Up: исправленный знак
+                pitch_cmd = -local_y * GAIN
+
+                # Если desired в right направлении, yaw -
+                yaw_cmd = -local_x * GAIN
+
+                # Логирование только при вращении
+                print(
+                    f"Angle: {angle_error:.3f} rad | "
+                    f"Local tgt: [F={local_y:.2f}, R={local_x:.2f}] | "
+                    f"CMD: R={roll_cmd:.2f}, P={pitch_cmd:.2f}, Y={yaw_cmd:.2f}"
+                )
+
+            # 3. Ограничиваем (Clamp) значения от -MAX_RATE до +MAX_RATE
+            pitch_cmd = max(-MAX_RATE, min(MAX_RATE, pitch_cmd))
+            yaw_cmd = max(-MAX_RATE, min(MAX_RATE, yaw_cmd))
+
+            # 4. Применяем
+            for gyro in gyros:
+                gyro.set_override(pitch=pitch_cmd, yaw=yaw_cmd, roll=roll_cmd)
+
+            time.sleep(0.1)
+
+    finally:
+        # Всегда отключаем оверрайд при выходе
+        print("Остановка гироскопов...")
+        for gyro in gyros:
+            gyro.clear_override()
+
+
+def align_ship_to_base_orientation(grid, desired_up: Tuple[float, float, float]) -> None:
+    """Align the ship grid orientation to match the desired up vector (e.g., base's up)."""
+    rc_list = grid.find_devices_by_type(RemoteControlDevice)
+    if not rc_list:
+        print("Не найден RemoteControlDevice")
+        return
+    rc_dev = rc_list[0]
+
+    gyros = grid.find_devices_by_type(GyroDevice)
+    if not gyros:
+        print("Не найдены гироскопы")
+        return
+
+    for gyro in gyros:
+        gyro.enable()
+
+    desired_up = _normalize(desired_up)
+
+    print(f"Целевой up вектор: ({desired_up[0]:.3f}, {desired_up[1]:.3f}, {desired_up[2]:.3f})")
+
+    # Настройки PID (здесь только P - пропорциональный)
+    GAIN = 2.0  # Коэффициент усиления ("резкость" поворота)
+    MAX_RATE = 1.0  # Максимальная скорость вращения (1.0 = 100% override)
+    TOLERANCE = 0.01  # Допустимая ошибка (в радианах, ~2 градуса)
+
+    try:
+        while True:
+            rc_dev.update()
+
+            try:
+                basis = _get_orientation(rc_dev)
+            except RuntimeError:
+                continue
+
+            # 1. Текущее отклонение (угол)
+            dot_val = max(-1.0, min(1.0, _dot(basis.up, desired_up)))
+            angle_error = math.acos(dot_val)
+
+            if angle_error < TOLERANCE or (abs(dot_val) > 0.99 and dot_val > 0):
+                # Выровнено
+                print(f"Выровнено. Ошибка: {angle_error:.4f} rad, команды отключены")
+                for gyro in gyros:
+                    gyro.clear_override()
+                break
+            else:
+                # 2. Переводим целевой вектор в ЛОКАЛЬНЫЕ координаты корабля.
+                # Для выравнивания Up: проекции на Forward и Right
+                local_y = _dot(desired_up, basis.forward)
+                local_x = _dot(desired_up, basis.right)
+
+                roll_cmd = 0.0
+
+                # Для Up: исправленный знак
+                pitch_cmd = -local_y * GAIN
+
+                # Если desired в right направлении, yaw -
+                yaw_cmd = -local_x * GAIN
+
+                # Логирование только при вращении
+                print(
+                    f"Angle: {angle_error:.3f} rad | "
+                    f"Local tgt: [F={local_y:.2f}, R={local_x:.2f}] | "
+                    f"CMD: R={roll_cmd:.2f}, P={pitch_cmd:.2f}, Y={yaw_cmd:.2f}"
+                )
+
+            # 3. Ограничиваем (Clamp) значения от -MAX_RATE до +MAX_RATE
+            pitch_cmd = max(-MAX_RATE, min(MAX_RATE, pitch_cmd))
+            yaw_cmd = max(-MAX_RATE, min(MAX_RATE, yaw_cmd))
+
+            # 4. Применяем
+            for gyro in gyros:
+                gyro.set_override(pitch=pitch_cmd, yaw=yaw_cmd, roll=roll_cmd)
+
+            time.sleep(0.1)
+
+    finally:
+        # Всегда отключаем оверрайд при выходе
+        print("Остановка гироскопов...")
+        for gyro in gyros:
+            gyro.clear_override()
 
 
 # ---- Docking geometry ----------------------------------------------------
@@ -397,12 +648,18 @@ def _fly_to(
             break
 
         if not remote.telemetry.get("autopilotEnabled"):
-            if d < RC_STOP_TOLERANCE:
+            if d < ARRIVAL_DISTANCE:
+                print(f"   [Info] Stopped near target ({d:.2f}m). Considered aligned.")
+                break
+            elif d < RC_STOP_TOLERANCE:
                 print(f"   [Info] Stopped near target ({d:.2f}m). Considered aligned.")
                 break
             else:
-                print(f"   [Stop] Manual interrupt at dist {d:.2f}m!")
-                return stop_pos
+                print(f"   [Re-enable] AP disabled at dist {d:.2f}m. Re-enabling.")
+                # Re-send the waypoint
+                new_gps = f"GPS:{name}:retry:{target[0]:.2f}:{target[1]:.2f}:{target[2]:.2f}:"
+                remote.goto(new_gps, speed=speed, gps_name=name + "_retry", dock=False)
+                time.sleep(1.0)  # Wait for AP to engage
 
         if time.time() - start_t > MAX_FLIGHT_TIME:
             print("[Error] Max flight time exceeded, disabling autopilot.")
@@ -421,6 +678,7 @@ def _dock_by_connector_vector(
     rc: RemoteControlDevice,
     ship_conn: ConnectorDevice,
     base_conn: ConnectorDevice,
+    ship_grid,
     fixed_base_gps: Optional[str],
 ) -> Optional[Tuple[float, float, float]]:
     """
@@ -483,10 +741,29 @@ def _dock_by_connector_vector(
 
         dir_norm = (dir_vec[0] / dir_len, dir_vec[1] / dir_len, dir_vec[2] / dir_len)
 
-        # Шаг: максимум 3м, минимум 0.8м, примерно 60% от текущего расстояния
-        step_len = max(0.8, min(3.0, dist_cb * 0.6))
+        # Шаг: максимум 3м, минимум 0.5м, примерно 60% от текущего расстояния
+        step_len = max(0.5, min(3.0, dist_cb * 0.6))
         move_vec = _scale(dir_norm, step_len)
         target_rc = _add(rc_pos, move_vec)
+
+        def check_callback_for_dock():
+            status = get_connector_status(ship_conn)
+            if status == STATUS_READY_TO_LOCK:
+                print("   [CB] Ready to lock, connecting...")
+                ship_conn.connect()
+                time.sleep(0.5)
+                ship_conn.update()
+                if get_connector_status(ship_conn) == STATUS_CONNECTED:
+                    print("   [CB] Connected, parking...")
+                    park_ship_grid_procedure(ship_grid, ship_conn, timeout=5.0)
+                    rc.disable()
+                    return True
+            elif status == STATUS_CONNECTED:
+                print("   [CB] Already connected, parking...")
+                park_ship_grid_procedure(ship_grid, ship_conn, timeout=5.0)
+                rc.disable()
+                return True
+            return False
 
         stop_pos = _fly_to(
             rc,
@@ -494,7 +771,7 @@ def _dock_by_connector_vector(
             f"DockStep#{step_idx}",
             speed_far=1.5,
             speed_near=0.6,
-            check_callback=lambda: get_connector_status(ship_conn) == STATUS_READY_TO_LOCK,
+            check_callback=check_callback_for_dock,
             ship_conn=ship_conn,
             ship_conn_target=base_target_pos,
             fixed_base_pos=base_target_pos,
@@ -511,7 +788,7 @@ def _dock_by_connector_vector(
 # ---- Main logic ----------------------------------------------------------
 
 
-def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = None):
+def ship_dock_with_grid_align_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = None):
     ship_grid = prepare_grid(ship_grid_id)
     base_grid = prepare_grid(ship_grid.redis, base_grid_id)
 
@@ -598,18 +875,38 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
 
         ship_conn.disconnect()
 
+        # 0) Предварительное выравнивание по гравитации для плавного подхода
+        print("   [ALIGN] Pre-aligning ship to gravity for smoother approach...")
+        align_ship_to_gravity(ship_grid)
+
         # 1) Летим в точку подхода
         _fly_to(rc, approach_rc_pos, "Approach", 15.0, 5.0)
 
-        # 2) Тонкий докинг по вектору коннектор->база
+        # 2) Тонкий докинг по вектору коннектор->база (без финального выравнивания по базе, чтобы избежать подъёма носа)
         stop_pos_docking = _dock_by_connector_vector(
             rc,
             ship_conn,
             base_conn,
+            ship_grid,
             fixed_base_gps,
         )
 
-        # 3) Ожидаем ReadyToLock и коннектим
+        # Проверка на ручную парковку, если близко и не подключено
+        if stop_pos_docking and get_connector_status(ship_conn) != STATUS_CONNECTED:
+            _ensure_telemetry(ship_conn)
+            ship_conn_pos = _get_pos(ship_conn)
+            base_conn_pos = _parse_vector(fixed_base_gps) if fixed_base_gps else _get_pos(base_conn)
+            if ship_conn_pos and base_conn_pos:
+                manual_dist = _dist(ship_conn_pos, base_conn_pos)
+                if manual_dist < 1.0:
+                    print(f"   [MANUAL PARK] ShipConn dist {manual_dist:.3f} < 1.0m, attempting manual connect.")
+                    ship_conn.connect()
+                    time.sleep(0.5)
+                    ship_conn.update()
+                    if get_connector_status(ship_conn) == STATUS_CONNECTED:
+                        park_ship_grid_procedure(ship_grid, ship_conn)
+
+        # 4) Ожидаем ReadyToLock и коннектим
         print("   [DOCKING] Waiting for connector to become ready to lock...")
         locked = False
         last_status = ""
@@ -628,7 +925,7 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
                 final_status = get_connector_status(ship_conn)
                 if final_status == STATUS_CONNECTED:
                     print("   [DOCKING] Successfully connected!")
-                    locked = True
+                    park_ship_grid_procedure(ship_grid, ship_conn)
                 else:
                     print(f"   [DOCKING] Connect failed, final status: {final_status}")
                     locked = True
@@ -685,9 +982,9 @@ if __name__ == "__main__":
     # FIXED_GPS = "GPS:root #2:1010037.18:170826.7:1672421.04:#FF75C9F1:"
     FIXED_GPS = None
 
-    dock_procedure(
+    ship_dock_with_grid_align_procedure(
         base_grid_id="DroneBase",
         # ship_grid_id="Owl",
         ship_grid_id="taburet",
-        fixed_base_gps= FIXED_GPS,
+        fixed_base_gps=FIXED_GPS,
     )

@@ -8,6 +8,9 @@ from secontrol.common import close, prepare_grid
 from secontrol.devices.connector_device import ConnectorDevice
 from secontrol.devices.remote_control_device import RemoteControlDevice
 
+
+from secontrol.tools.navigation_tools import fly_to_point
+
 # ---- Settings ------------------------------------------------------------
 ARRIVAL_DISTANCE = 0.20            # точность прилёта RC к цели
 RC_STOP_TOLERANCE = 0.7            # если RC отключил АП < этого расстояния — считаем норм
@@ -531,6 +534,9 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
         if not base_conn_list:
             raise RuntimeError("No Connector found on base grid.")
 
+        for conn in ship_conn_list:
+            conn.enable()
+
         rc = rc_list[0]
         ship_conn = ship_conn_list[0]
         base_conn = base_conn_list[0]
@@ -680,14 +686,91 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
             print("-----------------------------------------------")
 
 
+def undock(grid):
+    """
+    Отсоединяет коннекторы корабля без создания новой сессии грида.
+    """
+    ship_conn_list = grid.find_devices_by_type(ConnectorDevice)
+
+    if not ship_conn_list:
+        raise RuntimeError("No Connector found on ship grid.")
+
+    for conn in ship_conn_list:
+        if get_connector_status(conn) == STATUS_CONNECTED:
+            conn.enable()
+            conn.disconnect()
+            time.sleep(0.5)
+
+
 if __name__ == "__main__":
     # FIXED_GPS — точные координаты коннектора на базе
     # FIXED_GPS = "GPS:root #2:1010037.18:170826.7:1672421.04:#FF75C9F1:"
     FIXED_GPS = None
 
-    dock_procedure(
-        base_grid_id="DroneBase",
-        # ship_grid_id="Owl",
-        ship_grid_id="taburet",
-        fixed_base_gps= FIXED_GPS,
-    )
+    ship_name = "taburet"
+    base_name = "DroneBase"
+    point_str = "GPS:root #1:1009572.67:170209.44:1673060.71:#FF75C9F1:"
+
+    # Инициализация грида корабля
+    ship_grid = prepare_grid(ship_name)
+
+    try:
+        # Отсоединение от базы, если подключен
+        undock(ship_grid)
+
+        # Получение устройства RC
+        rc_list = ship_grid.find_devices_by_type(RemoteControlDevice)
+        if not rc_list:
+            raise RuntimeError("No RemoteControl found on ship grid.")
+        rc = rc_list[0]
+        rc.update()
+        start_pos = _get_pos(rc)
+        if not start_pos:
+            raise RuntimeError("Cannot get start position of RC.")
+
+        # Парсинг точки патрулирования
+        target = _parse_vector(point_str)
+        if not target:
+            raise RuntimeError(f"Invalid point string: {point_str}")
+
+        print("Starting patrol...")
+        print(f"Start position: {start_pos}")
+        print(f"Patrol point: {target}")
+
+        # Перелет на точку
+        print("Flying to patrol point...")
+        fly_to_point(rc, target, waypoint_name="Patrol Point", speed_far = 100)
+
+        # Как достигнута точка, лететь назад
+        print("Returning to start position...")
+        fly_to_point(rc, start_pos, waypoint_name="Return", speed_far = 100)
+
+        # Парковка (докинг)
+
+        while True:
+            print("Parking at base...")
+            dock_procedure(
+                base_grid_id=base_name,
+                ship_grid_id=ship_name,
+                fixed_base_gps=FIXED_GPS,
+            )
+
+            ship_grid = prepare_grid(ship_name)
+
+
+            ship_conn= ship_grid.find_devices_by_type(ConnectorDevice)[0]
+
+            if is_already_docked(ship_conn):
+                break
+
+            time.sleep(5)
+
+
+        print("Patrol completed successfully.")
+
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        close(ship_grid)

@@ -328,6 +328,7 @@ if __name__ == "__main__":
 
     dock_procedure(
         base_grid_id="DroneBase",
-        ship_grid_id="Owl",
+        # ship_grid_id="Owl",
+        ship_grid_id="taburet",
         fixed_base_gps=FIXED_GPS
     )
