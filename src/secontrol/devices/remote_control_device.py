@@ -49,7 +49,7 @@ class RemoteControlDevice(BaseDevice):
     ) -> int:
         formatted = self._format_state(gps, speed=speed, gps_name=gps_name, dock=dock)
         payload = {
-            "cmd": "remote_goto",
+            "cmd": "goto",
             "state": formatted,
             "targetId": int(self.device_id),
         }

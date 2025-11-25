@@ -10,10 +10,11 @@ import math
 import time
 from typing import Callable, Iterable, Optional, Sequence, Tuple
 
-from secontrol.base_device import BaseDevice
+from secontrol.base_device import BaseDevice, Grid
 from secontrol.devices.connector_device import ConnectorDevice
 from secontrol.devices.gyro_device import GyroDevice
 from secontrol.devices.remote_control_device import RemoteControlDevice
+from secontrol.common import prepare_grid
 
 
 # ---- Базовая математика -----------------------------------------------------
@@ -417,3 +418,36 @@ def align_heading_with_gravity(
             time.sleep(check_interval)
     finally:
         _clear_gyro_override(gyros)
+
+
+
+
+def goto(ship_grid: Grid, point_target: str | Tuple[float, float, float] = None, speed = 10):
+
+    if isinstance(point_target, (tuple, list)) and len(point_target) == 3:
+        try:
+            x, y, z = map(float, point_target)
+            point_target = f"GPS:Target:{x:.6f}:{y:.6f}:{z:.6f}:"
+        except (ValueError, TypeError):
+            raise ValueError("Invalid point_target format")
+
+    remote = ship_grid.get_first_device(RemoteControlDevice)
+
+    print(f"Target GPS: {point_target}")
+
+    remote.set_mode("oneway")
+    remote.set_collision_avoidance(False)
+    remote.goto(point_target, speed=speed)
+
+    time.sleep(1)
+
+    # remote.disable()
+    while True:
+        remote.update()
+        remote.wait_for_telemetry()
+        autopilotEnabled = remote.telemetry.get("autopilotEnabled", True)
+
+        if not autopilotEnabled:
+            break
+        print(remote.telemetry.get("position"))
+        time.sleep(0.1)

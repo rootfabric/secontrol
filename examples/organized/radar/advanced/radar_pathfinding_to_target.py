@@ -14,7 +14,6 @@ rover_track_player.py.
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any, Dict, Optional, Tuple
 import numpy as np
@@ -24,7 +23,7 @@ import math
 from secontrol.common import close, prepare_grid
 from secontrol.devices.ore_detector_device import OreDetectorDevice
 from secontrol.devices.rover_device import RoverDevice
-from secontrol.radar_navigation import RawRadarMap, PathFinder, PassabilityProfile
+from secontrol.tools.radar_navigation import RawRadarMap, PathFinder, PassabilityProfile
 
 
 class IncrementalRadarMap:

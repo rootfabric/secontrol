@@ -2758,13 +2758,19 @@ class BaseDevice:
     def update(self):
         self.send_command({"cmd": "update"})
 
-    def wait_for_telemetry(self, timeout: float = 10.0) -> bool:
+    def wait_for_telemetry(self, timeout: float = 10.0, wait_for_new: bool = True) -> bool:
         """Wait for telemetry to become available.
+
+        Args:
+            timeout: Maximum time to wait in seconds.
+            wait_for_new: If True, wait for the next telemetry update even if telemetry exists.
 
         Returns True if telemetry is available within the timeout, False otherwise.
         """
-        if self.telemetry is not None:
+        if not wait_for_new and self.telemetry is not None:
             return True
+        if wait_for_new:
+            self._telemetry_event.clear()
         return self._telemetry_event.wait(timeout)
 
     # ------------------------------------------------------------------

@@ -13,7 +13,7 @@ import pyvista as pv
 
 from secontrol.common import close, prepare_grid
 from secontrol.devices.ore_detector_device import OreDetectorDevice
-from secontrol.radar_navigation import RawRadarMap, PathFinder, PassabilityProfile
+from secontrol.tools.radar_navigation import RawRadarMap, PathFinder, PassabilityProfile
 import os
 
 # Добавить src в путь для импорта

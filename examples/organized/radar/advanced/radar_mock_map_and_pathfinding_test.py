@@ -11,7 +11,7 @@ import os
 # Добавить src в путь для импорта
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../../src"))
 
-from secontrol.radar_navigation import RawRadarMap, PathFinder, PassabilityProfile
+from secontrol.tools.radar_navigation import RawRadarMap, PathFinder, PassabilityProfile
 
 
 # Данные точек из логов radar_solid_visualization.py (подмножество для теста)
