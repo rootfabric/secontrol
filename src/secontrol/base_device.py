@@ -2044,27 +2044,7 @@ class BaseDevice:
         )
         snapshot = self.redis.get_json(self.telemetry_key)
 
-        # fallback: попытка найти реальный ключ телеметрии по шаблону
-        if snapshot is None:
-            resolved = self._resolve_existing_telemetry_key()
-            if resolved and resolved != self.telemetry_key:
-                try:
-                    self._subscription.close()
-                except Exception:
-                    pass
-                self.telemetry_key = resolved
-                self._subscription = self.redis.subscribe_to_key_resilient(
-                    self.telemetry_key,
-                    self._on_telemetry_change,
-                )
-                snapshot = self.redis.get_json(self.telemetry_key)
 
-        if self.name:
-            self._cache_name_in_metadata()
-
-        if snapshot is not None:
-            self._on_telemetry_change(self.telemetry_key, snapshot, "initial")
-            self._telemetry_event.set()
 
     # ------------------------------------------------------------------
     # Публичный событийный API
@@ -2758,7 +2738,7 @@ class BaseDevice:
     def update(self):
         self.send_command({"cmd": "update"})
 
-    def wait_for_telemetry(self, timeout: float = 10.0, wait_for_new: bool = True) -> bool:
+    def wait_for_telemetry(self, timeout: float = 10.0, wait_for_new: bool = True, need_update: bool = True) -> bool:
         """Wait for telemetry to become available.
 
         Args:
@@ -2767,6 +2747,9 @@ class BaseDevice:
 
         Returns True if telemetry is available within the timeout, False otherwise.
         """
+        if need_update:
+            self.update()
+
         if not wait_for_new and self.telemetry is not None:
             return True
         if wait_for_new:

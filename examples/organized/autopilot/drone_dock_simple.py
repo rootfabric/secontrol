@@ -504,12 +504,41 @@ def _dock_by_connector_vector(
     return stop_pos
 
 
+def try_dock(ship_conn):
+    # 3) Ожидаем ReadyToLock и коннектим
+    print("   [DOCKING] Waiting for connector to become ready to lock...")
+    locked = False
+    last_status = ""
+
+
+
+    ship_conn.wait_for_telemetry()
+    status = ship_conn.telemetry.get("connectorStatus")
+    if status != last_status:
+        print(f"   [DOCKING] Ship connector status: {status}")
+        last_status = status
+
+    if status == STATUS_READY_TO_LOCK:
+        print("   [DOCKING] Ready to lock detected, connecting...")
+        ship_conn.connect()
+        time.sleep(0.5)
+        ship_conn.update()
+        final_status = get_connector_status(ship_conn)
+        if final_status == STATUS_CONNECTED:
+            print("   [DOCKING] Successfully connected!")
+            locked = True
+        else:
+            print(f"   [DOCKING] Connect failed, final status: {final_status}")
+            locked = True
+
+    return locked
+
 # ---- Main logic ----------------------------------------------------------
 
 
-def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = None):
-    ship_grid = prepare_grid(ship_grid_id)
-    base_grid = prepare_grid(ship_grid.redis, base_grid_id)
+def dock_procedure(base_grid: str, ship_grid: str):
+    ship_grid = prepare_grid(ship_grid)
+    base_grid = prepare_grid(base_grid)
 
     current_rc_pos = None
     final_rc_pos_for_log = None
@@ -532,8 +561,9 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
     base_conn = base_conn_list[0]
 
     _ensure_telemetry(rc)
-    _ensure_telemetry(ship_conn)
-    _ensure_telemetry(base_conn)
+    ship_conn.wait_for_telemetry()
+    base_conn.wait_for_telemetry()
+
 
     # ---- Check initial status ----
     print(f"   [INITIAL] Ship connector status: {get_connector_status(ship_conn)}")
@@ -554,14 +584,25 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
     connector_pos = _parse_vector(base_conn.telemetry.get("position"))
     connector_orientation = base_conn.telemetry.get("orientation")
 
+    # Вычислим вектор от RC к коннектору корабля
+    rc_pos = _get_pos(rc)
+    ship_conn_pos = _get_pos(ship_conn)
+
+    rc_to_ship_conn = _sub(ship_conn_pos, rc_pos)
+    print("rc_to_ship_conn", rc_to_ship_conn)
+
+    if connector_pos != (1083866.5338009384,145816.5344619157, 1661753.3332283949):
+        exit(0)
+
+
     print(connector_orientation)
 
     forward_vec = _parse_vector(connector_orientation.get("forward"))
 
-    # Точка подхода: по линии коннектора, но в сторону "от базы"
-    approach_rc_pos = _add(connector_pos, _scale(forward_vec, 5.0))
+    # Точка подхода: по линии коннектора, но в сторону "от базы", с учётом смещения
+    approach_rc_pos = _sub(_add(connector_pos, _scale(forward_vec, 5.0)), rc_to_ship_conn)
 
-    final_rc_pos = _add(connector_pos, _scale(forward_vec, 0.5))
+    final_rc_pos = _sub(_add(connector_pos, _scale(forward_vec, 1.5)), rc_to_ship_conn)
 
     ship_grid.create_gps_marker("approach_rc_pos", coordinates=approach_rc_pos)
 
@@ -569,11 +610,17 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
 
     ship_conn.disconnect()
 
-    # возле коннектора
-    goto(ship_grid, approach_rc_pos)
-    print("GO")
-    #точка коннектора
-    goto(ship_grid, final_rc_pos, speed=1)
+    while not try_dock(ship_conn):
+        # возле коннектора
+        goto(ship_grid, approach_rc_pos, 1000)
+        print("GO")
+
+        time.sleep(1)
+
+
+        #точка коннектора
+        goto(ship_grid, final_rc_pos, speed=1)
+        time.sleep(1)
 
 
     exit(0)
@@ -650,13 +697,9 @@ def dock_procedure(base_grid_id: str, ship_grid_id: str, fixed_base_gps: str = N
 
 
 if __name__ == "__main__":
-    # FIXED_GPS — точные координаты коннектора на базе
-    # FIXED_GPS = "GPS:root #2:1010037.18:170826.7:1672421.04:#FF75C9F1:"
-    FIXED_GPS = None
 
     dock_procedure(
-        base_grid_id="DroneBase",
+        base_grid="DroneBase",
         # ship_grid_id="Owl",
-        ship_grid_id="taburet",
-        fixed_base_gps= FIXED_GPS,
+        ship_grid="taburet",
     )

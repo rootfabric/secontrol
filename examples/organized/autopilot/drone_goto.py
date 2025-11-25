@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import time
 from secontrol.common import close, prepare_grid
 
 from secontrol.tools.navigation_tools import goto
-
 
 
 
