@@ -79,6 +79,10 @@ def _sub(a, b): return a[0] - b[0], a[1] - b[1], a[2] - b[2]
 def _scale(v, s): return v[0] * s, v[1] * s, v[2] * s
 
 
+def _dot(a: Tuple[float, ...], b: Tuple[float, ...]) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
 def _dist(a, b): return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
 
@@ -560,59 +564,66 @@ def dock_procedure(base_grid: str, ship_grid: str):
     ship_conn = ship_conn_list[0]
     base_conn = base_conn_list[0]
 
-    _ensure_telemetry(rc)
-    ship_conn.wait_for_telemetry()
-    base_conn.wait_for_telemetry()
-
-
-    # ---- Check initial status ----
-    print(f"   [INITIAL] Ship connector status: {get_connector_status(ship_conn)}")
-
-    if is_already_docked(ship_conn):
-        print("   [INITIAL] Ship is already docked, undocking...")
-        ship_conn.disconnect()
-        time.sleep(1)
-        ship_conn.update()
-        print(f"   [INITIAL] After undock status: {get_connector_status(ship_conn)}")
-
-    if get_connector_status(ship_conn) == STATUS_READY_TO_LOCK:
-        ship_conn.connect()
-
-    if not is_parking_possible(base_conn):
-        print(f"Base connector not ready for parking, status: {get_connector_status(base_conn)}")
-
-    connector_pos = _parse_vector(base_conn.telemetry.get("position"))
-    connector_orientation = base_conn.telemetry.get("orientation")
-
-    # Вычислим вектор от RC к коннектору корабля
-    rc_pos = _get_pos(rc)
-    ship_conn_pos = _get_pos(ship_conn)
-
-    rc_to_ship_conn = _sub(ship_conn_pos, rc_pos)
-    print("rc_to_ship_conn", rc_to_ship_conn)
-
-    if connector_pos != (1083866.5338009384,145816.5344619157, 1661753.3332283949):
-        exit(0)
-
-
-    print(connector_orientation)
-
-    forward_vec = _parse_vector(connector_orientation.get("forward"))
-
-    # Точка подхода: по линии коннектора, но в сторону "от базы", с учётом смещения
-    approach_rc_pos = _sub(_add(connector_pos, _scale(forward_vec, 5.0)), rc_to_ship_conn)
-
-    final_rc_pos = _sub(_add(connector_pos, _scale(forward_vec, 1.5)), rc_to_ship_conn)
-
-    ship_grid.create_gps_marker("approach_rc_pos", coordinates=approach_rc_pos)
-
-    current_rc_pos = _get_pos(rc)
-
-    ship_conn.disconnect()
-
     while not try_dock(ship_conn):
+        _ensure_telemetry(rc)
+        ship_conn.wait_for_telemetry()
+        base_conn.wait_for_telemetry()
+
+
+        # ---- Check initial status ----
+        print(f"   [INITIAL] Ship connector status: {get_connector_status(ship_conn)}")
+
+        if is_already_docked(ship_conn):
+            print("   [INITIAL] Ship is already docked, undocking...")
+            ship_conn.disconnect()
+            time.sleep(1)
+            ship_conn.update()
+            print(f"   [INITIAL] After undock status: {get_connector_status(ship_conn)}")
+
+        if get_connector_status(ship_conn) == STATUS_READY_TO_LOCK:
+            ship_conn.connect()
+
+        if not is_parking_possible(base_conn):
+            print(f"Base connector not ready for parking, status: {get_connector_status(base_conn)}")
+
+        connector_pos = _parse_vector(base_conn.telemetry.get("position"))
+        connector_orientation = base_conn.telemetry.get("orientation")
+
+        # Вычислим вектор от RC к коннектору корабля
+        rc_pos = _get_pos(rc)
+        ship_conn_pos = _get_pos(ship_conn)
+
+        # Вектор от корабля к коннектору базы для корректного смещения
+        # approach_dir = _normalize(_sub(connector_pos, rc_pos))
+        # rc_to_ship_conn_world = _sub(ship_conn_pos, rc_pos)
+        # longitudinal_offset = _dot(rc_to_ship_conn_world, approach_dir)
+        # rc_to_ship_conn = _scale(approach_dir, longitudinal_offset)
+
+        rc_to_ship_conn = _sub(ship_conn_pos, rc_pos)
+        print("rc_to_ship_conn (adjusted along ship-to-base vector)", rc_to_ship_conn)
+
+        if connector_pos != (1083866.5338009384,145816.5344619157, 1661753.3332283949):
+            exit(0)
+
+
+        print(connector_orientation)
+
+        forward_vec = _parse_vector(connector_orientation.get("forward"))
+
+        # Точка подхода: по линии коннектора, но в сторону "от базы", с учётом смещения
+        approach_rc_pos = _sub(_add(connector_pos, _scale(forward_vec, 5.0)), rc_to_ship_conn)
+
+        final_rc_pos = _sub(_add(connector_pos, _scale(forward_vec, 1.5)), rc_to_ship_conn)
+
+        ship_grid.create_gps_marker("approach_rc_pos", coordinates=approach_rc_pos)
+
+        current_rc_pos = _get_pos(rc)
+
+        ship_conn.disconnect()
+
+
         # возле коннектора
-        goto(ship_grid, approach_rc_pos, 1000)
+        goto(ship_grid, approach_rc_pos, 100)
         print("GO")
 
         time.sleep(1)

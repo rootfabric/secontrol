@@ -119,13 +119,15 @@ if __name__ == "__main__":
             print("Не найдено ни одного гироскопа")
             raise SystemExit(1)
 
-        gyro = gyros[0]
-        gyro.enable()
-        print(
-            "Отправляем команду align_vector на гироскоп: "
-            f"({target_forward[0]:.3f}, {target_forward[1]:.3f}, {target_forward[2]:.3f})"
-        )
-        gyro.align_vector(target_forward)
+        for gyro in gyros:
+
+            # gyro = gyros[0]
+            gyro.enable()
+            print(
+                "Отправляем команду align_vector на гироскоп: "
+                f"({target_forward[0]:.3f}, {target_forward[1]:.3f}, {target_forward[2]:.3f})"
+            )
+            gyro.align_vector(target_forward)
 
         rc_list = grid.find_devices_by_type(RemoteControlDevice)
         rc_dev = rc_list[0] if rc_list else None
