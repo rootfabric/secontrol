@@ -2113,8 +2113,8 @@ class BaseDevice:
             self.name = new_name
             self._cache_name_in_metadata()
         if self.telemetry is not None:
-            if self._sync_name_with_telemetry():
-                self._persist_common_telemetry()
+            self._sync_name_with_telemetry()
+
 
     # ------------------------------------------------------------------
     def _on_telemetry_change(self, key: str, payload: Optional[Any], event: str) -> None:
@@ -2137,9 +2137,6 @@ class BaseDevice:
         self.telemetry = telemetry_payload
 
         self._refresh_inventories(telemetry_payload)
-
-        if changed:
-            self._persist_common_telemetry()
 
         # Хук дочерних классов
         self.handle_telemetry(telemetry_payload)
@@ -2441,7 +2438,7 @@ class BaseDevice:
             self._show_on_screen = bool(value)
         elif key == "customData":
             self._custom_data = str(value)
-        self._persist_common_telemetry()
+
 
     def _ensure_telemetry_dict(self) -> Dict[str, Any]:
         if not isinstance(self.telemetry, dict):
@@ -2560,14 +2557,6 @@ class BaseDevice:
 
         for key in ("customName", "name", "displayName", "displayNameText"):
             extra[key] = self.name
-
-    def _persist_common_telemetry(self) -> None:
-        if not isinstance(self.telemetry, dict):
-            return
-        try:
-            self.redis.set_json(self.telemetry_key, self.telemetry, expire=180)
-        except Exception:
-            pass
 
     @staticmethod
     def _extract_optional_bool(data: Dict[str, Any], *keys: str) -> Optional[bool]:
