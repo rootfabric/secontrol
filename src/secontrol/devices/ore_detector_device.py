@@ -269,7 +269,7 @@ class OreDetectorDevice(BaseDevice):
         }
         if self.name:
             payload["targetName"] = self.name
-        print(payload)
+
         return self.send_command(payload)
 
     def cancel_scan(self) -> int:
