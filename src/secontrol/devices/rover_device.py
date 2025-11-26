@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 import time
 
-from typing import List
+from typing import List, Optional
 
 from ..base_device import Grid
 from .ore_detector_device import OreDetectorDevice
@@ -149,6 +149,21 @@ class RoverDevice:
         """Check if the rover is in parking mode."""
         return self._parked
 
+    @staticmethod
+    def _normalize(vec: Optional[tuple[float, float, float] | list[float]]) -> Optional[list[float]]:
+        if vec is None:
+            return None
+
+        length = math.sqrt(sum(v**2 for v in vec))
+        if length == 0:
+            return None
+        return [v / length for v in vec]
+
+    @staticmethod
+    def _project_to_plane(vec: list[float], normal: list[float]) -> list[float]:
+        dot = sum(v * n for v, n in zip(vec, normal))
+        return [v - dot * n for v, n in zip(vec, normal)]
+
     def _compute_steering_and_speed(
         self,
         current_pos: tuple[float, float, float],
@@ -193,71 +208,24 @@ class RoverDevice:
         # Speed: closer to target, slower
         speed = base_speed + (max_speed - base_speed) * min(1.0, distance / max_distance)
 
-        if gravity_vector is not None:
-            # Normalize gravity vector (down direction)
-            gravity_length = math.sqrt(sum(g**2 for g in gravity_vector))
-            if gravity_length > 0:
-                gravity_norm = [g / gravity_length for g in gravity_vector]
-            else:
-                gravity_norm = None
+        gravity_norm = self._normalize(gravity_vector)
+        up = [-g for g in gravity_norm] if gravity_norm else [0.0, 1.0, 0.0]
 
-            if gravity_norm is not None:
-                # Project vector_to_target onto plane perpendicular to gravity
-                dot_target = sum(v * g for v, g in zip(vector_to_target, gravity_norm))
-                dir_to_target = [v - dot_target * g for v, g in zip(vector_to_target, gravity_norm)]
-                dir_length = math.sqrt(sum(d**2 for d in dir_to_target))
-                if dir_length > 0:
-                    dir_norm = [d / dir_length for d in dir_to_target]
-                else:
-                    dir_norm = [1, 0, 0]  # Fallback
+        dir_to_target = list(vector_to_target)
+        forward_vector = list(rover_forward)
 
-                # Project rover_forward onto plane perpendicular to gravity
-                dot_forward = sum(f * g for f, g in zip(rover_forward, gravity_norm))
-                projected_forward = [f - dot_forward * g for f, g in zip(rover_forward, gravity_norm)]
-                forward_length = math.sqrt(sum(p**2 for p in projected_forward))
-                if forward_length > 0:
-                    forward_norm = [p / forward_length for p in projected_forward]
-                else:
-                    forward_norm = [1, 0, 0]  # Fallback
-            else:
-                # Fallback to horizontal plane (ignore Y)
-                dir_to_target = [vector_to_target[0], 0, vector_to_target[2]]
-                dir_length = math.sqrt(sum(d**2 for d in dir_to_target))
-                if dir_length > 0:
-                    dir_norm = [d / dir_length for d in dir_to_target]
-                else:
-                    dir_norm = [1, 0, 0]  # Fallback
-
-                forward_horiz = [rover_forward[0], 0, rover_forward[2]]
-                forward_length = math.sqrt(sum(f**2 for f in forward_horiz))
-                if forward_length > 0:
-                    forward_norm = [f / forward_length for f in forward_horiz]
-                else:
-                    forward_norm = [1, 0, 0]  # Fallback
+        if gravity_norm:
+            dir_to_target = self._project_to_plane(dir_to_target, gravity_norm)
+            forward_vector = self._project_to_plane(forward_vector, gravity_norm)
         else:
-            # No gravity vector, fallback to horizontal plane (ignore Y)
-            dir_to_target = [vector_to_target[0], 0, vector_to_target[2]]
-            dir_length = math.sqrt(sum(d**2 for d in dir_to_target))
-            if dir_length > 0:
-                dir_norm = [d / dir_length for d in dir_to_target]
-            else:
-                dir_norm = [1, 0, 0]  # Fallback
+            dir_to_target = self._project_to_plane(dir_to_target, up)
+            forward_vector = self._project_to_plane(forward_vector, up)
 
-            forward_horiz = [rover_forward[0], 0, rover_forward[2]]
-            forward_length = math.sqrt(sum(f**2 for f in forward_horiz))
-            if forward_length > 0:
-                forward_norm = [f / forward_length for f in forward_horiz]
-            else:
-                forward_norm = [1, 0, 0]  # Fallback
+        dir_norm = self._normalize(dir_to_target) or [1, 0, 0]
+        forward_norm = self._normalize(forward_vector) or [1, 0, 0]
 
         # Angle between forward and direction to target
-        dot = sum(a * b for a, b in zip(dir_norm, forward_norm))
-
-        # Determine up vector for consistent sign
-        if gravity_vector is not None and gravity_norm is not None:
-            up = [-g for g in gravity_norm]  # up = -gravity (away from gravitational pull)
-        else:
-            up = [0.0, 1.0, 0.0]  # default Y up
+        dot = max(-1.0, min(1.0, sum(a * b for a, b in zip(dir_norm, forward_norm))))
 
         # 3D cross product for signed angle (positive for right turn when facing up)
         cross_vector = [
@@ -324,11 +292,18 @@ class RoverDevice:
             self.gravity_device.update()
             tel = self.gravity_device.telemetry or {}
             grav_vec = tel.get("gravitationalVector")
+            if not grav_vec and isinstance(tel.get("gravity"), dict):
+                grav_vec = tel["gravity"].get("total")
+
             if grav_vec:
                 # Parse gravitationalVector (assume it's a list or dict with x,y,z)
                 if isinstance(grav_vec, dict):
                     try:
-                        gravity_vector = (float(grav_vec.get("x", 0.0)), float(grav_vec.get("y", 0.0)), float(grav_vec.get("z", 0.0)))
+                        gravity_vector = (
+                            float(grav_vec.get("x", 0.0)),
+                            float(grav_vec.get("y", 0.0)),
+                            float(grav_vec.get("z", 0.0)),
+                        )
                     except (ValueError, TypeError):
                         gravity_vector = None
                 elif isinstance(grav_vec, (list, tuple)) and len(grav_vec) == 3:
