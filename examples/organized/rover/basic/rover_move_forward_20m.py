@@ -13,7 +13,7 @@ from secontrol.devices import RoverDevice
 
 
 def main() -> None:
-    grid = prepare_grid()
+    grid = prepare_grid("Respawn Rover")
 
     # Create rover controller
     rover = RoverDevice(grid)

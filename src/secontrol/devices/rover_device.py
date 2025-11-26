@@ -15,6 +15,8 @@ from typing import List
 from ..base_device import Grid
 from .ore_detector_device import OreDetectorDevice
 from .wheel_device import WheelDevice
+from .cockpit_device import CockpitDevice
+from .remote_control_device import RemoteControlDevice
 
 
 class PID:
@@ -58,6 +60,17 @@ class RoverDevice:
         if not detectors:
             raise ValueError("No ore detector (radar) found on the grid. Cannot determine rover position for pathfinding.")
         self.detector: OreDetectorDevice = detectors[0]
+
+        # Find device for gravity (cockpit or remote_control)
+        self.gravity_device = None
+        cockpits = grid.find_devices_by_type("cockpit")
+        if cockpits:
+            self.gravity_device = cockpits[0]
+        else:
+            remotes = grid.find_devices_by_type("remote_control")
+            if remotes:
+                self.gravity_device = remotes[0]
+
         self._current_speed = None
         self._current_steering = None
         self._parked = False
@@ -148,6 +161,7 @@ class RoverDevice:
         min_distance: float,
         max_distance: float = 500.0,
         rover_speed: float = 0.0,
+        gravity_vector: tuple[float, float, float] | None = None,
     ) -> tuple[float, float]:
         """Compute steering and speed to move towards target point.
 
@@ -179,26 +193,83 @@ class RoverDevice:
         # Speed: closer to target, slower
         speed = base_speed + (max_speed - base_speed) * min(1.0, distance / max_distance)
 
-        # Direction to target (normalized, ignore Y)
-        dir_to_target = [vector_to_target[0], 0, vector_to_target[2]]
-        dir_length = math.sqrt(sum(d**2 for d in dir_to_target))
-        if dir_length > 0:
-            dir_norm = [d / dir_length for d in dir_to_target]
-        else:
-            dir_norm = [1, 0, 0]  # Fallback
+        if gravity_vector is not None:
+            # Normalize gravity vector (down direction)
+            gravity_length = math.sqrt(sum(g**2 for g in gravity_vector))
+            if gravity_length > 0:
+                gravity_norm = [g / gravity_length for g in gravity_vector]
+            else:
+                gravity_norm = None
 
-        # Rover forward (normalized, ignore Y)
-        forward_horiz = [rover_forward[0], 0, rover_forward[2]]
-        forward_length = math.sqrt(sum(f**2 for f in forward_horiz))
-        if forward_length > 0:
-            forward_norm = [f / forward_length for f in forward_horiz]
+            if gravity_norm is not None:
+                # Project vector_to_target onto plane perpendicular to gravity
+                dot_target = sum(v * g for v, g in zip(vector_to_target, gravity_norm))
+                dir_to_target = [v - dot_target * g for v, g in zip(vector_to_target, gravity_norm)]
+                dir_length = math.sqrt(sum(d**2 for d in dir_to_target))
+                if dir_length > 0:
+                    dir_norm = [d / dir_length for d in dir_to_target]
+                else:
+                    dir_norm = [1, 0, 0]  # Fallback
+
+                # Project rover_forward onto plane perpendicular to gravity
+                dot_forward = sum(f * g for f, g in zip(rover_forward, gravity_norm))
+                projected_forward = [f - dot_forward * g for f, g in zip(rover_forward, gravity_norm)]
+                forward_length = math.sqrt(sum(p**2 for p in projected_forward))
+                if forward_length > 0:
+                    forward_norm = [p / forward_length for p in projected_forward]
+                else:
+                    forward_norm = [1, 0, 0]  # Fallback
+            else:
+                # Fallback to horizontal plane (ignore Y)
+                dir_to_target = [vector_to_target[0], 0, vector_to_target[2]]
+                dir_length = math.sqrt(sum(d**2 for d in dir_to_target))
+                if dir_length > 0:
+                    dir_norm = [d / dir_length for d in dir_to_target]
+                else:
+                    dir_norm = [1, 0, 0]  # Fallback
+
+                forward_horiz = [rover_forward[0], 0, rover_forward[2]]
+                forward_length = math.sqrt(sum(f**2 for f in forward_horiz))
+                if forward_length > 0:
+                    forward_norm = [f / forward_length for f in forward_horiz]
+                else:
+                    forward_norm = [1, 0, 0]  # Fallback
         else:
-            forward_norm = [1, 0, 0]  # Fallback
+            # No gravity vector, fallback to horizontal plane (ignore Y)
+            dir_to_target = [vector_to_target[0], 0, vector_to_target[2]]
+            dir_length = math.sqrt(sum(d**2 for d in dir_to_target))
+            if dir_length > 0:
+                dir_norm = [d / dir_length for d in dir_to_target]
+            else:
+                dir_norm = [1, 0, 0]  # Fallback
+
+            forward_horiz = [rover_forward[0], 0, rover_forward[2]]
+            forward_length = math.sqrt(sum(f**2 for f in forward_horiz))
+            if forward_length > 0:
+                forward_norm = [f / forward_length for f in forward_horiz]
+            else:
+                forward_norm = [1, 0, 0]  # Fallback
 
         # Angle between forward and direction to target
         dot = sum(a * b for a, b in zip(dir_norm, forward_norm))
-        cross = dir_norm[0] * forward_norm[2] - dir_norm[2] * forward_norm[0]
-        angle = math.atan2(cross, dot)
+
+        # Determine up vector for consistent sign
+        if gravity_vector is not None and gravity_norm is not None:
+            up = [-g for g in gravity_norm]  # up = -gravity (away from gravitational pull)
+        else:
+            up = [0.0, 1.0, 0.0]  # default Y up
+
+        # 3D cross product for signed angle (positive for right turn when facing up)
+        cross_vector = [
+            dir_norm[1] * forward_norm[2] - dir_norm[2] * forward_norm[1],
+            dir_norm[2] * forward_norm[0] - dir_norm[0] * forward_norm[2],
+            dir_norm[0] * forward_norm[1] - dir_norm[1] * forward_norm[0],
+        ]
+
+        # Dot with up for signed component
+        cross_sign = sum(cv * u for cv, u in zip(cross_vector, up))
+
+        angle = math.atan2(cross_sign, dot)
 
         # Use PID controller for steering
         steering = self._pid_steering.update(angle)
@@ -244,6 +315,25 @@ class RoverDevice:
         distance = math.sqrt(sum((t - c)**2 for t, c in zip(self._target_point, current_pos)))
         print(distance)
 
+        # Get gravity vector
+        gravity_vector = None
+        if self.gravity_device is not None:
+            self.gravity_device.update()
+            tel = self.gravity_device.telemetry or {}
+            grav_vec = tel.get("gravitationalVector")
+            if grav_vec:
+                # Parse gravitationalVector (assume it's a list or dict with x,y,z)
+                if isinstance(grav_vec, dict):
+                    try:
+                        gravity_vector = (float(grav_vec.get("x", 0.0)), float(grav_vec.get("y", 0.0)), float(grav_vec.get("z", 0.0)))
+                    except (ValueError, TypeError):
+                        gravity_vector = None
+                elif isinstance(grav_vec, (list, tuple)) and len(grav_vec) == 3:
+                    try:
+                        gravity_vector = (float(grav_vec[0]), float(grav_vec[1]), float(grav_vec[2]))
+                    except (ValueError, TypeError):
+                        gravity_vector = None
+
         # Emergency stop if too close and fast
         if distance < 50 and rover_speed > 10:
             self.stop()
@@ -255,7 +345,7 @@ class RoverDevice:
         # Compute steering and speed
         speed, steering = self._compute_steering_and_speed(
             current_pos, rover_forward, self._target_point,
-            self._base_speed, self._speed_factor, self._max_speed, self._steering_gain, self._min_distance, self._max_distance, rover_speed
+            self._base_speed, self._speed_factor, self._max_speed, self._steering_gain, self._min_distance, self._max_distance, rover_speed, gravity_vector
         )
 
         if speed == 0.0 and steering == 0.0:

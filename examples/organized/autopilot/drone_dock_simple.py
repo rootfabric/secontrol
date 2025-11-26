@@ -602,8 +602,8 @@ def dock_procedure(base_grid: str, ship_grid: str):
         rc_to_ship_conn = _sub(ship_conn_pos, rc_pos)
         print("rc_to_ship_conn (adjusted along ship-to-base vector)", rc_to_ship_conn)
 
-        if connector_pos != (1083866.5338009384,145816.5344619157, 1661753.3332283949):
-            exit(0)
+        # if connector_pos != (1083866.5338009384,145816.5344619157, 1661753.3332283949):
+        #     exit(0)
 
 
         print(connector_orientation)

@@ -16,7 +16,7 @@ MIN_DISTANCE = 20.0  # Минимальное расстояние до игро
 
 
 def main() -> None:
-    grid = prepare_grid()
+    grid = prepare_grid("Respawn Rover")
 
     try:
         # Найти радар
