@@ -2501,6 +2501,28 @@ class BaseDevice:
         target = telemetry if telemetry is not None else self._ensure_telemetry_dict()
         changed = False
 
+        # всегда пытаться прочитать новое имя из telemetry
+        new_name = None
+        for key in (
+            "customName",
+            "name",
+            "displayName",
+            "displayNameText",
+            "CustomName",
+            "DisplayName",
+        ):
+            value = target.get(key)
+            if value:
+                new_name = str(value).strip()
+                if new_name:
+                    break
+
+        if new_name and new_name != self.name:
+            self.name = new_name
+            self._cache_name_in_metadata()
+            changed = True
+
+        # записать в telemetry, если отличается
         if self.name:
             for key in (
                 "name",
@@ -2513,23 +2535,6 @@ class BaseDevice:
                 if target.get(key) != self.name:
                     target[key] = self.name
                     changed = True
-            self._cache_name_in_metadata()
-        else:
-            for key in (
-                "customName",
-                "name",
-                "displayName",
-                "displayNameText",
-                "CustomName",
-                "DisplayName",
-            ):
-                value = target.get(key)
-                if value:
-                    text_value = str(value)
-                    if text_value != self.name:
-                        self.name = text_value
-                        self._cache_name_in_metadata()
-                    break
 
         return changed
 
