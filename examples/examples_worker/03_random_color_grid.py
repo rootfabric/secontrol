@@ -13,7 +13,7 @@ from typing import Any, Dict, Iterable, Iterator, Sequence
 
 from secontrol.common import close, prepare_grid
 import random
-
+import  time
 
 def _normalize_bool(value: str | None) -> bool | None:
     if value is None:
@@ -93,5 +93,27 @@ def main() -> None:
         close(grid)
 
 
+
+class App:
+    def __init__(self, grid):
+        self.grid = grid
+        print(self.grid.name)
+        self.counter = 0
+
+    def start(self):
+        print("Started!")
+        main()
+
+    def step(self):
+        pass
+
+
+
 if __name__ == "__main__":
-    main()
+    grid = prepare_grid("Rover")
+    app = App(grid)
+
+    app.start()
+    while True:
+        app.step()
+        time.sleep(1)

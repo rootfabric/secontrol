@@ -103,9 +103,9 @@ def main() -> None:
         batch_size = 50
 
     # Можно указать GRID_ID, иначе используйте свою логику выбора
-    grid_id = os.getenv("GRID_ID", "143981447307572837")
 
-    grid = prepare_grid(grid_id)
+
+    grid = prepare_grid("Rover")
     try:
         blocks_with_ids = _collect_blocks_with_ids(grid.iter_blocks())
         if not blocks_with_ids:

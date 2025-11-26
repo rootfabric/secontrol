@@ -269,6 +269,9 @@ class RoverDevice:
         # Dot with up for signed component
         cross_sign = sum(cv * u for cv, u in zip(cross_vector, up))
 
+        # Flip sign to correct turn direction (clockwise vs counterclockwise)
+        cross_sign = -cross_sign
+
         angle = math.atan2(cross_sign, dot)
 
         # Use PID controller for steering
