@@ -480,9 +480,17 @@ class _PubSubSubscription:
         while not self._stop_event.is_set():
             try:
                 msg = self._pubsub.get_message(timeout=1.0)
-            except (redis.ConnectionError, redis.TimeoutError, OSError, ValueError) as _:
+            except (redis.ConnectionError, redis.TimeoutError, OSError, ValueError, AttributeError, EOFError, BrokenPipeError) as exc:
                 if self._stop_event.is_set():
                     break
+                # Log the error for debugging
+                try:
+                    import os as _os
+                    dbg = (_os.getenv("SECONTROL_DEBUG") or _os.getenv("SE_DEBUG") or _os.getenv("SEC_DEBUG") or "").strip().lower()
+                    if dbg in {"1", "true", "yes", "on"}:
+                        print(f"[redis] Connection error for {self._channel}: {type(exc).__name__}: {exc}, reconnecting...")
+                except Exception:
+                    pass
                 try:
                     self._pubsub.close()
                 except Exception:
@@ -494,6 +502,14 @@ class _PubSubSubscription:
                     else:
                         self._pubsub.subscribe(self._channel)
                     backoff = 0.5
+                    # Log successful reconnection
+                    try:
+                        import os as _os
+                        dbg = (_os.getenv("SECONTROL_DEBUG") or _os.getenv("SE_DEBUG") or _os.getenv("SEC_DEBUG") or "").strip().lower()
+                        if dbg in {"1", "true", "yes", "on"}:
+                            print(f"[redis] Reconnected to channel {self._channel}")
+                    except Exception:
+                        pass
                 except Exception:
                     time.sleep(backoff)
                     backoff = min(backoff * 2, 5.0)
@@ -580,7 +596,8 @@ class _PollingSubscription:
         import time as _t
         while not self._stop_event.is_set():
             try:
-                raw = self._client.get(self._key)
+                # raw = self._client.get(self._key)
+                raw = _read_key_value(self._client, self._key)
             except Exception:
                 raw = None
 
@@ -624,6 +641,3 @@ class _CompositeSubscription:
             except Exception:
                 pass
         self._subs.clear()
-
-
-    
