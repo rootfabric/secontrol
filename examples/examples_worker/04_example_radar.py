@@ -19,6 +19,13 @@ class App:
     def __init__(self, grid):
         self.grid = grid
         self.grid = prepare_grid(grid.name)
+        import os
+
+        url = os.getenv("REDIS_URL")
+        print("REDIS_URL =", url)
+        print("REDIS_USERNAME =", os.getenv("REDIS_USERNAME"))
+        print("REDIS_PASSWORD set =", bool(os.getenv("REDIS_PASSWORD")))
+
 
         # Найти радар
         detectors = grid.find_devices_by_type("ore_detector")
@@ -34,14 +41,23 @@ class App:
 
         print("Скан запущен. Ожидание телеметрии... (Ctrl+C для выхода)")
 
+    def _on_radar_telemetry(self, device, telemetry, source_event):
+        """Callback для обработки новой телеметрии от радара."""
+        print(f"Новое событие телеметрии от радара {device.name}:")
+        print(f"Источник события: {source_event}")
+        print(f"Телеметрия: {telemetry}")
+        print("---")
+
     def start(self):
         print("Started!")
+        # Подписываемся на события телеметрии радара
+        self.detector.on("telemetry", self._on_radar_telemetry)
 
     def step(self):
         self.detector.scan(include_players=True, include_grids=True, include_voxels=False, radius=500)
 
         print("-------------------------")
-        print(self.detector.telemetry)
+        # print(self.detector.telemetry)
 
         contacts = self.detector.contacts()
         # print(contacts)
@@ -49,66 +65,7 @@ class App:
         #     # print(contact)
         #     print(contact['name'])
         # return
-        player_pos = None
-        rover_pos = None
-        rover_forward = None
 
-        rover_speed = 0.0
-        for contact in contacts:
-            print(contact)
-            if contact.get("name") == "root":
-                print(contact)
-
-            if contact.get("type") == "player":
-                print(contact['name'])
-                print(contact['ownerId'])
-
-            if contact.get("type") == "player" and str(contact.get("ownerId")) == self.grid.owner_id:
-                player_pos = contact["position"]
-            elif contact.get("type") == "grid" and contact.get("name") == self.grid.name:
-                rover_pos = contact["position"]
-                rover_forward = contact["forward"]
-                rover_speed = contact.get("speed", 0.0)
-
-
-
-        if player_pos and rover_pos and rover_forward:
-            # Вычислить вектор от ровера к игроку
-            vector_to_player = [p - r for p, r in zip(player_pos, rover_pos)]
-            distance = math.sqrt(sum(v**2 for v in vector_to_player))
-            print(f"Положение игрока: {player_pos}")
-            print(f"Положение ровера: {rover_pos}")
-            print(f"Форвард ровера: {rover_forward}")
-            print(f"Вектор на игрока: {vector_to_player}")
-            print(f"Расстояние: {distance}")
-            print(f"Скорость ровера: {rover_speed}")
-
-            if distance > MIN_DISTANCE:
-                # Регулировка скорости
-                if distance < 50 and rover_speed > 10:
-                    self.rover._max_speed = 0.005
-                elif rover_speed < 2:
-                    self.rover._max_speed = 0.05
-                else:
-                    self.rover._max_speed = 0.04
-
-                if not self.rover._is_moving:
-                    print("Движение к игроку...")
-                    self.rover.move_to_point(player_pos, min_distance=MIN_DISTANCE)
-                self.rover.update_target(player_pos)
-
-                # Толчок, если скорость нулевая
-                if self.rover._is_moving and rover_speed < 0.1:
-                    print("Толчок для старта...")
-                    self.rover.drive(1, 0.0)
-                    time.sleep(0.5)
-            else:
-                print("Близко к игроку, остановка.")
-                self.rover.stop()
-                self.rover.park_on()
-                self.rover._is_moving = False
-        else:
-            print("Не удалось получить позиции игрока или ровера.")
 
 
 def main() -> None:
@@ -124,6 +81,11 @@ def main() -> None:
     except KeyboardInterrupt:
         print("Выход...")
     finally:
+        # Отписываемся от телеметрии радара
+        try:
+            app.detector.off("telemetry", app._on_radar_telemetry)
+        except Exception:
+            pass
         close(grid)
 
 
