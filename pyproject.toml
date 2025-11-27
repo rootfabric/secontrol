@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=67", "wheel"]
+requires = ["setuptools>=67", "wheel", "python-dotenv>=1.0", "redis>=4.5"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,11 +11,10 @@ requires-python = ">=3.9"
 authors = [
   { name = "secontrol contributors" }
 ]
-license = { file = "LICENSE" }
+license = "MIT"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.9",
