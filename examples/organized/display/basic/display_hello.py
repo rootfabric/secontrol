@@ -15,7 +15,7 @@ def main() -> None:
     owner_id = resolve_owner_id()
     print(f"Owner ID: {owner_id}")
 
-    grid = prepare_grid("139498645541187359")
+    grid = prepare_grid()
 
 
     # Find display devices

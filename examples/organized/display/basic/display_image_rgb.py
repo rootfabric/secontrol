@@ -85,7 +85,7 @@ def main() -> None:
 
 
     # Try to load an image file, or create a gradient if not found
-    image_file = pathlib.Path(__file__).parent / "C:\secontrol\examples\examples_direct_connect\mars_python.jpg"
+    image_file = pathlib.Path(__file__).parent / "C:\secontrol\examples\examples_direct_connect\mars_python.orig.png"
     if image_file.exists():
         print(f"Loading image from file: {image_file}")
         img = Image.open(image_file)

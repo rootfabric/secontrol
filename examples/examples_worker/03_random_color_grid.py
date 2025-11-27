@@ -96,7 +96,8 @@ def main() -> None:
 
 class App:
     def __init__(self, grid):
-        self.grid = grid
+        self.grid = prepare_grid(grid)
+
         print(self.grid.name)
         self.counter = 0
 

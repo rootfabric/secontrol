@@ -12,8 +12,8 @@ import secontrol
 
 
 class App:
-    def __init__(self, grid: Grid = None):
-        self.grid = grid
+    def __init__(self, grid_id):
+        self.grid = prepare_grid(grid_id)
 
         self.counter: int = 0
         # self._grid, self._owns_grid = _resolve_grid(grid, grid_id)
@@ -22,8 +22,8 @@ class App:
         print(f"[worker] secontrol version: {secontrol.__version__}", flush=True)
 
     def start(self):
-        # если у грида есть метод поиска по типу
-        lamps = list(self.grid.find_devices_by_type("lamp"))  # type: ignore[attr-defined]
+
+        lamps = list(self.grid.find_devices_by_type(LampDevice))
 
         self.lamps = lamps
         print(f"Lamps found: {len(self.lamps)}")
@@ -32,7 +32,7 @@ class App:
         self.counter += 1
         self._on = not self._on
 
-        # Переключаем все лампы; ошибки каждого устройства не валят цикл
+        # Переключаем все лампы; 
         for lamp in self.lamps:
             lamp.set_enabled(self._on)
 
