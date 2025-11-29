@@ -20,6 +20,7 @@ class RadarController:
         boundingBoxY: int = 500,
         boundingBoxZ: int = 500,
         radius: float = 50.0,
+        fullSolidScan = True
     ):
         self.radar: OreDetectorDevice = radar
 
@@ -32,6 +33,7 @@ class RadarController:
             "boundingBoxY": boundingBoxY,
             "boundingBoxZ": boundingBoxZ,
             "radius": radius,
+            "fullSolidScan":fullSolidScan
         }
 
         # Map data
@@ -43,8 +45,8 @@ class RadarController:
         # Scan state
         self.last_scan_state: Optional[dict] = None
 
-    def extract_solid(self, radar: Dict[str, Any]) -> tuple[List[List[float]], Dict[str, Any], List[Dict[str, Any]]]:
-        """Extract solid points, metadata, and contacts from radar data."""
+    def extract_solid(self, radar: Dict[str, Any]) -> tuple[List[List[float]], Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Extract solid points, metadata, contacts, and ore cells from radar data."""
         raw = radar.get("raw", {})
         solid = raw.get("solidPoints", [])
         if not isinstance(solid, list):
@@ -63,7 +65,11 @@ class RadarController:
         if not isinstance(contacts, list):
             contacts = []
 
-        return solid, metadata, contacts
+        ore_cells = radar.get("oreCells", [])
+        if not isinstance(ore_cells, list):
+            ore_cells = []
+
+        return solid, metadata, contacts, ore_cells
 
     def set_scan_params(self, **kwargs):
         """Update scan parameters."""
@@ -131,7 +137,6 @@ class RadarController:
             include_players=True,
             include_grids=True,
             include_voxels=True,
-            fullSolidScan=True,
             **self.scan_params
         )
         print(f"Scan sent, seq={seq}")
@@ -157,7 +162,6 @@ class RadarController:
                     last_progress = progress
                 elif not in_progress:
                     print(f"[scan] Completed: {progress:.1f}% ({processed}/{total} tiles, {elapsed:.1f}s)")
-                    print(tel)
                     break
 
         end_time = time.time()
@@ -170,13 +174,13 @@ class RadarController:
             print("No radar data received.")
             return None, None, None
 
-        solid, metadata, contacts = self.extract_solid(radar_data)
+        solid, metadata, contacts, ore_cells = self.extract_solid(radar_data)
         print(f"Received solid: {len(solid)} points, rev={metadata['rev']}, truncated={metadata['oreCellsTruncated']}")
 
         # Count grids and players
         grids = [c for c in contacts if c.get("type") == "grid"]
         players = [c for c in contacts if c.get("type") == "player"]
-        print(f"Grids found: {len(grids)}, Players found: {len(players)}")
+        print(f"Grids found: {len(grids)}, Players found: {len(players)}, Ores found: {len(ore_cells)}")
 
         # Build occupancy grid for compatibility
         if solid:
@@ -208,7 +212,7 @@ class RadarController:
             self.cell_size = cell_sz
             self.size = (size_x, size_y, size_z)
 
-        return solid, metadata, contacts
+        return solid, metadata, contacts, ore_cells
 
     def get_surface_height(self, world_x: float, world_z: float) -> Optional[float]:
         """Get surface height (max solid voxel y) at world position (x,z)."""

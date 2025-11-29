@@ -16,9 +16,10 @@ class RadarVisualizer:
         solid: List[List[float]],
         metadata: Dict[str, Any],
         contacts: List[Dict[str, Any]],
-        own_position: Optional[List[float]] = None
+        own_position: Optional[List[float]] = None,
+        ore_cells: Optional[List[Dict[str, Any]]] = None
     ):
-        """Visualize solid voxels, contacts, and own position."""
+        """Visualize solid voxels, contacts, own position, and ore cells."""
         if not solid:
             print("No solid data to visualize.")
             return
@@ -98,6 +99,18 @@ class RadarVisualizer:
         if player_points:
             player_cloud = pv.PolyData(player_points)
             self.plotter.add_mesh(player_cloud, color="red", point_size=10, label="Players")
+
+        # Ore cells (yellow)
+        if ore_cells:
+            ore_points = []
+            for ore in ore_cells:
+                pos = ore.get("position")
+                if pos:
+                    ore_points.append(pos)
+
+            if ore_points:
+                ore_cloud = pv.PolyData(ore_points)
+                self.plotter.add_mesh(ore_cloud, color="yellow", point_size=5, label="Ores")
 
         self.plotter.add_text(f"Radar Data (points={len(solid)})", position="upper_left")
         self.plotter.show(title="Radar Visualization")

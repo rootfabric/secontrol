@@ -22,19 +22,23 @@ def main() -> None:
         print(f"Found radar: {radar.name} (id={radar.device_id})")
 
         # Create controller
-        controller = RadarController(radar)
+        controller = RadarController(radar, fullSolidScan=True)
 
         # Scan voxels
         print("Starting voxel scan...")
-        solid, metadata, contacts = controller.scan_voxels()
+        solid, metadata, contacts, ore_cells = controller.scan_voxels()
 
         # Check results
-        if solid is not None and metadata is not None and contacts is not None:
+        if solid is not None and metadata is not None and contacts is not None and ore_cells is not None:
             print(f"Scan completed successfully!")
             print(f"Grid size: {metadata['size']}")
             print(f"Origin: {metadata['origin']}")
             print(f"Cell size: {metadata['cellSize']}")
             print(f"Total solid voxels: {len(solid)}")
+            print(f"Total ore cells: {len(ore_cells)}")
+            if len(ore_cells)>0:
+                print(f"Total ore cells: {ore_cells}")
+
 
             # Check occupancy_grid for compatibility
             if controller.occupancy_grid is not None:

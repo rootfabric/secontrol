@@ -15,8 +15,8 @@ last_solid_data = None
 visualizer = RadarVisualizer()
 
 
-def extract_solid(radar: Dict[str, Any]) -> tuple[list[list[float]], Dict[str, Any], list[Dict[str, Any]]]:
-    """Extract solid points, metadata, and contacts from radar data."""
+def extract_solid(radar: Dict[str, Any]) -> tuple[list[list[float]], Dict[str, Any], list[Dict[str, Any]], list[Dict[str, Any]]]:
+    """Extract solid points, metadata, contacts, and ore cells from radar data."""
     raw = radar.get("raw", {})
     solid = raw.get("solidPoints", [])
     if not isinstance(solid, list):
@@ -33,7 +33,11 @@ def extract_solid(radar: Dict[str, Any]) -> tuple[list[list[float]], Dict[str, A
     if not isinstance(contacts, list):
         contacts = []
 
-    return solid, metadata, contacts
+    ore_cells = radar.get("oreCells", [])
+    if not isinstance(ore_cells, list):
+        ore_cells = []
+
+    return solid, metadata, contacts, ore_cells
 
 
 def get_own_position(grid):
@@ -93,12 +97,12 @@ def main() -> None:
 
         # Scan voxels
         print("Starting voxel scan...")
-        solid, metadata, contacts = controller.scan_voxels()
+        solid, metadata, contacts, ore_cells = controller.scan_voxels()
 
-        if solid is not None and metadata is not None and contacts is not None:
+        if solid is not None and metadata is not None and contacts is not None and ore_cells is not None:
             print("Visualizing...")
             own_position = get_own_position(grid)
-            visualizer.visualize(solid, metadata, contacts, own_position)
+            visualizer.visualize(solid, metadata, contacts, own_position, ore_cells)
         else:
             print("Scan failed.")
 
