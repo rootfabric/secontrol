@@ -45,11 +45,72 @@ class SurfaceFlightController:
         """Scan voxels using the radar controller."""
         return self.radar_controller.scan_voxels()
 
+    def _get_down_vector(self) -> Tuple[float, float, float]:
+        gravity_vector = self.rc.telemetry.get("gravitationalVector") if self.rc.telemetry else None
+        if gravity_vector:
+            g_x, g_y, g_z = gravity_vector.get("x", 0.0), gravity_vector.get("y", 0.0), gravity_vector.get("z", 0.0)
+            g_len = math.sqrt(g_x ** 2 + g_y ** 2 + g_z ** 2)
+            if g_len:
+                return (g_x / g_len, g_y / g_len, g_z / g_len)
+        return (0.0, -1.0, 0.0)
+
+    def _project_forward_to_horizontal(self, forward: Tuple[float, float, float], down: Tuple[float, float, float]) -> Tuple[float, float, float]:
+        dot_fg = forward[0] * down[0] + forward[1] * down[1] + forward[2] * down[2]
+        horizontal_forward = (
+            forward[0] - dot_fg * down[0],
+            forward[1] - dot_fg * down[1],
+            forward[2] - dot_fg * down[2],
+        )
+
+        horiz_len = math.sqrt(horizontal_forward[0] ** 2 + horizontal_forward[1] ** 2 + horizontal_forward[2] ** 2)
+        if horiz_len == 0:
+            print("Cannot compute horizontal forward vector, using original forward direction.")
+            horiz_len = math.sqrt(forward[0] ** 2 + forward[1] ** 2 + forward[2] ** 2) or 1.0
+            return (
+                forward[0] / horiz_len,
+                forward[1] / horiz_len,
+                forward[2] / horiz_len,
+            )
+
+        return (
+            horizontal_forward[0] / horiz_len,
+            horizontal_forward[1] / horiz_len,
+            horizontal_forward[2] / horiz_len,
+        )
+
+    def _compute_target_over_surface(self, pos: Tuple[float, float, float], forward: Tuple[float, float, float], distance: float, altitude: float) -> Tuple[float, float, float]:
+        down = self._get_down_vector()
+        horiz_dir = self._project_forward_to_horizontal(forward, down)
+
+        target_base = (
+            pos[0] + horiz_dir[0] * distance,
+            pos[1] + horiz_dir[1] * distance,
+            pos[2] + horiz_dir[2] * distance,
+        )
+
+        surface_y = self.radar_controller.get_surface_height(target_base[0], target_base[2])
+        if surface_y is not None:
+            target_point = (
+                target_base[0],
+                surface_y + altitude,
+                target_base[2],
+            )
+            print(
+                "Computed target above surface:",
+                f"base={target_base}",
+                f"surface_y={surface_y:.2f}",
+                f"target={target_point}",
+            )
+        else:
+            target_point = target_base
+            print(f"Surface not found under base point, flying to {target_point}")
+
+        return target_point
+
     def fly_forward_over_surface(self, distance: float, altitude: float):
         """Fly forward for given distance, maintaining altitude above surface."""
         print(f"Flying forward {distance}m at {altitude}m above surface.")
 
-        # Get current position
         pos = _get_pos(self.rc)
         if not pos:
             print("Cannot get current position.")
@@ -57,45 +118,23 @@ class SurfaceFlightController:
 
         self.visited_points.append(pos)
 
-        # Get forward direction
         forward, _, _ = self.rc.get_orientation_vectors_world()
         print(f"Forward vector: {forward}")
 
-        remaining = distance
-        segment = 10.0  # Fly in 10m segments
+        target_point = self._compute_target_over_surface(pos, forward, distance, altitude)
+        self.grid.create_gps_marker(f"Target{distance:.0f}m", coordinates=target_point)
 
-        while remaining > 0:
-            seg = min(segment, remaining)
+        _fly_to(
+            self.rc,
+            target_point,
+            f"MoveForward{distance:.0f}m",
+            speed_far=10.0,
+            speed_near=5.0,
+        )
 
-            # Target position
-            target_x = pos[0] + forward[0] * seg
-            target_z = pos[2] + forward[2] * seg
-
-            # Adjust height to surface + altitude
-            surf_h = self.radar_controller.get_surface_height(target_x, target_z)
-            if surf_h is not None:
-                target_y = surf_h + altitude
-            else:
-                target_y = pos[1]  # Keep current height
-
-            # Debug: print target GPS
-            print(f"Target GPS: GPS:Segment{seg:.0f}m:{target_x:.2f}:{target_y:.2f}:{target_z:.2f}")
-
-            # Fly to target
-            _fly_to(
-                self.rc,
-                (target_x, target_y, target_z),
-                f"FlySegment{seg:.0f}m",
-                speed_far=10.0,
-                speed_near=5.0
-            )
-
-            # Update position
-            pos = _get_pos(self.rc)
-            if pos:
-                self.visited_points.append(pos)
-
-            remaining -= seg
+        pos = _get_pos(self.rc)
+        if pos:
+            self.visited_points.append(pos)
 
         print(f"Flight complete. Visited points: {len(self.visited_points)}")
 
@@ -178,10 +217,9 @@ class SurfaceFlightController:
         print("Move complete.")
 
     def move_forward_at_altitude(self, distance: float, altitude: float):
-        """Move forward for given distance, maintaining altitude above surface."""
+        """Move forward horizontally and stop at a point above the surface."""
         print(f"Moving forward {distance}m at {altitude}m above surface.")
 
-        # Get current position
         pos = _get_pos(self.rc)
         if not pos:
             print("Cannot get current position.")
@@ -189,62 +227,19 @@ class SurfaceFlightController:
 
         self.visited_points.append(pos)
 
-        # Get forward direction and gravity
-        forward, up, _ = self.rc.get_orientation_vectors_world()
-        gravity = self.rc.telemetry.get("gravitationalVector") if self.rc.telemetry else None
+        forward, _, _ = self.rc.get_orientation_vectors_world()
+        target_point = self._compute_target_over_surface(pos, forward, distance, altitude)
 
-        # Calculate forward_point = pos + forward * distance
-        forward_point = (
-            pos[0] + forward[0] * distance,
-            pos[1] + forward[1] * distance,
-            pos[2] + forward[2] * distance
-        )
+        self.grid.create_gps_marker(f"Target{distance:.0f}m", coordinates=target_point)
 
-        # Find contact_point: drop down from forward_point along gravity to surface
-        contact_y = self.radar_controller.get_surface_height(forward_point[0], forward_point[2])
-        if contact_y is not None:
-            contact_point = (forward_point[0], contact_y, forward_point[2])
-
-            # Calculate up direction = -gravity_norm
-            if gravity:
-                g_x, g_y, g_z = gravity.get("x", 0), gravity.get("y", 0), gravity.get("z", 0)
-                g_magnitude = math.sqrt(g_x**2 + g_y**2 + g_z**2)
-                if g_magnitude > 0:
-                    g_norm = (g_x / g_magnitude, g_y / g_magnitude, g_z / g_magnitude)
-                    # Target point = contact_point + up * altitude = contact_point - g_norm * altitude
-                    target_point = (
-                        contact_point[0] - g_norm[0] * altitude,
-                        contact_point[1] - g_norm[1] * altitude,
-                        contact_point[2] - g_norm[2] * altitude
-                    )
-                else:
-                    # Fallback: assume up is (0,1,0)
-                    target_point = (contact_point[0], contact_point[1] + altitude, contact_point[2])
-            else:
-                # No gravity, assume up is (0,1,0)
-                target_point = (contact_point[0], contact_point[1] + altitude, contact_point[2])
-
-            print(f"Forward point: {forward_point}, Contact point: {contact_point}, Target point: {target_point}")
-        else:
-            # No surface found, fallback to forward_point
-            target_point = forward_point
-            print(f"No surface found at forward point, using forward point: {target_point}")
-
-        target_x, target_y, target_z = target_point
-
-        # Create GPS marker for debugging
-        self.grid.create_gps_marker(f"Target{distance:.0f}m", coordinates=(target_x, target_y, target_z))
-
-        # Fly to target
         _fly_to(
             self.rc,
-            (target_x, target_y, target_z),
+            target_point,
             f"MoveForward{distance:.0f}m",
             speed_far=10.0,
-            speed_near=5.0
+            speed_near=5.0,
         )
 
-        # Update position
         pos = _get_pos(self.rc)
         if pos:
             self.visited_points.append(pos)
