@@ -80,6 +80,7 @@ def process_and_visualize(solid: list[list[float]], metadata: Dict[str, Any], co
 
 def main() -> None:
     grid = prepare_grid("taburet")
+    # grid = prepare_grid("DroneBase")
 
     try:
         radar = grid.get_first_device(OreDetectorDevice)
@@ -88,20 +89,24 @@ def main() -> None:
 
         # Create controller
         controller = RadarController(radar,
-                                     radius=200,
+                                     radius=100,
                                      voxel_step=1,
                                      cell_size=10.0,
-                                     boundingBoxX=10,
-                                     boundingBoxZ=10
+                                     # boundingBoxX=20,
+                                     # boundingBoxZ=20,
+                                     # boundingBoxY=50,
+                                     # fullSolidScan=True
                                      )
 
         # Scan voxels
         print("Starting voxel scan...")
         solid, metadata, contacts, ore_cells = controller.scan_voxels()
 
+
         if solid is not None and metadata is not None and contacts is not None and ore_cells is not None:
             print("Visualizing...")
             own_position = get_own_position(grid)
+
             visualizer.visualize(solid, metadata, contacts, own_position, ore_cells)
         else:
             print("Scan failed.")

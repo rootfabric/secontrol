@@ -20,7 +20,8 @@ class RadarController:
         boundingBoxY: int = 500,
         boundingBoxZ: int = 500,
         radius: float = 50.0,
-        fullSolidScan = True
+        fullSolidScan = True,
+        filter_no_stone: bool = True
     ):
         self.radar: OreDetectorDevice = radar
 
@@ -44,6 +45,7 @@ class RadarController:
 
         # Scan state
         self.last_scan_state: Optional[dict] = None
+        self.filter_no_stone = filter_no_stone
 
     def extract_solid(self, radar: Dict[str, Any]) -> tuple[List[List[float]], Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Extract solid points, metadata, contacts, and ore cells from radar data."""
@@ -70,6 +72,15 @@ class RadarController:
             ore_cells = []
 
         return solid, metadata, contacts, ore_cells
+
+    def filter_valuable_ore_cells(self, ore_cells: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Filter ore cells to exclude Stone, keeping only valuable minerals."""
+        valuable_ores = []
+        for cell in ore_cells:
+            material = cell.get("material") or cell.get("ore")
+            if material != "Stone":
+                valuable_ores.append(cell)
+        return valuable_ores
 
     def set_scan_params(self, **kwargs):
         """Update scan parameters."""
@@ -127,7 +138,7 @@ class RadarController:
 
         return contacts
 
-    def scan_voxels(self):
+    def scan_voxels(self, filter_no_stone = None):
         """Scan voxels, process result and return solid, metadata, contacts."""
         print(f"Scanning voxels...")
         start_time = time.time()
@@ -143,6 +154,7 @@ class RadarController:
 
         # Wait for scan completion
         last_progress = -1
+        radar_data = None
         while True:
             time.sleep(0.1)
             self.radar.update()
@@ -162,25 +174,43 @@ class RadarController:
                     last_progress = progress
                 elif not in_progress:
                     print(f"[scan] Completed: {progress:.1f}% ({processed}/{total} tiles, {elapsed:.1f}s)")
+                    radar_data = tel.get("radar")
+                    # print(radar_data)
                     break
 
         end_time = time.time()
         scan_duration = end_time - start_time
         print(f"Total scan time: {scan_duration:.2f}s")
 
-        tel = self.radar.telemetry or {}
-        radar_data = tel.get("radar")
         if not radar_data:
             print("No radar data received.")
-            return None, None, None
+            return None, None, None, None
 
         solid, metadata, contacts, ore_cells = self.extract_solid(radar_data)
         print(f"Received solid: {len(solid)} points, rev={metadata['rev']}, truncated={metadata['oreCellsTruncated']}")
 
+        # Determine filter setting
+        if filter_no_stone is None:
+            filter_no_stone = self.filter_no_stone
+
+        # Filter valuable ore cells (exclude Stone)
+        if filter_no_stone:
+            ore_cells = self.filter_valuable_ore_cells(ore_cells)
+
         # Count grids and players
         grids = [c for c in contacts if c.get("type") == "grid"]
         players = [c for c in contacts if c.get("type") == "player"]
-        print(f"Grids found: {len(grids)}, Players found: {len(players)}, Ores found: {len(ore_cells)}")
+        ore_label = "Valuable ores" if filter_no_stone else "Ores"
+        print(f"Grids found: {len(grids)}, Players found: {len(players)}, {ore_label} found: {len(ore_cells)}")
+
+        # Show ore data
+        if ore_cells:
+            print(f"{ore_label}:")
+            for cell in ore_cells:
+                material = cell.get("material") or cell.get("ore") or "Unknown"
+                content = cell.get("content", "N/A")
+                position = cell.get("position", "N/A")
+                print(f"  {material}: content={content}, position={position}")
 
         # Build occupancy grid for compatibility
         if solid:

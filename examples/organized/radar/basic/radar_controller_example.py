@@ -8,7 +8,7 @@ from secontrol.controllers.radar_controller import RadarController
 
 
 def main() -> None:
-    grid = prepare_grid("taburet")  # Replace with actual grid name
+    grid = prepare_grid("Drone")  # Replace with actual grid name
 
     try:
         # Find radar
@@ -22,7 +22,7 @@ def main() -> None:
         print(f"Found radar: {radar.name} (id={radar.device_id})")
 
         # Create controller
-        controller = RadarController(radar, fullSolidScan=True)
+        controller = RadarController(radar, radius = 80)
 
         # Scan voxels
         print("Starting voxel scan...")
