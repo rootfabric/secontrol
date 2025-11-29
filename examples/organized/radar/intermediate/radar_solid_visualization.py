@@ -190,7 +190,7 @@ def main() -> None:
     input_t = threading.Thread(target=input_thread, daemon=True)
     input_t.start()
 
-    grid = prepare_grid()
+    grid = prepare_grid("taburet")
     try:
         # Найти ore_detector
         # detectors = grid.find_devices_by_type("ore_detector")
@@ -244,19 +244,19 @@ def main() -> None:
             include_voxels=True,
             fullSolidScan = True,
             voxel_step=1,
-            cell_size=10,
+            cell_size=20,
             fast_scan=False,
 
             # Быстрый скан
             # include_voxels=True,
             # fast_scan=True,
-            # gridStep=5,
+            # gridStep=10,
 
             boundingBoxX=500,
             boundingBoxY=500,
-            boundingBoxZ=30,
+            boundingBoxZ=500,
 
-            radius = 300,
+            radius = 100,
 
             # centerX=centerX,
             # centerY=centerY,

@@ -88,7 +88,7 @@ def main() -> None:
 
         print("---")
 
-    grid = prepare_grid()
+    grid = prepare_grid("taburet")
     try:
         # Найти ore_detector
         detectors = grid.find_devices_by_type(OreDetectorDevice)
