@@ -324,6 +324,68 @@ class SurfaceFlightController:
         if new_pos:
             self.visited_points.append(new_pos)
 
+    def cruise_along_surface(self, forward_distance: float, altitude: float, altitude_tolerance: float = 1.0):
+        """
+        Keep the craft at the desired ``altitude`` above ground and move forward.
+
+        The controller first corrects altitude above the current voxel surface,
+        then computes a forward target following the sampled terrain profile.
+        """
+        pos = _get_pos(self.rc)
+        if not pos:
+            print("Cannot get current position.")
+            return
+
+        if self.radar_controller.occupancy_grid is None:
+            print("No radar occupancy grid, performing scan...")
+            self.scan_voxels()
+
+        current_surface = self.radar_controller.get_surface_height(pos[0], pos[2])
+        if current_surface is not None:
+            current_altitude = pos[1] - current_surface
+            altitude_error = current_altitude - altitude
+            print(
+                f"Current altitude over surface: {current_altitude:.2f}m (target {altitude:.2f}m, error {altitude_error:.2f}m)"
+            )
+            if abs(altitude_error) > altitude_tolerance:
+                correction_target = (pos[0], current_surface + altitude, pos[2])
+                print(
+                    f"Altitude out of tolerance (>{altitude_tolerance}m). "
+                    f"Moving to corrected height at {correction_target[1]:.2f}m."
+                )
+                _fly_to(
+                    self.rc,
+                    correction_target,
+                    "AdjustAltitude",
+                    speed_far=5.0,
+                    speed_near=3.0,
+                )
+                pos = _get_pos(self.rc) or pos
+        else:
+            print("Surface height unavailable at current position; skipping altitude correction.")
+
+        self.visited_points.append(pos)
+
+        forward, _, _ = self.rc.get_orientation_vectors_world()
+        print(f"Forward vector: {forward}")
+
+        target_point = self._compute_target_over_surface(pos, forward, forward_distance, altitude)
+        self.grid.create_gps_marker(f"CruiseTarget{forward_distance:.0f}m", coordinates=target_point)
+
+        _fly_to(
+            self.rc,
+            target_point,
+            f"CruiseForward{forward_distance:.0f}m",
+            speed_far=10.0,
+            speed_near=5.0,
+        )
+
+        new_pos = _get_pos(self.rc)
+        if new_pos:
+            self.visited_points.append(new_pos)
+
+        print("Cruise complete.")
+
     def fly_forward_over_surface(self, distance: float, altitude: float):
         """Fly forward for given distance, maintaining altitude above surface."""
         print(f"Flying forward {distance}m at {altitude}m above surface.")
