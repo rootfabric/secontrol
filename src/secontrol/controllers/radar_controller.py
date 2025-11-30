@@ -2,6 +2,8 @@ from typing import Optional, Tuple, List, Dict, Any
 import time
 import numpy as np
 from secontrol.devices.ore_detector_device import OreDetectorDevice
+from secontrol.devices.remote_control_device import RemoteControlDevice
+from secontrol.tools.navigation_tools import fly_to_point, get_world_position
 
 
 class RadarController:
@@ -21,7 +23,9 @@ class RadarController:
         boundingBoxZ: int = 500,
         radius: float = 50.0,
         fullSolidScan = True,
-        filter_no_stone: bool = True
+        filter_no_stone: bool = True,
+        telemetry_retries: int = 5,
+        telemetry_retry_delay: float = 0.5
     ):
         self.radar: OreDetectorDevice = radar
 
@@ -46,6 +50,8 @@ class RadarController:
         # Scan state
         self.last_scan_state: Optional[dict] = None
         self.filter_no_stone = filter_no_stone
+        self.telemetry_retries = telemetry_retries
+        self.telemetry_retry_delay = telemetry_retry_delay
 
     def extract_solid(self, radar: Dict[str, Any]) -> tuple[List[List[float]], Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Extract solid points, metadata, contacts, and ore cells from radar data."""
@@ -121,10 +127,18 @@ class RadarController:
                     print(f"[scan] Completed: {progress:.1f}% ({processed}/{total} tiles, {elapsed:.1f}s)")
                     break
 
-        tel = self.radar.telemetry or {}
-        radar_data = tel.get("radar")
+        # Retry to get radar data after scan completion
+        radar_data = None
+        for attempt in range(self.telemetry_retries):
+            self.radar.update()
+            tel = self.radar.telemetry or {}
+            radar_data = tel.get("radar")
+            if radar_data:
+                break
+            time.sleep(self.telemetry_retry_delay)
+
         if not radar_data:
-            print("No radar data received.")
+            print("No radar data received after retries.")
             return None
 
         contacts = radar_data.get("contacts", [])
@@ -138,7 +152,7 @@ class RadarController:
 
         return contacts
 
-    def scan_voxels(self, filter_no_stone = None):
+    def scan_voxels(self, filter_no_stone = None, **scan_kwargs):
         """Scan voxels, process result and return solid, metadata, contacts."""
         print(f"Scanning voxels...")
         start_time = time.time()
@@ -148,17 +162,18 @@ class RadarController:
             include_players=True,
             include_grids=True,
             include_voxels=True,
-            **self.scan_params
+            **{**self.scan_params, **scan_kwargs}
         )
         print(f"Scan sent, seq={seq}")
 
         # Wait for scan completion
         last_progress = -1
         radar_data = None
-        time.sleep(0.3)
+        # time.sleep(0.3)
         while True:
-            time.sleep(0.1)
-            self.radar.update()
+            # time.sleep(0.1)
+            # self.radar.update()
+            self.radar.wait_for_telemetry()
 
             tel = self.radar.telemetry or {}
             scan = tel.get("scan", {})
@@ -175,16 +190,24 @@ class RadarController:
                     last_progress = progress
                 elif not in_progress:
                     print(f"[scan] Completed: {progress:.1f}% ({processed}/{total} tiles, {elapsed:.1f}s)")
-                    radar_data = tel.get("radar")
-                    # print(radar_data)
                     break
 
         end_time = time.time()
         scan_duration = end_time - start_time
         print(f"Total scan time: {scan_duration:.2f}s")
 
+        # Retry to get radar data after scan completion
+        radar_data = None
+        for attempt in range(self.telemetry_retries):
+            self.radar.update()
+            tel = self.radar.telemetry or {}
+            radar_data = tel.get("radar")
+            if radar_data:
+                break
+            time.sleep(self.telemetry_retry_delay)
+
         if not radar_data:
-            print("No radar data received.")
+            print("No radar data received after retries.")
             return None, None, None, None
 
         solid, metadata, contacts, ore_cells = self.extract_solid(radar_data)
