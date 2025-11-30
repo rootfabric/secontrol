@@ -470,12 +470,15 @@ if __name__ == "__main__":
     # controller.move_forward_simple(10)
     solid, metadata, contacts, ore_cells = controller.scan_voxels()
 
+
+    controller._find_surface_point_along_gravity
+
     # Visualize radar data
-    from secontrol.tools.radar_visualizer import RadarVisualizer
-    visualizer = RadarVisualizer()
-    own_pos = _get_pos(controller.rc)
-    print(solid)
-    visualizer.visualize(solid, metadata, contacts, own_position=own_pos, ore_cells=ore_cells)
+    # from secontrol.tools.radar_visualizer import RadarVisualizer
+    # visualizer = RadarVisualizer()
+    # own_pos = _get_pos(controller.rc)
+    # print(solid)
+    # visualizer.visualize(solid, metadata, contacts, own_position=own_pos, ore_cells=ore_cells)
 
     controller.fly_forward_over_surface(10, 10)
     print("Visited points:", controller.get_visited_points())
