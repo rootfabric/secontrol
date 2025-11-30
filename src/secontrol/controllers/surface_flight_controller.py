@@ -1,18 +1,49 @@
 from __future__ import annotations
 import math
-import os
-import sys
-from typing import Tuple, List
-
-sys.path.append(os.path.dirname(__file__))
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'examples'))
+from typing import Tuple, List, Optional
 
 from secontrol.common import prepare_grid
 from secontrol.devices.ore_detector_device import OreDetectorDevice
 from secontrol.devices.remote_control_device import RemoteControlDevice
 from secontrol.controllers.radar_controller import RadarController
 
-from examples.organized.autopilot.drone_dock_helpers import _get_pos, _fly_to
+def _get_pos(dev) -> Optional[Tuple[float, float, float]]:
+    """Read world position from device telemetry."""
+    tel = dev.telemetry or {}
+    pos = tel.get("worldPosition") or tel.get("position")
+    if not pos:
+        return None
+    return (pos.get("x", 0.0), pos.get("y", 0.0), pos.get("z", 0.0))
+
+
+def _fly_to(
+    remote: RemoteControlDevice,
+    target: Tuple[float, float, float],
+    name: str,
+    speed_far: float = 10.0,
+    speed_near: float = 5.0,
+):
+    """Send the remote control towards a GPS point with basic logging."""
+    remote.update()
+    current = _get_pos(remote)
+    distance = None
+    if current:
+        dx = target[0] - current[0]
+        dy = target[1] - current[1]
+        dz = target[2] - current[2]
+        distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+    speed = speed_far if distance is None or distance > 30.0 else speed_near
+    gps = f"GPS:{name}:{target[0]:.2f}:{target[1]:.2f}:{target[2]:.2f}:"
+
+    print(
+        f"Sending RC to {name}: target=({target[0]:.2f}, {target[1]:.2f}, {target[2]:.2f}), "
+        f"distance={distance:.2f}m" if distance is not None else "distance=unknown",
+    )
+
+    remote.set_mode("oneway")
+    remote.set_collision_avoidance(False)
+    remote.goto(gps, speed=speed, gps_name=name, dock=False)
 
 
 class SurfaceFlightController:
@@ -187,6 +218,111 @@ class SurfaceFlightController:
         )
 
         return target_point
+
+    def _find_surface_point_along_gravity(
+        self,
+        position: Tuple[float, float, float],
+        down: Tuple[float, float, float],
+        max_distance: float,
+        step: float,
+    ) -> Optional[Tuple[float, float, float]]:
+        """
+        Trace along the gravity vector to find the first solid voxel point.
+
+        Returns the center of the first solid cell encountered or ``None`` if
+        nothing is found within ``max_distance``.
+        """
+        if (
+            self.radar_controller.occupancy_grid is None
+            or self.radar_controller.origin is None
+            or self.radar_controller.cell_size is None
+            or self.radar_controller.size is None
+        ):
+            print("No voxel grid to trace against.")
+            return None
+
+        origin = self.radar_controller.origin
+        cell_size = self.radar_controller.cell_size
+        size_x, size_y, size_z = self.radar_controller.size
+
+        traveled = 0.0
+        while traveled <= max_distance:
+            sample = (
+                position[0] + down[0] * traveled,
+                position[1] + down[1] * traveled,
+                position[2] + down[2] * traveled,
+            )
+
+            idx_x = int((sample[0] - origin[0]) / cell_size)
+            idx_y = int((sample[1] - origin[1]) / cell_size)
+            idx_z = int((sample[2] - origin[2]) / cell_size)
+
+            if 0 <= idx_x < size_x and 0 <= idx_y < size_y and 0 <= idx_z < size_z:
+                if self.radar_controller.occupancy_grid[idx_x, idx_y, idx_z]:
+                    return (
+                        origin[0] + (idx_x + 0.5) * cell_size,
+                        origin[1] + (idx_y + 0.5) * cell_size,
+                        origin[2] + (idx_z + 0.5) * cell_size,
+                    )
+
+            traveled += step
+
+        return None
+
+    def lift_drone_to_altitude(
+        self,
+        altitude: float,
+        trace_step: Optional[float] = None,
+        trace_distance: Optional[float] = None,
+    ):
+        """
+        Move the grid to stay ``altitude`` meters above the nearest surface
+        along the gravity vector.
+        """
+        pos = _get_pos(self.rc)
+        if not pos:
+            print("Cannot get current position.")
+            return
+
+        if self.radar_controller.occupancy_grid is None:
+            print("No radar occupancy grid, performing scan...")
+            self.scan_voxels()
+
+        cell_size = self.radar_controller.cell_size or 5.0
+        max_trace = trace_distance or cell_size * (self.radar_controller.size[1] if self.radar_controller.size else 50)
+        step = trace_step or cell_size
+
+        down = self._get_down_vector()
+        up = (-down[0], -down[1], -down[2])
+
+        surface_point = self._find_surface_point_along_gravity(pos, down, max_trace, step)
+        if surface_point is None:
+            # Fallback to vertical lookup using x/z column
+            surface_height = self.radar_controller.get_surface_height(pos[0], pos[2])
+            if surface_height is not None:
+                surface_point = (pos[0], surface_height, pos[2])
+                print("Surface found via vertical lookup.")
+            else:
+                print("Surface not found; moving along up vector from current position.")
+                surface_point = pos
+
+        target_point = (
+            surface_point[0] + up[0] * altitude,
+            surface_point[1] + up[1] * altitude,
+            surface_point[2] + up[2] * altitude,
+        )
+
+        print(
+            f"Lifting to altitude: surface={surface_point}, target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
+        )
+
+        self.visited_points.append(pos)
+        self.grid.create_gps_marker("LiftTarget", coordinates=target_point)
+        _fly_to(self.rc, target_point, "LiftToAltitude", speed_far=10.0, speed_near=5.0)
+
+        new_pos = _get_pos(self.rc)
+        if new_pos:
+            self.visited_points.append(new_pos)
 
     def fly_forward_over_surface(self, distance: float, altitude: float):
         """Fly forward for given distance, maintaining altitude above surface."""
