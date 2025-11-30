@@ -324,6 +324,80 @@ class SurfaceFlightController:
         if new_pos:
             self.visited_points.append(new_pos)
 
+    def calculate_surface_point_at_altitude(
+        self,
+        position: Tuple[float, float, float],
+        altitude: float,
+    ) -> Tuple[float, float, float]:
+        """
+        Calculate a point at the specified altitude above the surface for given coordinates.
+
+        Uses gravity-based tracing to find the surface point below the given position, then adds altitude along the up vector.
+        More low-level than lift_drone_to_altitude, operates on any position.
+        """
+        cell_size = self.radar_controller.cell_size or 5.0
+        max_trace = cell_size * (self.radar_controller.size[1] if self.radar_controller.size else 50)
+        step = cell_size
+
+        down = self._get_down_vector()
+        surface_point = self._find_surface_point_along_gravity(position, down, max_trace, step)
+        if surface_point is not None:
+            up = (-down[0], -down[1], -down[2])
+            target_point = (
+                surface_point[0] + up[0] * altitude,
+                surface_point[1] + up[1] * altitude,
+                surface_point[2] + up[2] * altitude,
+            )
+            print(
+                f"Calculated point at altitude: position=({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}), "
+                f"surface_point=({surface_point[0]:.2f}, {surface_point[1]:.2f}, {surface_point[2]:.2f}), "
+                f"altitude={altitude:.2f}, target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
+            )
+            return target_point
+        else:
+            print(f"No surface found below position ({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}), using original position")
+            return position
+
+    def fly_forward_to_altitude(self, distance: float, altitude: float):
+        """
+        Fly forward from the drone's nose to a point at specified altitude above surface.
+
+        Uses the drone's forward vector to compute a target point ahead, then calculates
+        the altitude above surface at that point, and flies the grid there.
+        """
+        pos = _get_pos(self.rc)
+        if not pos:
+            print("Cannot get current position.")
+            return
+
+        self.visited_points.append(pos)
+
+        # Get forward vector
+        forward, _, _ = self.rc.get_orientation_vectors_world()
+        print(f"Forward vector: {forward}")
+
+        # Compute forward point
+        forward_point = (
+            pos[0] + forward[0] * distance,
+            pos[1] + forward[1] * distance,
+            pos[2] + forward[2] * distance,
+        )
+        print(f"Forward point: ({forward_point[0]:.2f}, {forward_point[1]:.2f}, {forward_point[2]:.2f})")
+
+        # Calculate target at altitude above surface
+        target_point = self.calculate_surface_point_at_altitude(forward_point, altitude)
+
+        print(f"Flying to target: ({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})")
+
+        self.grid.create_gps_marker(f"ForwardAlt{distance:.0f}m_{altitude:.0f}m", coordinates=target_point)
+        _fly_to(self.rc, target_point, f"FlyForwardAlt{distance:.0f}m_{altitude:.0f}m", speed_far=10.0, speed_near=5.0)
+
+        new_pos = _get_pos(self.rc)
+        if new_pos:
+            self.visited_points.append(new_pos)
+
+        print("Flight to forward altitude complete.")
+
     def cruise_along_surface(self, forward_distance: float, altitude: float, altitude_tolerance: float = 1.0):
         """
         Keep the craft at the desired ``altitude`` above ground and move forward.

@@ -19,7 +19,7 @@ def main():
 
     # Поднимаем дрон на 50 метров над поверхностью
     print("Поднимаю дрон на 50 метров над поверхностью...")
-    controller.lift_drone_to_altitude(30.0)
+    controller.lift_drone_to_altitude(50.0)
 
     print("Пример завершен.")
 
