@@ -89,11 +89,11 @@ def main() -> None:
 
         # Create controller
         controller = RadarController(radar,
-                                     radius=80,
+                                     radius=150,
                                      voxel_step=1,
                                      cell_size=10.0,
-                                     # boundingBoxX=20,
-                                     # boundingBoxZ=20,
+                                     boundingBoxX=20,
+                                     boundingBoxZ=20,
                                      # boundingBoxY=50,
                                      # fullSolidScan=True
                                      )

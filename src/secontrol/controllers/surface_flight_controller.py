@@ -59,9 +59,9 @@ class SurfaceFlightController:
         return (0.0, -1.0, 0.0)
 
     def _project_forward_to_horizontal(
-        self,
-        forward: Tuple[float, float, float],
-        down: Tuple[float, float, float],
+            self,
+            forward: Tuple[float, float, float],
+            down: Tuple[float, float, float],
     ) -> Tuple[float, float, float]:
         """
         Project forward vector into plane perpendicular to 'down'
@@ -91,11 +91,11 @@ class SurfaceFlightController:
         )
 
     def _sample_surface_along_path(
-        self,
-        start: Tuple[float, float, float],
-        direction: Tuple[float, float, float],
-        distance: float,
-        step: float,
+            self,
+            start: Tuple[float, float, float],
+            direction: Tuple[float, float, float],
+            distance: float,
+            step: float,
     ) -> Tuple[float | None, float | None]:
         """
         Sample surface height along path.
@@ -129,10 +129,10 @@ class SurfaceFlightController:
             if surface_y is None:
                 # Extra debug why we got None
                 if (
-                    self.radar_controller.occupancy_grid is None
-                    or self.radar_controller.origin is None
-                    or self.radar_controller.cell_size is None
-                    or self.radar_controller.size is None
+                        self.radar_controller.occupancy_grid is None
+                        or self.radar_controller.origin is None
+                        or self.radar_controller.cell_size is None
+                        or self.radar_controller.size is None
                 ):
                     print("    No occupancy grid data available")
                 else:
@@ -143,8 +143,8 @@ class SurfaceFlightController:
                         (sample[2] - self.radar_controller.origin[2]) / self.radar_controller.cell_size
                     )
                     in_bounds = (
-                        0 <= idx_x < self.radar_controller.size[0]
-                        and 0 <= idx_z < self.radar_controller.size[2]
+                            0 <= idx_x < self.radar_controller.size[0]
+                            and 0 <= idx_z < self.radar_controller.size[2]
                     )
                     if not in_bounds:
                         print(
@@ -309,7 +309,6 @@ class SurfaceFlightController:
         target_point = self._compute_target_over_surface(pos, forward, distance, altitude)
         self.grid.create_gps_marker(f"Target{distance:.0f}m", coordinates=target_point)
 
-
         _fly_to(
             self.rc,
             target_point,
@@ -430,8 +429,16 @@ if __name__ == "__main__":
     # Example: fly forward 15m at 50m above surface
     controller = SurfaceFlightController("taburet", scan_radius=80)
 
-    for i in range(10):
+    # контроллер сканирует узким лучем под себя
+    controller_vertical = RadarController("taburet",
+                                          radius=200,
+                                          voxel_step=1,
+                                          cell_size=10.0,
+                                          boundingBoxX=20,
+                                          boundingBoxZ=20,
+                                          )
 
+    for i in range(10):
         solid, metadata, contacts, ore_cells = controller.scan_voxels()
         print(solid)
 
