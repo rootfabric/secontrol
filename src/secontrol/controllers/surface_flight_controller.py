@@ -90,6 +90,7 @@ class SurfaceFlightController:
         last_surface_y = None
 
         steps = max(1, int(distance / max(step, 1e-3)))
+        print(f"Sampling {steps} points along path, distance={distance:.2f}, step={step:.2f}")
         for i in range(1, steps + 1):
             t = min(distance, i * step)
             sample = (
@@ -98,10 +99,31 @@ class SurfaceFlightController:
                 start[2] + direction[2] * t,
             )
 
+            print(f"  Sampling at ({sample[0]:.2f}, {sample[1]:.2f}, {sample[2]:.2f})")
             surface_y = self.radar_controller.get_surface_height(sample[0], sample[2])
             if surface_y is None:
+                # Log reason for None
+                if self.radar_controller.occupancy_grid is None or self.radar_controller.origin is None or self.radar_controller.cell_size is None or self.radar_controller.size is None:
+                    print("    No occupancy grid data available")
+                else:
+                    idx_x = int((sample[0] - self.radar_controller.origin[0]) / self.radar_controller.cell_size)
+                    idx_z = int((sample[2] - self.radar_controller.origin[2]) / self.radar_controller.cell_size)
+                    in_bounds = (0 <= idx_x < self.radar_controller.size[0] and 0 <= idx_z < self.radar_controller.size[2])
+                    if not in_bounds:
+                        print(f"    Out of bounds: idx_x={idx_x}, idx_z={idx_z}, grid_size=({self.radar_controller.size[0]}, {self.radar_controller.size[2]})")
+                    else:
+                        has_solid = False
+                        for y in range(self.radar_controller.size[1] - 1, -1, -1):
+                            if self.radar_controller.occupancy_grid[idx_x, y, idx_z]:
+                                has_solid = True
+                                break
+                        if not has_solid:
+                            print(f"    No solid voxels in column idx_x={idx_x}, idx_z={idx_z}")
+                        else:
+                            print(f"    Unexpected None despite solid voxels in column")
                 continue
 
+            print(f"    Surface height: {surface_y:.2f}")
             last_surface_y = surface_y
             if max_surface_y is None or surface_y > max_surface_y:
                 max_surface_y = surface_y
@@ -117,6 +139,12 @@ class SurfaceFlightController:
             pos[1] + horiz_dir[1] * distance,
             pos[2] + horiz_dir[2] * distance,
         )
+
+        # Log occupancy grid status
+        if self.radar_controller.occupancy_grid is None:
+            print("Occupancy grid is None, no surface data available.")
+        else:
+            print(f"Occupancy grid origin: {self.radar_controller.origin}, size: {self.radar_controller.size}, cell_size: {self.radar_controller.cell_size}")
 
         # Sample terrain along the straight forward path to avoid drifting sideways
         cell_step = self.radar_controller.cell_size or 5.0
@@ -177,13 +205,13 @@ class SurfaceFlightController:
         target_point = self._compute_target_over_surface(pos, forward, distance, altitude)
         self.grid.create_gps_marker(f"Target{distance:.0f}m", coordinates=target_point)
 
-        _fly_to(
-            self.rc,
-            target_point,
-            f"MoveForward{distance:.0f}m",
-            speed_far=10.0,
-            speed_near=5.0,
-        )
+        # _fly_to(
+        #     self.rc,
+        #     target_point,
+        #     f"MoveForward{distance:.0f}m",
+        #     speed_far=10.0,
+        #     speed_near=5.0,
+        # )
 
         pos = _get_pos(self.rc)
         if pos:
@@ -304,6 +332,14 @@ if __name__ == "__main__":
     # Example: fly forward 50m at 10m above surface
     controller = SurfaceFlightController("taburet", scan_radius=80)  # Replace with actual grid name
     # controller.move_forward_simple(10)
-    controller.scan_voxels()
-    controller.fly_forward_over_surface(50, 50)
+    solid, metadata, contacts, ore_cells = controller.scan_voxels()
+
+    # Visualize radar data
+    from secontrol.tools.radar_visualizer import RadarVisualizer
+    visualizer = RadarVisualizer()
+    own_pos = _get_pos(controller.rc)
+    print(solid)
+    visualizer.visualize(solid, metadata, contacts, own_position=own_pos, ore_cells=ore_cells)
+
+    controller.fly_forward_over_surface(10, 10)
     print("Visited points:", controller.get_visited_points())

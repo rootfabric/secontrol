@@ -155,6 +155,7 @@ class RadarController:
         # Wait for scan completion
         last_progress = -1
         radar_data = None
+        time.sleep(0.3)
         while True:
             time.sleep(0.1)
             self.radar.update()
