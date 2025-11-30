@@ -78,6 +78,36 @@ class SurfaceFlightController:
             horizontal_forward[2] / horiz_len,
         )
 
+    def _sample_surface_along_path(
+        self,
+        start: Tuple[float, float, float],
+        direction: Tuple[float, float, float],
+        distance: float,
+        step: float,
+    ) -> Tuple[float, float]:
+        """Return (max_surface_y, last_surface_y) along the path."""
+        max_surface_y = None
+        last_surface_y = None
+
+        steps = max(1, int(distance / max(step, 1e-3)))
+        for i in range(1, steps + 1):
+            t = min(distance, i * step)
+            sample = (
+                start[0] + direction[0] * t,
+                start[1] + direction[1] * t,
+                start[2] + direction[2] * t,
+            )
+
+            surface_y = self.radar_controller.get_surface_height(sample[0], sample[2])
+            if surface_y is None:
+                continue
+
+            last_surface_y = surface_y
+            if max_surface_y is None or surface_y > max_surface_y:
+                max_surface_y = surface_y
+
+        return max_surface_y if max_surface_y is not None else last_surface_y, last_surface_y
+
     def _compute_target_over_surface(self, pos: Tuple[float, float, float], forward: Tuple[float, float, float], distance: float, altitude: float) -> Tuple[float, float, float]:
         down = self._get_down_vector()
         horiz_dir = self._project_forward_to_horizontal(forward, down)
@@ -88,22 +118,45 @@ class SurfaceFlightController:
             pos[2] + horiz_dir[2] * distance,
         )
 
-        surface_y = self.radar_controller.get_surface_height(target_base[0], target_base[2])
-        if surface_y is not None:
-            target_point = (
-                target_base[0],
-                surface_y + altitude,
-                target_base[2],
-            )
+        # Sample terrain along the straight forward path to avoid drifting sideways
+        cell_step = self.radar_controller.cell_size or 5.0
+        max_surf, last_surf = self._sample_surface_along_path(
+            pos,
+            horiz_dir,
+            distance,
+            step=max(cell_step, 5.0),
+        )
+
+        if max_surf is not None:
+            surface_y = max_surf
+            target_y = surface_y + altitude
             print(
                 "Computed target above surface:",
                 f"base={target_base}",
-                f"surface_y={surface_y:.2f}",
-                f"target={target_point}",
+                f"surface_y(max)={surface_y:.2f}",
+                f"target_y={target_y:.2f}",
+            )
+        elif last_surf is not None:
+            target_y = last_surf + altitude
+            print(
+                "Surface sampled only near end of path, using last point:",
+                f"base={target_base}",
+                f"surface_y(last)={last_surf:.2f}",
+                f"target_y={target_y:.2f}",
             )
         else:
-            target_point = target_base
-            print(f"Surface not found under base point, flying to {target_point}")
+            target_y = pos[1]
+            print(
+                "Surface not found along path, keeping current altitude:",
+                f"base={target_base}",
+                f"target_y={target_y:.2f}",
+            )
+
+        target_point = (
+            target_base[0],
+            target_y,
+            target_base[2],
+        )
 
         return target_point
 
