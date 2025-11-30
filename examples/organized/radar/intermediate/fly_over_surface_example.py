@@ -27,8 +27,8 @@ def main():
     # print(f"Исходная позиция: {test_position}")
     # print(f"Целевая точка на высоте {altitude}м: {target_point}")
 
-    # Пример 2: Полет вперед на 50 метров с высотой 20 метров над поверхностью
-    print("\nПример 2: Полет вперед на 50 метров с высотой 20 метров над поверхностью")
+    # Пример 2: Снижение на 10 метров вниз по гравитации при отсутствии поверхности
+    print("\nПример 2: Снижение на 10 метров вниз по гравитации при отсутствии поверхности")
     # Получаем текущую позицию дрона
     pos = controller.rc.telemetry.get("worldPosition") or controller.rc.telemetry.get("position")
     if not pos:
@@ -37,29 +37,18 @@ def main():
     pos = (pos.get("x", 0.0), pos.get("y", 0.0), pos.get("z", 0.0))
     print(f"Текущая позиция дрона: {pos}")
 
-    # Получаем вектор вперед
-    forward, _, _ = controller.rc.get_orientation_vectors_world()
-    print(f"Вектор вперед: {forward}")
-
-    # Вычисляем точку вперед на 50 метров
-    forward_distance = 80.0
-    flight_altitude = 50.0
-    forward_point = (
-        pos[0] + forward[0] * forward_distance,
-        pos[1] + forward[1] * forward_distance,
-        pos[2] + forward[2] * forward_distance,
+    # Вычисляем целевую точку: снижение ровно на 10м вниз по гравитации
+    down = controller._get_down_vector()
+    target_point = (
+        pos[0] + down[0] * 10.0,
+        pos[1] + down[1] * 10.0,
+        pos[2] + down[2] * 10.0,
     )
-    print(f"Точка вперед: {forward_point}")
-
-    controller.grid.create_gps_marker(f"forward_point{forward_distance:.0f}m_{flight_altitude:.0f}m",
-                                      coordinates=forward_point)
-
-    # Вычисляем целевую точку на высоте 20м над поверхностью
-    target_point = controller.calculate_surface_point_at_altitude(forward_point, flight_altitude)
+    print(f"Целевая точка (снижение на 10м вниз по гравитации): {target_point}")
 
     # Отправляем грид на движение к целевой точке
     controller.visited_points.append(pos)
-    controller.grid.create_gps_marker(f"ForwardSurfaceAlt{forward_distance:.0f}m_{flight_altitude:.0f}m", coordinates=target_point)
+    controller.grid.create_gps_marker("Descent10m", coordinates=target_point)
     goto(controller.grid, target_point, speed=10.0)
 
 

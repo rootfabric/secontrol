@@ -340,9 +340,9 @@ class SurfaceFlightController:
         step = cell_size
 
         down = self._get_down_vector()
+        up = (-down[0], -down[1], -down[2])
         surface_point = self._find_surface_point_along_gravity(position, down, max_trace, step)
         if surface_point is not None:
-            up = (-down[0], -down[1], -down[2])
             target_point = (
                 surface_point[0] + up[0] * altitude,
                 surface_point[1] + up[1] * altitude,
@@ -355,8 +355,17 @@ class SurfaceFlightController:
             )
             return target_point
         else:
-            print(f"No surface found below position ({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}), using original position")
-            return position
+            # Fallback: move 10m down along gravity vector since no surface found
+            target_point = (
+                position[0] + down[0] * 10.0,
+                position[1] + down[1] * 10.0,
+                position[2] + down[2] * 10.0,
+            )
+            print(
+                f"No surface found below position ({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}), "
+                f"moving 10m down along gravity: target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
+            )
+            return target_point
 
     def fly_forward_to_altitude(self, distance: float, altitude: float):
         """
