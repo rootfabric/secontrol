@@ -26,7 +26,8 @@ classifiers = [
 ]
 dependencies = [
   "redis>=4.5",
-  "python-dotenv>=1.0"
+  "python-dotenv>=1.0",
+  "numpy>=1.26"
 ]
 
 [project.urls]
