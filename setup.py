@@ -42,7 +42,8 @@ setup(
     python_requires=">=3.9",
     install_requires=[
         "redis>=4.5",
-        "python-dotenv>=1.0"
+        "python-dotenv>=1.0",
+        "numpy>=1.26"
     ],
     extras_require={
         "dev": [

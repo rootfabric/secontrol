@@ -245,8 +245,19 @@ class RadarController:
 
         return solid, metadata, contacts, ore_cells
 
-    def get_surface_height(self, world_x: float, world_z: float) -> Optional[float]:
-        """Get surface height (max solid voxel y) at world position (x,z)."""
+    def get_surface_height(
+        self,
+        world_x: float,
+        world_z: float,
+        search_radius: int = 1,
+    ) -> Optional[float]:
+        """Get surface height (max solid voxel y) at world position (x,z).
+
+        If there is no solid voxel directly under the requested column, the
+        method searches neighbouring columns within ``search_radius`` cells and
+        returns the highest surface it finds. This helps when the radar scan is
+        sparse and some columns are empty despite nearby solid data.
+        """
         if self.occupancy_grid is None or self.origin is None or self.cell_size is None or self.size is None:
             return None
 
@@ -256,9 +267,27 @@ class RadarController:
         if not (0 <= idx_x < self.size[0] and 0 <= idx_z < self.size[2]):
             return None
 
-        # Find max y with solid voxel
-        for y in range(self.size[1] - 1, -1, -1):
-            if self.occupancy_grid[idx_x, y, idx_z]:
-                return self.origin[1] + (y + 0.5) * self.cell_size
+        def _column_height(ix: int, iz: int) -> Optional[float]:
+            for y in range(self.size[1] - 1, -1, -1):
+                if self.occupancy_grid[ix, y, iz]:
+                    return self.origin[1] + (y + 0.5) * self.cell_size
+            return None
 
-        return None
+        direct_height = _column_height(idx_x, idx_z)
+        if direct_height is not None:
+            return direct_height
+
+        if search_radius <= 0:
+            return None
+
+        max_height = None
+        for dx in range(-search_radius, search_radius + 1):
+            for dz in range(-search_radius, search_radius + 1):
+                nx, nz = idx_x + dx, idx_z + dz
+                if not (0 <= nx < self.size[0] and 0 <= nz < self.size[2]):
+                    continue
+                height = _column_height(nx, nz)
+                if height is not None and (max_height is None or height > max_height):
+                    max_height = height
+
+        return max_height
