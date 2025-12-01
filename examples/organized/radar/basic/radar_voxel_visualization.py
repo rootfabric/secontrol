@@ -79,7 +79,7 @@ def process_and_visualize(solid: list[list[float]], metadata: Dict[str, Any], co
 
 
 def main() -> None:
-    grid = prepare_grid("taburet")
+    grid = prepare_grid("taburet2")
     # grid = prepare_grid("DroneBase")
 
     try:
@@ -89,13 +89,13 @@ def main() -> None:
 
         # Create controller
         controller = RadarController(radar,
-                                     radius=50,
+                                     radius=100,
                                      voxel_step=1,
                                      cell_size=10.0,
                                      # boundingBoxX=20,
                                      # boundingBoxZ=20,
-                                     # boundingBoxY=50,
-                                     # fullSolidScan=True
+                                     boundingBoxY=50,
+                                     # fullSolidScan=False
                                      )
 
         # Scan voxels

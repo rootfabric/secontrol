@@ -32,13 +32,13 @@ def _pick_device(devices, expected_cls):
 
 
 def main():
-    grid_name = os.getenv("SE_GRID_NAME") or os.getenv("SE_GRID_ID") or ""  # пустая строка возьмет первый грид
-    grid = prepare_grid(grid_name)
+
+    grid = prepare_grid("taburet2")
 
     radar: OreDetectorDevice = _pick_device(grid.find_devices_by_type(OreDetectorDevice), OreDetectorDevice)
     remote: RemoteControlDevice = _pick_device(grid.find_devices_by_type(RemoteControlDevice), RemoteControlDevice)
 
-    shared_map = SharedMapController(owner_id=grid.owner_id, chunk_size=120.0)
+    shared_map = SharedMapController(owner_id=grid.owner_id, chunk_size=80.0)
     shared_map.load()
     print(f"Работаем с префиксом карты: {shared_map.memory_prefix}")
 

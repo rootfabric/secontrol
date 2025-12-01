@@ -173,7 +173,7 @@ class RadarController:
         while True:
             # time.sleep(0.1)
             # self.radar.update()
-            self.radar.wait_for_telemetry()
+            self.radar.wait_for_telemetry(need_update=False)
 
             tel = self.radar.telemetry or {}
             scan = tel.get("scan", {})

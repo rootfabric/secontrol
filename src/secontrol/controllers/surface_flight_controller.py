@@ -52,7 +52,7 @@ class SurfaceFlightController:
     Maintains altitude above surface and tracks visited points.
     """
 
-    def __init__(self, grid_name: str, scan_radius = 100):
+    def __init__(self, grid_name: str, scan_radius = 100, **scan_kwargs):
         self.grid = prepare_grid(grid_name)
 
         # Find devices
@@ -67,7 +67,7 @@ class SurfaceFlightController:
         self.radar: OreDetectorDevice = radars[0]
         self.rc: RemoteControlDevice = rcs[0]
 
-        self.radar_controller = RadarController(self.radar, radius=scan_radius)
+        self.radar_controller = RadarController(self.radar, radius=scan_radius, **scan_kwargs)
 
         # Visited points
         self.visited_points: List[Tuple[float, float, float]] = []

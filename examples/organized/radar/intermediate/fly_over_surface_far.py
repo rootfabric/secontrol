@@ -12,9 +12,9 @@ from secontrol.tools.navigation_tools import goto
 
 def main():
     # Создаем контроллер полета с радаром
-    controller = SurfaceFlightController("taburet", scan_radius=80)
+    controller = SurfaceFlightController("taburet", scan_radius=200, boundingBoxY=60)
 
-    for i in range(100):
+    while True:
         # Сканируем поверхность для получения данных
         print("Выполняю скан поверхности...")
         controller.scan_voxels()
@@ -34,7 +34,7 @@ def main():
         print(f"Вектор вперед: {forward}")
 
         # Вычисляем точку вперед на 50 метров
-        forward_distance = 35.0
+        forward_distance = 100.0
         flight_altitude = 35.0
         forward_point = (
             pos[0] + forward[0] * forward_distance,
@@ -54,7 +54,7 @@ def main():
         controller.visited_points.append(pos)
         controller.grid.create_gps_marker(f"ForwardSurfaceAlt{forward_distance:.0f}m_{flight_altitude:.0f}m", coordinates=target_point)
 
-        goto(controller.grid, target_point, speed=15.0)
+        goto(controller.grid, target_point, speed=20.0)
 
         new_pos = controller.rc.telemetry.get("worldPosition") or controller.rc.telemetry.get("position")
         if new_pos:
