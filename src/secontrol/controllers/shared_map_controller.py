@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -14,6 +15,13 @@ from secontrol.tools.navigation_tools import get_world_position
 Point3D = Tuple[float, float, float]
 
 
+@dataclass
+class OreHit:
+    material: str
+    position: Point3D
+    content: Any = None
+
+
 def _normalize_point(point: Sequence[float]) -> Point3D:
     if len(point) != 3:
         raise ValueError(f"Point must have 3 coordinates, got {point}")
@@ -24,6 +32,7 @@ def _normalize_point(point: Sequence[float]) -> Point3D:
 class SharedMapData:
     voxels: List[Point3D] = field(default_factory=list)
     visited: List[Point3D] = field(default_factory=list)
+    ores: List[OreHit] = field(default_factory=list)
     paths: Dict[str, List[Point3D]] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -33,6 +42,15 @@ class SharedMapData:
         return cls(
             voxels=[_normalize_point(p) for p in payload.get("voxels", [])],
             visited=[_normalize_point(p) for p in payload.get("visited", [])],
+            ores=[
+                OreHit(
+                    material=str(item.get("material") or item.get("ore") or "unknown"),
+                    position=_normalize_point(item.get("position")),
+                    content=item.get("content"),
+                )
+                for item in payload.get("ores", [])
+                if item.get("position") is not None
+            ],
             paths={name: [_normalize_point(p) for p in pts] for name, pts in (payload.get("paths") or {}).items()},
             metadata=payload.get("metadata", {}),
         )
@@ -41,6 +59,10 @@ class SharedMapData:
         return {
             "voxels": self.voxels,
             "visited": self.visited,
+            "ores": [
+                {"material": ore.material, "position": ore.position, "content": ore.content}
+                for ore in self.ores
+            ],
             "paths": self.paths,
             "metadata": self.metadata,
         }
@@ -61,14 +83,27 @@ class SharedMapData:
                 self.visited.append(normalized)
                 known.add(normalized)
 
+    def merge_ores(self, ores: Iterable[OreHit]) -> None:
+        known = {(ore.material, ore.position) for ore in self.ores}
+        for ore in ores:
+            key = (ore.material, ore.position)
+            if key not in known:
+                self.ores.append(ore)
+                known.add(key)
+
 
 class SharedMapController:
     """Контроллер для общей карты в Redis.
 
-    - Добавляет точки вокселей, обнаруженных радаром
-    - Добавляет точки маршрута, по которым уже летал грид
-    - Сохраняет и загружает данные в общий ключ ``se:{owner_id}:memory``
-    - Строит обратный путь на основе уже известных точек
+    Основные идеи:
+
+    - Данные распределяются по нескольким ключам вида
+      ``{memory_prefix}:<тип>:<chunk>`` (voxels, visited, ores), поэтому можно
+      читать только нужные чанки по области.
+    - Дополнительные ключи: ``{memory_prefix}:paths`` и
+      ``{memory_prefix}:meta``.
+    - В память контроллера подгружаются только выбранные чанки, что упрощает
+      работу с большими картами.
     """
 
     def __init__(
@@ -77,35 +112,293 @@ class SharedMapController:
         *,
         redis_client: Optional[RedisEventClient] = None,
         memory_key: Optional[str] = None,
+        chunk_size: float = 100.0,
     ) -> None:
         self.owner_id = owner_id or resolve_owner_id()
         self.memory_key = memory_key or f"se:{self.owner_id}:memory"
+        self.memory_prefix = self.memory_key  # для обратной совместимости
         self.client = redis_client or RedisEventClient()
+        self.chunk_size = float(chunk_size)
         self.data = SharedMapData()
+
+    # ------------------------------------------------------------------
+    # Внутренние ключи и формат
+    # ------------------------------------------------------------------
+    @property
+    def index_key(self) -> str:
+        return f"{self.memory_prefix}:index"
+
+    @property
+    def paths_key(self) -> str:
+        return f"{self.memory_prefix}:paths"
+
+    @property
+    def metadata_key(self) -> str:
+        return f"{self.memory_prefix}:meta"
+
+    def _chunk_id(self, point: Sequence[float]) -> str:
+        x, y, z = _normalize_point(point)
+        return f"{int(math.floor(x / self.chunk_size))}:{int(math.floor(y / self.chunk_size))}:{int(math.floor(z / self.chunk_size))}"
+
+    def _chunk_key(self, kind: str, chunk_id: str) -> str:
+        return f"{self.memory_prefix}:{kind}:{chunk_id}"
+
+    def _load_index(self) -> Dict[str, Any]:
+        idx = self.client.get_json(self.index_key) or {}
+        chunk_size = float(idx.get("chunk_size", self.chunk_size))
+        self.chunk_size = chunk_size
+        return {
+            "chunk_size": chunk_size,
+            "voxels": set(idx.get("voxels", [])),
+            "visited": set(idx.get("visited", [])),
+            "ores": set(idx.get("ores", [])),
+        }
+
+    def _save_index(self, idx: Dict[str, Any]) -> None:
+        payload = {
+            "chunk_size": self.chunk_size,
+            "voxels": sorted(idx.get("voxels", [])),
+            "visited": sorted(idx.get("visited", [])),
+            "ores": sorted(idx.get("ores", [])),
+        }
+        self.client.set_json(self.index_key, payload)
+
+    def _load_chunk_points(self, kind: str, chunk_id: str) -> List[Point3D]:
+        payload = self.client.get_json(self._chunk_key(kind, chunk_id))
+        if not isinstance(payload, list):
+            return []
+        return [_normalize_point(p) for p in payload]
+
+    def _save_chunk_points(self, kind: str, chunk_id: str, points: Iterable[Point3D]) -> None:
+        self.client.set_json(self._chunk_key(kind, chunk_id), list(points))
+
+    def _load_chunk_ores(self, chunk_id: str) -> List[OreHit]:
+        payload = self.client.get_json(self._chunk_key("ores", chunk_id))
+        if not isinstance(payload, list):
+            return []
+        ores: List[OreHit] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            pos = item.get("position")
+            if pos is None:
+                continue
+            ores.append(
+                OreHit(
+                    material=str(item.get("material") or item.get("ore") or "unknown"),
+                    position=_normalize_point(pos),
+                    content=item.get("content"),
+                )
+            )
+        return ores
+
+    def _save_chunk_ores(self, chunk_id: str, ores: Iterable[OreHit]) -> None:
+        payload = [
+            {"material": ore.material, "position": ore.position, "content": ore.content}
+            for ore in ores
+        ]
+        self.client.set_json(self._chunk_key("ores", chunk_id), payload)
+
+    def _load_paths(self) -> Dict[str, List[Point3D]]:
+        payload = self.client.get_json(self.paths_key) or {}
+        return {name: [_normalize_point(p) for p in pts] for name, pts in payload.items() if isinstance(pts, list)}
+
+    def _save_paths(self) -> None:
+        self.client.set_json(self.paths_key, self.data.paths)
+
+    def _load_metadata(self) -> Dict[str, Any]:
+        payload = self.client.get_json(self.metadata_key)
+        return payload if isinstance(payload, dict) else {}
+
+    def _save_metadata(self) -> None:
+        self.client.set_json(self.metadata_key, self.data.metadata)
 
     # ------------------------------------------------------------------
     # Загрузка/сохранение
     # ------------------------------------------------------------------
-    def load(self) -> SharedMapData:
-        payload = self.client.get_json(self.memory_key)
-        self.data = SharedMapData.from_payload(payload if isinstance(payload, dict) else {})
+    def load(
+        self,
+        *,
+        chunk_ids: Optional[Iterable[str]] = None,
+        kinds: Sequence[str] = ("voxels", "visited", "ores"),
+        include_paths: bool = True,
+        include_metadata: bool = True,
+    ) -> SharedMapData:
+        """Загрузить выбранные чанки карты.
+
+        ``chunk_ids=None`` означает загрузку всех чанков, перечисленных в индексе.
+        Для ускорения можно передать ограниченный набор чанков.
+        """
+
+        idx = self._load_index()
+
+        # Поддержка старого формата: если индекс пустой, пробуем прочитать весь
+        # словарь из ``memory_prefix`` и разложить его по чанкам.
+        if not (idx["voxels"] or idx["visited"] or idx["ores"]):
+            legacy_payload = self.client.get_json(self.memory_prefix)
+            if isinstance(legacy_payload, dict) and any(
+                legacy_payload.get(k) for k in ("voxels", "visited", "ores")
+            ):
+                legacy = SharedMapData.from_payload(legacy_payload)
+                if legacy.voxels:
+                    self.add_voxel_points(legacy.voxels, save=True)
+                if legacy.visited:
+                    self.add_flight_points(legacy.visited, save=True)
+                if legacy.ores:
+                    self.add_ore_cells(
+                        [
+                            {"material": ore.material, "position": ore.position, "content": ore.content}
+                            for ore in legacy.ores
+                        ],
+                        save=True,
+                    )
+                if legacy.paths:
+                    self.data.paths = legacy.paths
+                    self._save_paths()
+                if legacy.metadata:
+                    self.data.metadata = legacy.metadata
+                    self._save_metadata()
+                idx = self._load_index()
+
+        self.data = SharedMapData()
+
+        load_chunk_ids = set(chunk_ids) if chunk_ids is not None else None
+
+        def _should_load(cid: str) -> bool:
+            return load_chunk_ids is None or cid in load_chunk_ids
+
+        if "voxels" in kinds:
+            for cid in idx["voxels"]:
+                if _should_load(cid):
+                    self.data.merge_voxels(self._load_chunk_points("voxels", cid))
+
+        if "visited" in kinds:
+            for cid in idx["visited"]:
+                if _should_load(cid):
+                    self.data.merge_visited(self._load_chunk_points("visited", cid))
+
+        if "ores" in kinds:
+            for cid in idx["ores"]:
+                if _should_load(cid):
+                    self.data.merge_ores(self._load_chunk_ores(cid))
+
+        if include_paths:
+            self.data.paths = self._load_paths()
+
+        if include_metadata:
+            self.data.metadata = self._load_metadata()
+
         return self.data
 
+    def load_region(
+        self,
+        center: Point3D,
+        radius: float,
+        *,
+        kinds: Sequence[str] = ("voxels", "visited", "ores"),
+        include_paths: bool = True,
+        include_metadata: bool = True,
+    ) -> SharedMapData:
+        """Загрузить только чанки, которые пересекают сферу радиуса ``radius``."""
+
+        cx, cy, cz = center
+        cr = float(radius)
+        min_x, max_x = cx - cr, cx + cr
+        min_y, max_y = cy - cr, cy + cr
+        min_z, max_z = cz - cr, cz + cr
+
+        def _chunk_range(vmin: float, vmax: float) -> range:
+            start = math.floor(vmin / self.chunk_size)
+            end = math.floor(vmax / self.chunk_size)
+            return range(int(start), int(end) + 1)
+
+        chunk_ids = {
+            f"{ix}:{iy}:{iz}"
+            for ix in _chunk_range(min_x, max_x)
+            for iy in _chunk_range(min_y, max_y)
+            for iz in _chunk_range(min_z, max_z)
+        }
+
+        return self.load(
+            chunk_ids=chunk_ids,
+            kinds=kinds,
+            include_paths=include_paths,
+            include_metadata=include_metadata,
+        )
+
     def save(self) -> None:
-        self.client.set_json(self.memory_key, self.data.to_payload())
+        # Сохраняем только метаданные и индекс/пути — чанки пишутся по мере обновления
+        self._save_metadata()
+        self._save_paths()
+        self._save_index(self._load_index())
 
     # ------------------------------------------------------------------
     # Сбор данных
     # ------------------------------------------------------------------
     def add_voxel_points(self, points: Iterable[Sequence[float]], *, save: bool = True) -> None:
-        self.data.merge_voxels(points)
+        idx = self._load_index()
+        buckets: Dict[str, List[Point3D]] = {}
+        for point in points:
+            normalized = _normalize_point(point)
+            cid = self._chunk_id(normalized)
+            buckets.setdefault(cid, []).append(normalized)
+
+        for cid, pts in buckets.items():
+            existing = self._load_chunk_points("voxels", cid)
+            merged = list({*existing, *pts})
+            self._save_chunk_points("voxels", cid, merged)
+            idx["voxels"].add(cid)
+            self.data.merge_voxels(pts)
+
         if save:
-            self.save()
+            self._save_index(idx)
+            self._save_metadata()
 
     def add_flight_points(self, points: Iterable[Sequence[float]], *, save: bool = True) -> None:
-        self.data.merge_visited(points)
+        idx = self._load_index()
+        buckets: Dict[str, List[Point3D]] = {}
+        for point in points:
+            normalized = _normalize_point(point)
+            cid = self._chunk_id(normalized)
+            buckets.setdefault(cid, []).append(normalized)
+
+        for cid, pts in buckets.items():
+            existing = self._load_chunk_points("visited", cid)
+            merged = list({*existing, *pts})
+            self._save_chunk_points("visited", cid, merged)
+            idx["visited"].add(cid)
+            self.data.merge_visited(pts)
+
         if save:
-            self.save()
+            self._save_index(idx)
+            self._save_metadata()
+
+    def add_ore_cells(self, cells: Iterable[dict], *, save: bool = True) -> None:
+        idx = self._load_index()
+        buckets: Dict[str, List[OreHit]] = {}
+        for cell in cells:
+            if not isinstance(cell, dict):
+                continue
+            if cell.get("position") is None:
+                continue
+            ore = OreHit(
+                material=str(cell.get("material") or cell.get("ore") or "unknown"),
+                position=_normalize_point(cell.get("position")),
+                content=cell.get("content"),
+            )
+            cid = self._chunk_id(ore.position)
+            buckets.setdefault(cid, []).append(ore)
+
+        for cid, ores in buckets.items():
+            existing = self._load_chunk_ores(cid)
+            merged = list({(o.material, o.position): o for o in [*existing, *ores]}.values())
+            self._save_chunk_ores(cid, merged)
+            idx["ores"].add(cid)
+            self.data.merge_ores(ores)
+
+        if save:
+            self._save_index(idx)
+            self._save_metadata()
 
     def add_remote_position(self, remote: RemoteControlDevice, *, save: bool = True) -> Optional[Point3D]:
         remote.update()
@@ -124,11 +417,36 @@ class SharedMapController:
         solid, metadata, contacts, ore_cells = radar_controller.scan_voxels()
         if solid:
             self.add_voxel_points(solid, save=False)
+        if ore_cells:
+            self.add_ore_cells(ore_cells, save=False)
         if persist_metadata and metadata:
             self.data.metadata["last_radar"] = metadata
         if save:
-            self.save()
+            self._save_metadata()
         return solid, metadata, contacts, ore_cells
+
+    def get_known_ores(
+        self,
+        material: Optional[str] = None,
+        *,
+        chunk_ids: Optional[Iterable[str]] = None,
+    ) -> List[OreHit]:
+        """Вернуть список найденных руд, с возможностью фильтрации по материалу."""
+
+        idx = self._load_index()
+        ids = set(chunk_ids) if chunk_ids is not None else set(idx["ores"])
+
+        ore_map: Dict[tuple[str, Point3D], OreHit] = {}
+        material_filter = material.lower() if material else None
+
+        for cid in ids:
+            ores = self._load_chunk_ores(cid)
+            for ore in ores:
+                if material_filter and ore.material.lower() != material_filter:
+                    continue
+                ore_map[(ore.material, ore.position)] = ore
+
+        return list(ore_map.values())
 
     # ------------------------------------------------------------------
     # Работа с путями
@@ -137,7 +455,7 @@ class SharedMapController:
         path = [_normalize_point(p) for p in points]
         self.data.paths[name] = path
         if save:
-            self.save()
+            self._save_paths()
         return path
 
     def build_known_path(self, start: Point3D, target: Optional[Point3D] = None, max_hops: int = 500) -> List[Point3D]:
@@ -201,7 +519,7 @@ class SharedMapController:
         path = self.build_known_path(pos, target, max_hops=max_hops)
         self.data.paths[path_name] = path
         if save:
-            self.save()
+            self._save_paths()
         return path
 
     # ------------------------------------------------------------------
