@@ -325,23 +325,38 @@ class SurfaceFlightController:
             self.visited_points.append(new_pos)
 
     def calculate_surface_point_at_altitude(
-        self,
-        position: Tuple[float, float, float],
-        altitude: float,
+            self,
+            position: Tuple[float, float, float],
+            altitude: float,
     ) -> Tuple[float, float, float]:
         """
         Calculate a point at the specified altitude above the surface for given coordinates.
 
-        Uses gravity-based tracing to find the surface point below the given position, then adds altitude along the up vector.
-        More low-level than lift_drone_to_altitude, operates on any position.
+        1. Пытаемся найти поверхность трассировкой вдоль гравитации.
+        2. Если поверхность не найдена — делаем скан и пробуем ещё раз.
+        3. Если всё равно не нашли — НЕ летим вниз, а поднимаемся немного вверх,
+           чтобы гарантированно не врезаться в землю.
         """
+        # Параметры трассировки по воксельной сетке
         cell_size = self.radar_controller.cell_size or 5.0
         max_trace = cell_size * (self.radar_controller.size[1] if self.radar_controller.size else 50)
         step = cell_size
 
         down = self._get_down_vector()
         up = (-down[0], -down[1], -down[2])
+
+        # Первая попытка найти поверхность в текущей сетке
         surface_point = self._find_surface_point_along_gravity(position, down, max_trace, step)
+
+        # Если данных мало / сетка не заполнена — досканируем и пробуем ещё раз
+        if surface_point is None:
+            print(
+                f"Поверхность под точкой ({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}) не найдена, "
+                f"выполняю скан радара..."
+            )
+            self.scan_voxels()
+            surface_point = self._find_surface_point_along_gravity(position, down, max_trace, step)
+
         if surface_point is not None:
             target_point = (
                 surface_point[0] + up[0] * altitude,
@@ -354,18 +369,20 @@ class SurfaceFlightController:
                 f"altitude={altitude:.2f}, target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
             )
             return target_point
-        else:
-            # Fallback: move 10m down along gravity vector since no surface found
-            target_point = (
-                position[0] + down[0] * 10.0,
-                position[1] + down[1] * 10.0,
-                position[2] + down[2] * 10.0,
-            )
-            print(
-                f"No surface found below position ({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}), "
-                f"moving 10m down along gravity: target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
-            )
-            return target_point
+
+        # --- Безопасный fallback: НЕ летим вниз, а чуть поднимаемся ---
+        safe_up = 5.0
+        target_point = (
+            position[0] + up[0] * safe_up,
+            position[1] + up[1] * safe_up,
+            position[2] + up[2] * safe_up,
+        )
+        print(
+            f"Поверхность под точкой ({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}) не найдена даже после скана, "
+            f"оставляю точку безопасно выше, смещаясь на {safe_up:.1f}м вверх по гравитации: "
+            f"target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
+        )
+        return target_point
 
     def fly_forward_to_altitude(self, distance: float, altitude: float):
         """
@@ -607,6 +624,223 @@ class SurfaceFlightController:
             self.visited_points.append(pos)
 
         print("Move complete.")
+
+    def find_nearest_resources_active_scan(
+        self,
+        search_radius: float = 1000.0,
+        max_results: int = 5,
+    ):
+        """
+        Найти ближайшие ресурсы (рудные клетки) по данным радара.
+
+        Делает скан карты (scan_voxels), берёт ore_cells и возвращает
+        список словарей:
+        [
+            {"position": (x, y, z), "distance": dist_m},
+            ...
+        ]
+
+        search_radius – максимальная дистанция поиска (метры)
+        max_results   – сколько ближайших ресурсов вернуть
+        """
+        # Текущая позиция дрона
+        pos = _get_pos(self.rc)
+        if not pos:
+            print("Cannot get current position for resource search.")
+            return []
+
+        px, py, pz = pos
+        print(f"Current position for resource search: ({px:.2f}, {py:.2f}, {pz:.2f})")
+
+        # Делаем скан карты (solid, metadata, contacts, ore_cells)
+        solid, metadata, contacts, ore_cells = self.scan_voxels()
+
+        if not ore_cells:
+            print("Radar scan returned no ore cells (no resources found).")
+            return []
+
+        resources = []
+
+        for cell in ore_cells:
+            # Поддержка разных форматов: dict или (x, y, z)
+            if isinstance(cell, dict):
+                x = cell.get("x") or cell.get("X")
+                y = cell.get("y") or cell.get("Y")
+                z = cell.get("z") or cell.get("Z")
+            elif isinstance(cell, (list, tuple)) and len(cell) >= 3:
+                x, y, z = cell[0], cell[1], cell[2]
+            else:
+                # Неизвестный формат – пропускаем
+                continue
+
+            try:
+                fx = float(x)
+                fy = float(y)
+                fz = float(z)
+            except (TypeError, ValueError):
+                # Некастуемые значения – пропускаем
+                continue
+
+            dx = fx - px
+            dy = fy - py
+            dz = fz - pz
+            dist2 = dx * dx + dy * dy + dz * dz
+
+            resources.append((dist2, (fx, fy, fz)))
+
+        if not resources:
+            print("Ore cell list is non-empty, but no valid coordinates were parsed.")
+            return []
+
+        # Сортируем по расстоянию (по dist2 — без лишнего sqrt)
+        resources.sort(key=lambda item: item[0])
+
+        result = []
+        for dist2, coord in resources:
+            dist = math.sqrt(dist2)
+            if dist > search_radius:
+                break
+
+            result.append({
+                "position": coord,
+                "distance": dist,
+            })
+
+            if len(result) >= max_results:
+                break
+
+        if not result:
+            print(f"No resources found within {search_radius:.1f}m radius.")
+            return []
+
+        print("Nearest resources:")
+        for r in result:
+            x, y, z = r["position"]
+            d = r["distance"]
+            print(f"  resource at ({x:.2f}, {y:.2f}, {z:.2f}), distance={d:.1f}m")
+
+        return result
+
+    import math
+    from typing import Optional, Tuple, List, Dict, Any
+
+    def find_nearest_resources(
+            self,
+            search_radius: float = 1500.0,
+            max_results: int = 5,
+            center: Optional[Tuple[float, float, float]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Найти ближайшие ресурсы, используя УЖЕ ГОТОВУЮ карту радара.
+
+        ВАЖНО:
+        - НИКАКИХ новых сканов здесь нет.
+        - Используются только те данные руды, которые уже есть в RadarController.
+
+        :param search_radius: радиус поиска в метрах от точки center / текущей позиции дрона
+        :param max_results: максимальное количество результатов
+        :param center: точка центра поиска (если None — берём позицию RemoteControl)
+        :return: список словарей вида:
+                 {
+                    "position": (x, y, z),
+                    "distance": float,
+                    "ore": <тип/название руды или None>
+                 }
+        """
+
+        # 1. Определяем центр поиска
+        if center is None:
+            pos = _get_pos(self.rc)
+            if not pos:
+                print("find_nearest_resources: cannot get current RC position.")
+                return []
+            center = pos
+
+        cx, cy, cz = center
+
+        # 2. Достаём уже сохранённые данные по ресурсам из RadarController
+        # Ожидаем, что где-то при сканировании они были сохранены.
+        ore_points = (
+                getattr(self.radar_controller, "ore_cells", None)
+                or getattr(self.radar_controller, "ore_points", None)
+        )
+
+        if not ore_points:
+            print(
+                "find_nearest_resources: no ore data in radar controller. "
+                "Make sure map was filled by a previous scan in another script/process."
+            )
+            return []
+
+        r2 = search_radius * search_radius
+        results: List[Dict[str, Any]] = []
+
+        # 3. Перебираем все сохранённые точки руды и считаем дистанции
+        for cell in ore_points:
+            # Поддерживаем разные форматы хранения: dict или (x, y, z)
+            if isinstance(cell, dict):
+                x = (
+                        cell.get("x")
+                        or cell.get("X")
+                        or cell.get("worldX")
+                        or cell.get("wx")
+                )
+                y = (
+                        cell.get("y")
+                        or cell.get("Y")
+                        or cell.get("worldY")
+                        or cell.get("wy")
+                )
+                z = (
+                        cell.get("z")
+                        or cell.get("Z")
+                        or cell.get("worldZ")
+                        or cell.get("wz")
+                )
+                ore_type = (
+                        cell.get("ore")
+                        or cell.get("material")
+                        or cell.get("type")
+                )
+            elif isinstance(cell, (tuple, list)) and len(cell) >= 3:
+                x, y, z = cell[0], cell[1], cell[2]
+                ore_type = None
+            else:
+                continue
+
+            try:
+                fx = float(x)
+                fy = float(y)
+                fz = float(z)
+            except (TypeError, ValueError):
+                continue
+
+            dx = fx - cx
+            dy = fy - cy
+            dz = fz - cz
+            dist2 = dx * dx + dy * dy + dz * dz
+
+            if dist2 <= r2:
+                results.append(
+                    {
+                        "position": (fx, fy, fz),
+                        "distance": math.sqrt(dist2),
+                        "ore": ore_type,
+                    }
+                )
+
+        # 4. Сортируем по расстоянию и обрезаем до max_results
+        results.sort(key=lambda item: item["distance"])
+
+        if max_results is not None and max_results > 0:
+            results = results[:max_results]
+
+        print(
+            f"find_nearest_resources: found {len(results)} ore cells "
+            f"within {search_radius:.1f}m "
+            f"(limit {max_results})."
+        )
+        return results
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -415,15 +416,20 @@ class SharedMapController:
         save: bool = True,
     ) -> tuple[list[list[float]] | None, dict | None, list | None, list | None]:
         solid, metadata, contacts, ore_cells = radar_controller.scan_voxels()
+
+        # сохраняем чанки + обновляем индекс
         if solid:
-            self.add_voxel_points(solid, save=False)
+            self.add_voxel_points(solid, save=save)
         if ore_cells:
-            self.add_ore_cells(ore_cells, save=False)
+            self.add_ore_cells(ore_cells, save=save)
+
         if persist_metadata and metadata:
             self.data.metadata["last_radar"] = metadata
-        if save:
-            self._save_metadata()
+            if save:
+                self._save_metadata()
+
         return solid, metadata, contacts, ore_cells
+
 
     def get_known_ores(
         self,
@@ -521,6 +527,49 @@ class SharedMapController:
         if save:
             self._save_paths()
         return path
+
+    # ------------------------------------------------------------------
+    # Размер в памяти Redis
+    # ------------------------------------------------------------------
+    def get_redis_memory_usage(self) -> int:
+        """Получить примерный размер карты в байтах в Redis (сумма длин JSON строк)."""
+        idx = self._load_index()
+        total_size = 0
+
+        # Индекс
+        payload = self.client.get_json(self.index_key)
+        if payload is not None:
+            total_size += len(json.dumps(payload))
+
+        # Пути
+        payload = self.client.get_json(self.paths_key)
+        if payload is not None:
+            total_size += len(json.dumps(payload))
+
+        # Метаданные
+        payload = self.client.get_json(self.metadata_key)
+        if payload is not None:
+            total_size += len(json.dumps(payload))
+
+        # Чанки вокселей
+        for cid in idx["voxels"]:
+            payload = self.client.get_json(self._chunk_key("voxels", cid))
+            if payload is not None:
+                total_size += len(json.dumps(payload))
+
+        # Чанки посещенных
+        for cid in idx["visited"]:
+            payload = self.client.get_json(self._chunk_key("visited", cid))
+            if payload is not None:
+                total_size += len(json.dumps(payload))
+
+        # Чанки руд
+        for cid in idx["ores"]:
+            payload = self.client.get_json(self._chunk_key("ores", cid))
+            if payload is not None:
+                total_size += len(json.dumps(payload))
+
+        return total_size
 
     # ------------------------------------------------------------------
     # Работа с разными гридами

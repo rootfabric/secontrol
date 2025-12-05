@@ -314,3 +314,209 @@ class RadarController:
                     max_height = height
 
         return max_height
+
+    def apply_scan_to_occupancy(
+            self,
+            solid_points,
+            scan_center=None,
+            scan_radius=None,
+    ):
+        """
+        Обновить occupancy_grid по результатам скана.
+
+        1) Очищает регион скана (делает все клетки пустыми).
+        2) Записывает новые solid-ячейки.
+
+        solid_points – список точек (x, y, z) или dict'ов с координатами.
+        scan_center  – центр скана в мировых координатах (если знаем).
+        scan_radius  – радиус скана (если знаем).
+
+        Если scan_center/scan_radius не заданы, берём bbox по solid_points.
+        """
+        if (
+                self.occupancy_grid is None
+                or self.origin is None
+                or self.cell_size is None
+                or self.size is None
+        ):
+            print("RadarController.apply_scan_to_occupancy: no grid metadata, skip update.")
+            return
+
+        if not solid_points:
+            print("RadarController.apply_scan_to_occupancy: no solid points, clearing scanned region only.")
+
+        ox, oy, oz = self.origin
+        cell = self.cell_size
+        size_x, size_y, size_z = self.size
+
+        # --- 1. Определяем регион, который надо очистить ---
+
+        if scan_center is not None and scan_radius is not None:
+            cx, cy, cz = scan_center
+            r = scan_radius
+
+            min_x = cx - r
+            max_x = cx + r
+            min_y = cy - r
+            max_y = cy + r
+            min_z = cz - r
+            max_z = cz + r
+        else:
+            # Берём AABB по фактическим solid-точкам
+            xs = []
+            ys = []
+            zs = []
+            for p in solid_points:
+                if isinstance(p, dict):
+                    x = p.get("x") or p.get("X")
+                    y = p.get("y") or p.get("Y")
+                    z = p.get("z") or p.get("Z")
+                elif isinstance(p, (list, tuple)) and len(p) >= 3:
+                    x, y, z = p[0], p[1], p[2]
+                else:
+                    continue
+
+                try:
+                    xs.append(float(x))
+                    ys.append(float(y))
+                    zs.append(float(z))
+                except (TypeError, ValueError):
+                    continue
+
+            if not xs:
+                # Нечего чистить/переписывать — просто выходим
+                print("RadarController.apply_scan_to_occupancy: no valid solid coords.")
+                return
+
+            min_x = min(xs)
+            max_x = max(xs)
+            min_y = min(ys)
+            max_y = max(ys)
+            min_z = min(zs)
+            max_z = max(zs)
+
+            # Чуть расширим на 1 клетку, чтобы покрыть погрешности
+            pad = cell
+            min_x -= pad
+            max_x += pad
+            min_y -= pad
+            max_y += pad
+            min_z -= pad
+            max_z += pad
+
+        # Конвертация в индексы сетки
+        ix0 = max(0, int((min_x - ox) / cell))
+        ix1 = min(size_x - 1, int((max_x - ox) / cell))
+        iy0 = max(0, int((min_y - oy) / cell))
+        iy1 = min(size_y - 1, int((max_y - oy) / cell))
+        iz0 = max(0, int((min_z - oz) / cell))
+        iz1 = min(size_z - 1, int((max_z - oz) / cell))
+
+        if ix0 > ix1 or iy0 > iy1 or iz0 > iz1:
+            print("RadarController.apply_scan_to_occupancy: computed empty AABB, skip.")
+            return
+
+        # --- 2. Очищаем регион скана ---
+        print(
+            f"Clearing occupancy region: "
+            f"x[{ix0}:{ix1}], y[{iy0}:{iy1}], z[{iz0}:{iz1}]"
+        )
+        self.occupancy_grid[ix0:ix1 + 1, iy0:iy1 + 1, iz0:iz1 + 1] = False
+
+        # --- 3. Записываем новые solid-пункты ---
+        written = 0
+        for p in solid_points:
+            if isinstance(p, dict):
+                x = p.get("x") or p.get("X")
+                y = p.get("y") or p.get("Y")
+                z = p.get("z") or p.get("Z")
+            elif isinstance(p, (list, tuple)) and len(p) >= 3:
+                x, y, z = p[0], p[1], p[2]
+            else:
+                continue
+
+            try:
+                fx = float(x)
+                fy = float(y)
+                fz = float(z)
+            except (TypeError, ValueError):
+                continue
+
+            ix = int((fx - ox) / cell)
+            iy = int((fy - oy) / cell)
+            iz = int((fz - oz) / cell)
+
+            if 0 <= ix < size_x and 0 <= iy < size_y and 0 <= iz < size_z:
+                self.occupancy_grid[ix, iy, iz] = True
+                written += 1
+
+        print(f"apply_scan_to_occupancy: written {written} solid cells.")
+    def clear_mined_region(
+        self,
+        center: Tuple[float, float, float],
+        radius: float,
+    ):
+        """
+        Пометить регион как пустой (нет твёрдых вокселей) после добычи.
+
+        center – мировые координаты центра выработки.
+        radius – радиус в метрах.
+        """
+        if (
+            self.occupancy_grid is None
+            or self.origin is None
+            or self.cell_size is None
+            or self.size is None
+        ):
+            print("clear_mined_region: no occupancy grid, skipping.")
+            return
+
+        ox, oy, oz = self.origin
+        cell = self.cell_size
+        size_x, size_y, size_z = self.size
+
+        cx, cy, cz = center
+        r2 = radius * radius
+
+        # Грубый bbox по миру
+        min_x = cx - radius
+        max_x = cx + radius
+        min_y = cy - radius
+        max_y = cy + radius
+        min_z = cz - radius
+        max_z = cz + radius
+
+        ix0 = max(0, int((min_x - ox) / cell))
+        ix1 = min(size_x - 1, int((max_x - ox) / cell))
+        iy0 = max(0, int((min_y - oy) / cell))
+        iy1 = min(size_y - 1, int((max_y - oy) / cell))
+        iz0 = max(0, int((min_z - oz) / cell))
+        iz1 = min(size_z - 1, int((max_z - oz) / cell))
+
+        cleared = 0
+        for ix in range(ix0, ix1 + 1):
+            wx = ox + (ix + 0.5) * cell
+            dx = wx - cx
+            dx2 = dx * dx
+
+            for iy in range(iy0, iy1 + 1):
+                wy = oy + (iy + 0.5) * cell
+                dy = wy - cy
+                dy2 = dy * dy
+
+                for iz in range(iz0, iz1 + 1):
+                    wz = oz + (iz + 0.5) * cell
+                    dz = wz - cz
+                    dz2 = dz * dz
+
+                    if dx2 + dy2 + dz2 <= r2:
+                        if self.occupancy_grid[ix, iy, iz]:
+                            self.occupancy_grid[ix, iy, iz] = False
+                            cleared += 1
+
+        print(
+            f"clear_mined_region: cleared {cleared} cells "
+            f"around ({cx:.2f}, {cy:.2f}, {cz:.2f}) with radius {radius:.2f}m."
+        )
+
+        # Если у тебя есть отдельная структура для ore_cells с индексами – тут же можно подчистить её.
