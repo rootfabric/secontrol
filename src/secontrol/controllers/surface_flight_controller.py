@@ -1,11 +1,12 @@
 from __future__ import annotations
 import math
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional,Dict, Any
 
 from secontrol.common import prepare_grid
 from secontrol.devices.ore_detector_device import OreDetectorDevice
 from secontrol.devices.remote_control_device import RemoteControlDevice
 from secontrol.controllers.radar_controller import RadarController
+from secontrol.controllers.shared_map_controller import SharedMapController
 
 def _get_pos(dev) -> Optional[Tuple[float, float, float]]:
     """Read world position from device telemetry."""
@@ -68,6 +69,7 @@ class SurfaceFlightController:
         self.rc: RemoteControlDevice = rcs[0]
 
         self.radar_controller = RadarController(self.radar, radius=scan_radius, **scan_kwargs)
+        self.shared_map_controller = SharedMapController(owner_id=self.grid.owner_id)
 
         # Visited points
         self.visited_points: List[Tuple[float, float, float]] = []
@@ -757,6 +759,7 @@ class SurfaceFlightController:
             center = pos
 
         cx, cy, cz = center
+        print(f"find_nearest_resources: center position ({cx:.2f}, {cy:.2f}, {cz:.2f}), search_radius={search_radius:.1f}m")
 
         # 2. Достаём уже сохранённые данные по ресурсам из RadarController
         # Ожидаем, что где-то при сканировании они были сохранены.
@@ -777,26 +780,30 @@ class SurfaceFlightController:
 
         # 3. Перебираем все сохранённые точки руды и считаем дистанции
         for cell in ore_points:
-            # Поддерживаем разные форматы хранения: dict или (x, y, z)
+            # Поддерживаем разные форматы хранения: dict с position или прямые координаты
             if isinstance(cell, dict):
-                x = (
-                        cell.get("x")
-                        or cell.get("X")
-                        or cell.get("worldX")
-                        or cell.get("wx")
-                )
-                y = (
-                        cell.get("y")
-                        or cell.get("Y")
-                        or cell.get("worldY")
-                        or cell.get("wy")
-                )
-                z = (
-                        cell.get("z")
-                        or cell.get("Z")
-                        or cell.get("worldZ")
-                        or cell.get("wz")
-                )
+                position = cell.get("position")
+                if position and isinstance(position, (list, tuple)) and len(position) >= 3:
+                    x, y, z = position[0], position[1], position[2]
+                else:
+                    x = (
+                            cell.get("x")
+                            or cell.get("X")
+                            or cell.get("worldX")
+                            or cell.get("wx")
+                    )
+                    y = (
+                            cell.get("y")
+                            or cell.get("Y")
+                            or cell.get("worldY")
+                            or cell.get("wy")
+                    )
+                    z = (
+                            cell.get("z")
+                            or cell.get("Z")
+                            or cell.get("worldZ")
+                            or cell.get("wz")
+                    )
                 ore_type = (
                         cell.get("ore")
                         or cell.get("material")
@@ -840,7 +847,96 @@ class SurfaceFlightController:
             f"within {search_radius:.1f}m "
             f"(limit {max_results})."
         )
+
+        # Debug: if no results, print all loaded ores
+        if not results:
+            print("Debug: All loaded ore_cells:")
+            for cell in ore_points:
+                if isinstance(cell, dict):
+                    x = cell.get("x") or cell.get("X") or cell.get("worldX") or cell.get("wx")
+                    y = cell.get("y") or cell.get("Y") or cell.get("worldY") or cell.get("wy")
+                    z = cell.get("z") or cell.get("Z") or cell.get("worldZ") or cell.get("wz")
+                    ore_type = cell.get("ore") or cell.get("material") or cell.get("type")
+                elif isinstance(cell, (tuple, list)) and len(cell) >= 3:
+                    x, y, z = cell[0], cell[1], cell[2]
+                    ore_type = None
+                else:
+                    continue
+                try:
+                    fx = float(x)
+                    fy = float(y)
+                    fz = float(z)
+                    dx = fx - cx
+                    dy = fy - cy
+                    dz = fz - cz
+                    dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+                    print(f"  Ore: material={ore_type}, pos=({fx:.2f}, {fy:.2f}, {fz:.2f}), dist={dist:.2f}m")
+                except:
+                    pass
+
         return results
+
+    def load_map_region_from_redis(
+        self,
+        center: Optional[Tuple[float, float, float]] = None,
+        radius: float = 1500.0,
+    ):
+        """
+        Load voxel map (including ores) from Redis around given center and put it into radar_controller.
+
+        This method does NOT perform a new scan, it only loads already saved map.
+        Returns: solid, metadata, contacts, ore_cells, visited
+        """
+
+        # Определяем центр, если его явно не передали
+        if center is None:
+            pos = _get_pos(self.rc)
+            if not pos:
+                print("load_map_region_from_redis: cannot get current RC position.")
+                return None, None, None, None, None
+            center = pos
+
+        # Загружаем все данные из SharedMapController (не ограничиваем регионом, чтобы найти все ресурсы)
+        data = self.shared_map_controller.load()
+
+        # Преобразуем в формат, совместимый с radar_controller
+        solid = data.voxels  # список точек (x,y,z)
+
+        # Создаём фиктивные metadata (поскольку SharedMapController не хранит их)
+        metadata = {
+            "size": [int(2 * radius / 10.0), 100, int(2 * radius / 10.0)],  # грубая оценка
+            "cellSize": 10.0,
+            "origin": [center[0] - radius, center[1] - radius, center[2] - radius],
+            "oreCellsTruncated": 0,
+            "rev": 0,
+            "tsMs": 0,
+        }
+
+        contacts = []  # Нет контактов в SharedMapController
+
+        ore_cells = [
+            {
+                "material": ore.material,
+                "position": list(ore.position),
+                "content": ore.content
+            }
+            for ore in data.ores
+        ]
+
+        visited = data.visited  # список точек
+
+        # Сохраняем в radar_controller для совместимости
+        # Для occupancy_grid нужно построить сетку, но это сложно, оставим None или добавим позже если нужно
+        self.radar_controller.occupancy_grid = None  # Пока не строим occupancy_grid из loaded данных
+        self.radar_controller.ore_cells = ore_cells  # Сохраняем ore_cells
+
+        print(
+            f"load_map_region_from_redis: loaded {len(solid)} voxels, "
+            f"{len(ore_cells)} ore cells, {len(visited)} visited."
+        )
+
+        return solid, metadata, contacts, ore_cells, visited
+
 
 
 if __name__ == "__main__":
