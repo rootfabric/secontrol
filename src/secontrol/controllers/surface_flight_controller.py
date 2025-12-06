@@ -90,6 +90,15 @@ class SurfaceFlightController:
         self.radar: OreDetectorDevice = radars[0]
         self.rc: RemoteControlDevice = rcs[0]
 
+        # Check device functionality at startup
+        radar_tel = self.radar.telemetry or {}
+        if not radar_tel.get("isFunctional", True) or not radar_tel.get("isWorking", True) or not radar_tel.get("enabled", True):
+            raise RuntimeError("Radar device is not functional/working/enabled")
+
+        rc_tel = self.rc.telemetry or {}
+        if not rc_tel.get("isFunctional", True) or not rc_tel.get("isWorking", True) or not rc_tel.get("enabled", True):
+            raise RuntimeError("Remote control device is not functional/working/enabled")
+
         self.default_scan_radius = float(scan_radius)
         self.default_boundingBoxY = float(boundingBoxY)
 
