@@ -302,6 +302,10 @@ class SharedMapController:
     ) -> SharedMapData:
         """Загрузить только чанки, которые пересекают сферу радиуса ``radius``."""
 
+        # Сначала подгружаем индекс, чтобы актуализировать chunk_size
+        idx = self._load_index()
+        chunk_size = float(self.chunk_size)
+
         cx, cy, cz = center
         cr = float(radius)
         min_x, max_x = cx - cr, cx + cr
@@ -309,8 +313,8 @@ class SharedMapController:
         min_z, max_z = cz - cr, cz + cr
 
         def _chunk_range(vmin: float, vmax: float) -> range:
-            start = math.floor(vmin / self.chunk_size)
-            end = math.floor(vmax / self.chunk_size)
+            start = math.floor(vmin / chunk_size)
+            end = math.floor(vmax / chunk_size)
             return range(int(start), int(end) + 1)
 
         chunk_ids = {
@@ -320,12 +324,14 @@ class SharedMapController:
             for iz in _chunk_range(min_z, max_z)
         }
 
+        # idx мы уже считали, но load() сам подтянет его заново — это не страшно
         return self.load(
             chunk_ids=chunk_ids,
             kinds=kinds,
             include_paths=include_paths,
             include_metadata=include_metadata,
         )
+
 
     def save(self) -> None:
         # Сохраняем только метаданные и индекс/пути — чанки пишутся по мере обновления
@@ -532,42 +538,74 @@ class SharedMapController:
     # Размер в памяти Redis
     # ------------------------------------------------------------------
     def get_redis_memory_usage(self) -> int:
-        """Получить примерный размер карты в байтах в Redis (сумма длин JSON строк)."""
+        """
+        Примерный размер карты в Redis в байтах.
+
+        Считаем сумму по всем ключам карты, которые известны из индекса:
+        - index, paths, meta
+        - чанки voxels / visited / ores.
+        Для каждого ключа сначала пробуем MEMORY USAGE, при ошибке
+        откатываемся на get_json + json.dumps.
+        """
+
         idx = self._load_index()
+
+        # Формируем список всех ключей, которые относятся к карте
+        keys: list[str] = [
+            self.index_key,
+            self.paths_key,
+            self.metadata_key,
+        ]
+
+        for cid in idx["voxels"]:
+            keys.append(self._chunk_key("voxels", cid))
+        for cid in idx["visited"]:
+            keys.append(self._chunk_key("visited", cid))
+        for cid in idx["ores"]:
+            keys.append(self._chunk_key("ores", cid))
+
+        # На случай старого формата, когда всё лежало по memory_prefix
+        keys.append(self.memory_prefix)
+
+        # Пытаемся достучаться до "сырого" redis-клиента
+        redis_client = None
+        for attr in ("client", "_client", "redis"):
+            if hasattr(self.client, attr):
+                redis_client = getattr(self.client, attr)
+                break
+
         total_size = 0
 
-        # Индекс
-        payload = self.client.get_json(self.index_key)
-        if payload is not None:
-            total_size += len(json.dumps(payload))
+        for key in keys:
+            size = 0
 
-        # Пути
-        payload = self.client.get_json(self.paths_key)
-        if payload is not None:
-            total_size += len(json.dumps(payload))
+            # 1) Основной вариант: MEMORY USAGE, если доступен
+            if redis_client is not None and hasattr(redis_client, "memory_usage"):
+                try:
+                    usage = redis_client.memory_usage(key)  # type: ignore[attr-defined]
+                    if usage is not None:
+                        size = int(usage)
+                except Exception:
+                    size = 0
 
-        # Метаданные
-        payload = self.client.get_json(self.metadata_key)
-        if payload is not None:
-            total_size += len(json.dumps(payload))
+            # 2) Fallback: через get_json, если MEMORY USAGE недоступен или вернул 0
+            if size == 0:
+                try:
+                    payload = self.client.get_json(key)
+                except Exception:
+                    payload = None
 
-        # Чанки вокселей
-        for cid in idx["voxels"]:
-            payload = self.client.get_json(self._chunk_key("voxels", cid))
-            if payload is not None:
-                total_size += len(json.dumps(payload))
+                if payload is None:
+                    continue
 
-        # Чанки посещенных
-        for cid in idx["visited"]:
-            payload = self.client.get_json(self._chunk_key("visited", cid))
-            if payload is not None:
-                total_size += len(json.dumps(payload))
+                try:
+                    dump = json.dumps(payload, separators=(",", ":"))
+                except TypeError:
+                    dump = json.dumps(payload)
 
-        # Чанки руд
-        for cid in idx["ores"]:
-            payload = self.client.get_json(self._chunk_key("ores", cid))
-            if payload is not None:
-                total_size += len(json.dumps(payload))
+                size = len(dump.encode("utf-8", "ignore"))
+
+            total_size += size
 
         return total_size
 

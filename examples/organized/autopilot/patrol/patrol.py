@@ -3,14 +3,29 @@
 Патрульный полёт дрона по окружностям вокруг базы
 в плоскости, перпендикулярной вектору гравитации.
 
-Для каждой точки патруля:
-- координаты на «горизонтальной» окружности считаются в плоскости,
-  построенной относительно гравитации;
-- высота над поверхностью считается через
-  SurfaceFlightController.calculate_surface_point_at_altitude.
+ЛОГИКА ИСПОЛЬЗОВАНИЯ КАРТЫ:
 
-Шаг по углу подбирается так, чтобы расстояние между соседними
-точками по дуге не превышало max_segment_length.
+1) При старте:
+   - Берём позицию базы (RemoteControl).
+   - ПРОБУЕМ загрузить карту из Redis вокруг этой точки
+     (SurfaceFlightController.load_map_region_from_redis).
+   - Если по загруженной карте удаётся получить высоту поверхности
+     под базой (get_surface_height) — считаем, что карта есть и
+     НЕ сканируем.
+   - Если данных о поверхности нет — выполняем первичный скан радара.
+
+2) В полёте:
+   - Для каждой патрульной точки считаем координату в "горизонтальной"
+     плоскости.
+   - Расчёт высоты над поверхностью делаем через
+     controller.calculate_surface_point_at_altitude.
+   - Этот метод должен СНАЧАЛА пытаться использовать существующую
+     карту (occupancy_grid / get_surface_height / Redis), и только
+     если данных нет — запускать скан радара.
+
+3) Этот скрипт больше НЕ запускает scan_voxels после каждого перелёта —
+   он опирается на уже имеющуюся карту. Периодический перескан (по
+   радиусам) можно оставить для учёта изменений рельефа.
 """
 
 import math
@@ -22,6 +37,10 @@ from secontrol.tools.navigation_tools import goto
 
 
 Point3D = Tuple[float, float, float]
+
+# --- Базовые параметры радара, с которыми создаётся контроллер --- #
+DEFAULT_SCAN_RADIUS = 100.0
+DEFAULT_BOUNDING_BOX_Y = 50.0
 
 
 def _get_pos(rc) -> Optional[Point3D]:
@@ -42,11 +61,10 @@ def _build_horizontal_basis(down: Point3D) -> Tuple[Point3D, Point3D]:
     Строим два ортонормальных вектора (h1, h2) в плоскости,
     перпендикулярной вектору гравитации (down).
 
-    down предполагается нормированным (что даёт SurfaceFlightController._get_down_vector).
+    down предполагается нормированным.
     """
     dx, dy, dz = down
 
-    # Берём произвольный вектор, неколлинеарный down
     if abs(dx) < 0.9:
         ref = (1.0, 0.0, 0.0)
     else:
@@ -76,11 +94,41 @@ def _build_horizontal_basis(down: Point3D) -> Tuple[Point3D, Point3D]:
     return (ux, uy, uz), (vx, vy, vz)
 
 
+def _distance(a: Point3D, b: Point3D) -> float:
+    dx = a[0] - b[0]
+    dy = a[1] - b[1]
+    dz = a[2] - b[2]
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+
+def _lerp_along_segment(a: Point3D, b: Point3D, max_dist: float) -> Point3D:
+    """
+    Берёт точку на отрезке A->B, отстоящую от A не больше max_dist.
+    Если расстояние до B <= max_dist, возвращает B.
+    """
+    dx = b[0] - a[0]
+    dy = b[1] - a[1]
+    dz = b[2] - a[2]
+    dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if dist <= max_dist or dist < 1e-3:
+        return b
+    k = max_dist / dist
+    return (
+        a[0] + dx * k,
+        a[1] + dy * k,
+        a[2] + dz * k,
+    )
+
+
 def main() -> None:
     grid_name = "taburet"
 
     # Контроллер полёта над поверхностью (строит карту по радару)
-    controller = SurfaceFlightController(grid_name, scan_radius=200.0, boundingBoxY=60.0)
+    controller = SurfaceFlightController(
+        grid_name,
+        scan_radius=DEFAULT_SCAN_RADIUS,
+        boundingBoxY=DEFAULT_BOUNDING_BOX_Y,
+    )
 
     # Начальная позиция — центр патруля
     base_pos = _get_pos(controller.rc)
@@ -91,12 +139,42 @@ def main() -> None:
     print(f"Базовая позиция (центр патруля): {base_pos}")
     controller.visited_points.append(base_pos)
 
-    # Первый плотный скан для заполнения occupancy_grid
-    print("Первичный скан поверхности для заполнения карты...")
-    solid, metadata, contacts, ore_cells = controller.scan_voxels()
+    # --- 1. Пробуем использовать уже сохранённую карту из Redis --- #
     print(
-        f"[init] Начальный скан: solid={len(solid or [])}, ores={len(ore_cells or [])}"
+        f"SurfaceFlightController: первичная загрузка карты из Redis "
+        f"вокруг позиции {base_pos} (radius={DEFAULT_SCAN_RADIUS * 2:.1f}м)"
     )
+    try:
+        controller.load_map_region_from_redis(center=base_pos, radius=DEFAULT_SCAN_RADIUS * 2.0)
+    except AttributeError:
+        # Если метод ещё не реализован в контроллере – просто лог,
+        # чтобы не ломать скрипт.
+        print("ВНИМАНИЕ: у SurfaceFlightController нет метода load_map_region_from_redis.")
+
+    # Проверяем, есть ли данные о поверхности под базой в уже загруженной карте
+    surface_y = None
+    if getattr(controller, "radar_controller", None) is not None:
+        rc = controller.radar_controller
+        if getattr(rc, "occupancy_grid", None) is not None:
+            surface_y = rc.get_surface_height(base_pos[0], base_pos[2])
+
+    if surface_y is not None:
+        print(
+            f"Использую ранее сохранённую карту поверхности: "
+            f"высота под базой = {surface_y:.2f}"
+        )
+        solid = ore_cells = None
+    else:
+        # --- 2. Если данных нет — выполняем первичный скан радара --- #
+        print(
+            "Ранее сохранённой поверхности под базой не найдено, "
+            "выполняю первичный скан поверхности для заполнения карты..."
+        )
+        solid, metadata, contacts, ore_cells = controller.scan_voxels()
+        print(
+            f"[init] Начальный скан: solid={len(solid or [])}, "
+            f"ores={len(ore_cells or []) if ore_cells is not None else 0}"
+        )
 
     # Горизонтальная система координат относительно гравитации
     down = controller._get_down_vector()
@@ -121,9 +199,21 @@ def main() -> None:
             time.sleep(10.0)
             continue
 
-        # Текущая позиция (для логов и отладки)
+        # Актуальный радиус скана из параметров радара
+        raw_scan_radius = DEFAULT_SCAN_RADIUS
+        if getattr(controller, "radar_controller", None) is not None:
+            raw_scan_radius = controller.radar_controller.scan_params.get("radius", DEFAULT_SCAN_RADIUS)
+
+        # Немного уменьшим радиус для безопасной границы перемещения
+        safe_scan_move = raw_scan_radius * 0.8
+
+        # Текущая позиция
         current_pos = _get_pos(controller.rc) or base_pos
         print(f"\nТекущая позиция дрона: {current_pos}")
+
+        # Обновим вектор гравитации и up для корректной высоты
+        down = controller._get_down_vector()
+        up = (-down[0], -down[1], -down[2])
 
         # Горизонтальное смещение в плоскости, перпендикулярной гравитации
         cos_a = math.cos(angle)
@@ -134,7 +224,7 @@ def main() -> None:
             ring_radius * (cos_a * h1[2] + sin_a * h2[2]),
         )
 
-        # Точка патруля в "горизонтальной" плоскости (до учёта рельефа)
+        # Точка патруля в "горизонтальной" плоскости (до учёта рельефа) — относительно центра патруля
         flat_point = (
             base_pos[0] + offset[0],
             base_pos[1] + offset[1],
@@ -146,11 +236,63 @@ def main() -> None:
             f"({flat_point[0]:.2f}, {flat_point[1]:.2f}, {flat_point[2]:.2f})"
         )
 
-        # Рассчитываем точку на заданной высоте над поверхностью по гравитации
-        target_point = controller.calculate_surface_point_at_altitude(
-            flat_point,
+        # --- Ограничение по радиусу сканера ---
+        dist_to_flat = _distance(current_pos, flat_point)
+        if dist_to_flat > safe_scan_move:
+            safe_flat_point = _lerp_along_segment(current_pos, flat_point, safe_scan_move)
+            print(
+                f"[SCAN-LIMIT] Цель вне надёжного радиуса сканера: "
+                f"{dist_to_flat:.1f}м > {safe_scan_move:.1f}м. "
+                f"Сдвигаем точку на границу скана: "
+                f"({safe_flat_point[0]:.2f}, {safe_flat_point[1]:.2f}, {safe_flat_point[2]:.2f})"
+            )
+        else:
+            safe_flat_point = flat_point
+
+        # --- Расчёт точки на заданной высоте над поверхностью ---
+        #
+        # ВАЖНО:
+        # - calculate_surface_point_at_altitude ДОЛЖЕН:
+        #   1) Сначала смотреть в occupancy_grid (get_surface_height / трассировка).
+        #   2) Если под точкой нет поверхности — попробовать загрузить карту
+        #      из Redis (если ты это уже реализовал внутри контроллера).
+        #   3) Только если после этого поверхность не найдена — запустить
+        #      новый скан радара.
+        #
+        # Здесь мы просто пользуемся этим поведением.
+
+        # Сначала точка на поверхности (altitude=0) — для контроля высоты
+        surface_point = controller.calculate_surface_point_at_altitude(
+            safe_flat_point,
+            0.0,
+        )
+
+        # Затем целевая точка на нужной высоте
+        target_point_raw = controller.calculate_surface_point_at_altitude(
+            safe_flat_point,
             flight_altitude,
         )
+
+        # Высота над поверхностью по проекции на вектор up
+        alt_vec = (
+            target_point_raw[0] - surface_point[0],
+            target_point_raw[1] - surface_point[1],
+            target_point_raw[2] - surface_point[2],
+        )
+        altitude_proj = alt_vec[0] * up[0] + alt_vec[1] * up[1] + alt_vec[2] * up[2]
+
+        if altitude_proj < flight_altitude * 0.5:
+            print(
+                f"[ALT-CORRECT] Низкая высота над поверхностью ({altitude_proj:.1f}м). "
+                f"Принудительно поднимаю до {flight_altitude:.1f}м."
+            )
+            target_point = (
+                surface_point[0] + up[0] * flight_altitude,
+                surface_point[1] + up[1] * flight_altitude,
+                surface_point[2] + up[2] * flight_altitude,
+            )
+        else:
+            target_point = target_point_raw
 
         print(
             "Патрульная точка: "
@@ -173,10 +315,10 @@ def main() -> None:
             print(f"Текущая позиция после перемещения: {new_pos}")
             controller.visited_points.append(new_pos)
 
-        # Периодически обновляем карту, чтобы учитывать изменения рельефа
-        # (например, добыча ресурсов). Делать слишком часто дорого.
+        # Периодический перескан (редко), чтобы учитывать изменения рельефа
+        # и при этом не жечь радар постоянно.
         if int(ring_radius) % 200 == 0 and abs(math.degrees(angle)) < 1e-3:
-            print("Обновляю карту радиусом 200м...")
+            print("[SCAN] Плановый перескан поверхности (радиусом сканера)...")
             controller.scan_voxels()
 
         # --- Динамический шаг по углу, чтобы расстояние по дуге не превышало max_segment_length ---
@@ -184,10 +326,8 @@ def main() -> None:
         if ring_radius > 1e-3:
             angle_step = max_segment_length / ring_radius
         else:
-            # На очень маленьких радиусах считаем круг целиком за один шаг
             angle_step = 2.0 * math.pi
 
-        # Ограничиваем максимальный шаг по углу (для стабильности траектории)
         max_angle_step_rad = math.radians(90.0)
         if angle_step > max_angle_step_rad:
             angle_step = max_angle_step_rad
@@ -198,7 +338,6 @@ def main() -> None:
             f"дуга≈{segment_distance:.1f}м (макс {max_segment_length:.1f}м)"
         )
 
-        # Следующая точка по углу / следующее кольцо
         angle += angle_step
         if angle >= 2.0 * math.pi:
             angle -= 2.0 * math.pi

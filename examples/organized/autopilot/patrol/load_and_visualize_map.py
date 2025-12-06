@@ -29,7 +29,7 @@ class App:
         self.cockpit = cockpits[0] if cockpits else None
 
         # Контроллер радара (сканирование вокселей)
-        self.radar_ctrl = RadarController(self.radar_device, radius=2000.0)
+        self.radar_ctrl = RadarController(self.radar_device, radius=500.0)
 
         # Контроллер общей карты (Redis)
         # owner_id берём из грида, чтобы карта была привязана к игроку

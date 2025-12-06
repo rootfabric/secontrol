@@ -1,12 +1,13 @@
 from __future__ import annotations
 import math
-from typing import Tuple, List, Optional,Dict, Any
+from typing import Tuple, List, Optional, Dict, Any
 
 from secontrol.common import prepare_grid
 from secontrol.devices.ore_detector_device import OreDetectorDevice
 from secontrol.devices.remote_control_device import RemoteControlDevice
 from secontrol.controllers.radar_controller import RadarController
 from secontrol.controllers.shared_map_controller import SharedMapController
+
 
 def _get_pos(dev) -> Optional[Tuple[float, float, float]]:
     """Read world position from device telemetry."""
@@ -51,9 +52,14 @@ class SurfaceFlightController:
     """
     Controller for flying over planet surface using radar voxel data.
     Maintains altitude above surface and tracks visited points.
+
+    ВАЖНО:
+    - Сначала используем уже засканированную карту (occupancy_grid).
+    - Потом пробуем подгрузить карту из Redis (SharedMapController).
+    - Только если всё это не помогло — увеличиваем radius / boundingBoxY и делаем новый скан.
     """
 
-    def __init__(self, grid_name: str, scan_radius = 100, **scan_kwargs):
+    def __init__(self, grid_name: str, scan_radius: float = 100.0, boundingBoxY: float = 100.0, **scan_kwargs):
         self.grid = prepare_grid(grid_name)
 
         # Find devices
@@ -68,11 +74,36 @@ class SurfaceFlightController:
         self.radar: OreDetectorDevice = radars[0]
         self.rc: RemoteControlDevice = rcs[0]
 
-        self.radar_controller = RadarController(self.radar, radius=scan_radius, **scan_kwargs)
+        # Defaults for radar scan params — к ним откатываемся при успешном поиске поверхности
+        self.default_scan_radius: float = float(scan_radius)
+        self.default_boundingBoxY: float = float(boundingBoxY)
+
+        # Radar controller
+        self.radar_controller = RadarController(
+            self.radar,
+            radius=scan_radius,
+            boundingBoxY=boundingBoxY,
+            **scan_kwargs,
+        )
+
         self.shared_map_controller = SharedMapController(owner_id=self.grid.owner_id)
 
         # Visited points
         self.visited_points: List[Tuple[float, float, float]] = []
+
+        # При старте пытаемся подгрузить ранее сохранённую карту из Redis
+        start_pos = _get_pos(self.rc)
+        if start_pos:
+            try:
+                print(
+                    f"SurfaceFlightController: initial map load from Redis "
+                    f"around position ({start_pos[0]:.2f}, {start_pos[1]:.2f}, {start_pos[2]:.2f})"
+                )
+                self.load_map_region_from_redis(center=start_pos, radius=self.default_scan_radius * 2.0)
+            except Exception as e:
+                print(f"SurfaceFlightController: failed to load initial map from Redis: {e}")
+
+    # ---- Low-level helpers -------------------------------------------------
 
     def scan_voxels(self):
         """Scan voxels using the radar controller."""
@@ -81,13 +112,19 @@ class SurfaceFlightController:
     def _get_down_vector(self) -> Tuple[float, float, float]:
         gravity_vector = self.rc.telemetry.get("gravitationalVector") if self.rc.telemetry else None
         if gravity_vector:
-            g_x, g_y, g_z = gravity_vector.get("x", 0.0), gravity_vector.get("y", 0.0), gravity_vector.get("z", 0.0)
+            g_x = gravity_vector.get("x", 0.0)
+            g_y = gravity_vector.get("y", 0.0)
+            g_z = gravity_vector.get("z", 0.0)
             g_len = math.sqrt(g_x ** 2 + g_y ** 2 + g_z ** 2)
             if g_len:
                 return (g_x / g_len, g_y / g_len, g_z / g_len)
         return (0.0, -1.0, 0.0)
 
-    def _project_forward_to_horizontal(self, forward: Tuple[float, float, float], down: Tuple[float, float, float]) -> Tuple[float, float, float]:
+    def _project_forward_to_horizontal(
+        self,
+        forward: Tuple[float, float, float],
+        down: Tuple[float, float, float],
+    ) -> Tuple[float, float, float]:
         dot_fg = forward[0] * down[0] + forward[1] * down[1] + forward[2] * down[2]
         horizontal_forward = (
             forward[0] - dot_fg * down[0],
@@ -95,7 +132,11 @@ class SurfaceFlightController:
             forward[2] - dot_fg * down[2],
         )
 
-        horiz_len = math.sqrt(horizontal_forward[0] ** 2 + horizontal_forward[1] ** 2 + horizontal_forward[2] ** 2)
+        horiz_len = math.sqrt(
+            horizontal_forward[0] ** 2
+            + horizontal_forward[1] ** 2
+            + horizontal_forward[2] ** 2
+        )
         if horiz_len == 0:
             print("Cannot compute horizontal forward vector, using original forward direction.")
             horiz_len = math.sqrt(forward[0] ** 2 + forward[1] ** 2 + forward[2] ** 2) or 1.0
@@ -136,14 +177,25 @@ class SurfaceFlightController:
             surface_y = self.radar_controller.get_surface_height(sample[0], sample[2])
             if surface_y is None:
                 # Log reason for None
-                if self.radar_controller.occupancy_grid is None or self.radar_controller.origin is None or self.radar_controller.cell_size is None or self.radar_controller.size is None:
+                if (
+                    self.radar_controller.occupancy_grid is None
+                    or self.radar_controller.origin is None
+                    or self.radar_controller.cell_size is None
+                    or self.radar_controller.size is None
+                ):
                     print("    No occupancy grid data available")
                 else:
                     idx_x = int((sample[0] - self.radar_controller.origin[0]) / self.radar_controller.cell_size)
                     idx_z = int((sample[2] - self.radar_controller.origin[2]) / self.radar_controller.cell_size)
-                    in_bounds = (0 <= idx_x < self.radar_controller.size[0] and 0 <= idx_z < self.radar_controller.size[2])
+                    in_bounds = (
+                        0 <= idx_x < self.radar_controller.size[0]
+                        and 0 <= idx_z < self.radar_controller.size[2]
+                    )
                     if not in_bounds:
-                        print(f"    Out of bounds: idx_x={idx_x}, idx_z={idx_z}, grid_size=({self.radar_controller.size[0]}, {self.radar_controller.size[2]})")
+                        print(
+                            f"    Out of bounds: idx_x={idx_x}, idx_z={idx_z}, "
+                            f"grid_size=({self.radar_controller.size[0]}, {self.radar_controller.size[2]})"
+                        )
                     else:
                         has_solid = False
                         for y in range(self.radar_controller.size[1] - 1, -1, -1):
@@ -153,7 +205,7 @@ class SurfaceFlightController:
                         if not has_solid:
                             print(f"    No solid voxels in column idx_x={idx_x}, idx_z={idx_z}")
                         else:
-                            print(f"    Unexpected None despite solid voxels in column")
+                            print("    Unexpected None despite solid voxels in column")
                 continue
 
             print(f"    Surface height: {surface_y:.2f}")
@@ -163,7 +215,13 @@ class SurfaceFlightController:
 
         return max_surface_y if max_surface_y is not None else last_surface_y, last_surface_y
 
-    def _compute_target_over_surface(self, pos: Tuple[float, float, float], forward: Tuple[float, float, float], distance: float, altitude: float) -> Tuple[float, float, float]:
+    def _compute_target_over_surface(
+        self,
+        pos: Tuple[float, float, float],
+        forward: Tuple[float, float, float],
+        distance: float,
+        altitude: float,
+    ) -> Tuple[float, float, float]:
         down = self._get_down_vector()
         horiz_dir = self._project_forward_to_horizontal(forward, down)
 
@@ -177,9 +235,12 @@ class SurfaceFlightController:
         if self.radar_controller.occupancy_grid is None:
             print("Occupancy grid is None, no surface data available.")
         else:
-            print(f"Occupancy grid origin: {self.radar_controller.origin}, size: {self.radar_controller.size}, cell_size: {self.radar_controller.cell_size}")
+            print(
+                f"Occupancy grid origin: {self.radar_controller.origin}, "
+                f"size: {self.radar_controller.size}, "
+                f"cell_size: {self.radar_controller.cell_size}"
+            )
 
-        # Sample terrain along the straight forward path to avoid drifting sideways
         cell_step = self.radar_controller.cell_size or 5.0
         max_surf, last_surf = self._sample_surface_along_path(
             pos,
@@ -213,13 +274,7 @@ class SurfaceFlightController:
                 f"target_y={target_y:.2f}",
             )
 
-        target_point = (
-            target_base[0],
-            target_y,
-            target_base[2],
-        )
-
-        return target_point
+        return (target_base[0], target_y, target_base[2])
 
     def _find_surface_point_along_gravity(
         self,
@@ -230,9 +285,7 @@ class SurfaceFlightController:
     ) -> Optional[Tuple[float, float, float]]:
         """
         Trace along the gravity vector to find the first solid voxel point.
-
-        Returns the center of the first solid cell encountered or ``None`` if
-        nothing is found within ``max_distance``.
+        Returns the center of the first solid cell encountered or ``None``.
         """
         if (
             self.radar_controller.occupancy_grid is None
@@ -271,6 +324,135 @@ class SurfaceFlightController:
 
         return None
 
+    # ---- Высота над поверхностью с учётом карты/Redis/скана ----------------
+
+    def calculate_surface_point_at_altitude(
+        self,
+        position: Tuple[float, float, float],
+        altitude: float,
+    ) -> Tuple[float, float, float]:
+        """
+        Calculate a point at the specified altitude above the surface for given coordinates.
+
+        Порядок:
+        1. Пытаемся найти поверхность в текущей occupancy_grid.
+        2. Если не нашли — подгружаем карту из Redis вокруг позиции и пробуем ещё раз.
+        3. Если всё ещё не нашли — увеличиваем radius + boundingBoxY, сканируем и ищем заново.
+        4. Если нашли — откатываем параметры радара к default_scan_radius/default_boundingBoxY.
+        5. Если не нашли вообще — смещаемся немного вверх по гравитации (safe fallback).
+        """
+        down = self._get_down_vector()
+        up = (-down[0], -down[1], -down[2])
+
+        def _try_find_with_current_grid() -> Optional[Tuple[float, float, float]]:
+            if (
+                self.radar_controller.occupancy_grid is None
+                or self.radar_controller.cell_size is None
+                or self.radar_controller.size is None
+            ):
+                return None
+            cell_size_local = self.radar_controller.cell_size or 5.0
+            size_y_local = self.radar_controller.size[1]
+            max_trace_local = cell_size_local * size_y_local
+            step_local = cell_size_local
+            return self._find_surface_point_along_gravity(position, down, max_trace_local, step_local)
+
+        # 1) Пробуем текущую карту
+        surface_point = _try_find_with_current_grid()
+
+        # 2) Если не нашли — пробуем подгрузить карту из Redis вокруг position
+        if surface_point is None:
+            print(
+                f"Поверхность под точкой ({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}) "
+                f"не найдена в текущей карте, пробую загрузить карту из Redis..."
+            )
+            try:
+                self.load_map_region_from_redis(center=position, radius=self.default_scan_radius * 2.0)
+                surface_point = _try_find_with_current_grid()
+            except Exception as e:
+                print(f"Ошибка при загрузке карты из Redis: {e}")
+
+        # 3) Если всё еще None — расширяем параметры радара и делаем новый скан
+        if surface_point is None:
+            current_radius = float(self.radar_controller.scan_params.get("radius", self.default_scan_radius))
+            current_bbY = float(self.radar_controller.scan_params.get("boundingBoxY", self.default_boundingBoxY))
+
+            max_allowed_radius = 800.0
+            max_allowed_bbY = 800.0
+
+            new_radius = min(current_radius * 1.5, max_allowed_radius)
+            new_bbY = min(current_bbY * 1.5, max_allowed_bbY)
+
+            if new_radius > current_radius + 1e-3 or new_bbY > current_bbY + 1e-3:
+                print(
+                    f"Поверхность под точкой ({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}) "
+                    f"не найдена даже с учётом Redis-карты, увеличиваю параметры радара: "
+                    f"radius {current_radius:.1f} → {new_radius:.1f}, "
+                    f"boundingBoxY {current_bbY:.1f} → {new_bbY:.1f} и выполняю скан..."
+                )
+                self.radar_controller.set_scan_params(radius=new_radius, boundingBoxY=new_bbY)
+            else:
+                print(
+                    f"Поверхность под точкой ({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}) "
+                    f"не найдена, параметры радара уже максимальные "
+                    f"(radius={current_radius:.1f}, boundingBoxY={current_bbY:.1f}), выполняю повторный скан..."
+                )
+
+            # Новый скан
+            self.scan_voxels()
+
+            # После скана снова пробуем найти поверхность
+            surface_point = _try_find_with_current_grid()
+
+        # 4) Если нашли — считаем целевую точку + откатываем параметры скана
+        if surface_point is not None:
+            target_point = (
+                surface_point[0] + up[0] * altitude,
+                surface_point[1] + up[1] * altitude,
+                surface_point[2] + up[2] * altitude,
+            )
+            print(
+                f"Calculated point at altitude: position=({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}), "
+                f"surface_point=({surface_point[0]:.2f}, {surface_point[1]:.2f}, {surface_point[2]:.2f}), "
+                f"altitude={altitude:.2f}, target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
+            )
+
+            current_radius = float(self.radar_controller.scan_params.get("radius", self.default_scan_radius))
+            current_bbY = float(self.radar_controller.scan_params.get("boundingBoxY", self.default_boundingBoxY))
+
+            if (
+                abs(current_radius - self.default_scan_radius) > 1e-3
+                or abs(current_bbY - self.default_boundingBoxY) > 1e-3
+            ):
+                print(
+                    f"Сканирование / поиск поверхности успешны, откатываю параметры радара к умолчанию: "
+                    f"radius={self.default_scan_radius:.1f}, "
+                    f"boundingBoxY={self.default_boundingBoxY:.1f}"
+                )
+                self.radar_controller.set_scan_params(
+                    radius=self.default_scan_radius,
+                    boundingBoxY=self.default_boundingBoxY,
+                )
+
+            return target_point
+
+        # 5) Безопасный fallback — не лезем вниз, а слегка уходим по up
+        safe_up = 5.0
+        target_point = (
+            position[0] + up[0] * safe_up,
+            position[1] + up[1] * safe_up,
+            position[2] + up[2] * safe_up,
+        )
+        print(
+            f"Поверхность под точкой ({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}) не найдена "
+            f"даже после загрузки карты и расширенного скана, "
+            f"смещаюсь на {safe_up:.1f}м вверх по гравитации: "
+            f"target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
+        )
+        return target_point
+
+    # ---- Движение относительно поверхности --------------------------------
+
     def lift_drone_to_altitude(
         self,
         altitude: float,
@@ -291,7 +473,9 @@ class SurfaceFlightController:
             self.scan_voxels()
 
         cell_size = self.radar_controller.cell_size or 5.0
-        max_trace = trace_distance or cell_size * (self.radar_controller.size[1] if self.radar_controller.size else 50)
+        max_trace = trace_distance or cell_size * (
+            self.radar_controller.size[1] if self.radar_controller.size else 50
+        )
         step = trace_step or cell_size
 
         down = self._get_down_vector()
@@ -299,7 +483,6 @@ class SurfaceFlightController:
 
         surface_point = self._find_surface_point_along_gravity(pos, down, max_trace, step)
         if surface_point is None:
-            # Fallback to vertical lookup using x/z column
             surface_height = self.radar_controller.get_surface_height(pos[0], pos[2])
             if surface_height is not None:
                 surface_point = (pos[0], surface_height, pos[2])
@@ -315,7 +498,8 @@ class SurfaceFlightController:
         )
 
         print(
-            f"Lifting to altitude: surface={surface_point}, target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
+            f"Lifting to altitude: surface={surface_point}, "
+            f"target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
         )
 
         self.visited_points.append(pos)
@@ -326,72 +510,9 @@ class SurfaceFlightController:
         if new_pos:
             self.visited_points.append(new_pos)
 
-    def calculate_surface_point_at_altitude(
-            self,
-            position: Tuple[float, float, float],
-            altitude: float,
-    ) -> Tuple[float, float, float]:
-        """
-        Calculate a point at the specified altitude above the surface for given coordinates.
-
-        1. Пытаемся найти поверхность трассировкой вдоль гравитации.
-        2. Если поверхность не найдена — делаем скан и пробуем ещё раз.
-        3. Если всё равно не нашли — НЕ летим вниз, а поднимаемся немного вверх,
-           чтобы гарантированно не врезаться в землю.
-        """
-        # Параметры трассировки по воксельной сетке
-        cell_size = self.radar_controller.cell_size or 5.0
-        max_trace = cell_size * (self.radar_controller.size[1] if self.radar_controller.size else 50)
-        step = cell_size
-
-        down = self._get_down_vector()
-        up = (-down[0], -down[1], -down[2])
-
-        # Первая попытка найти поверхность в текущей сетке
-        surface_point = self._find_surface_point_along_gravity(position, down, max_trace, step)
-
-        # Если данных мало / сетка не заполнена — досканируем и пробуем ещё раз
-        if surface_point is None:
-            print(
-                f"Поверхность под точкой ({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}) не найдена, "
-                f"выполняю скан радара..."
-            )
-            self.scan_voxels()
-            surface_point = self._find_surface_point_along_gravity(position, down, max_trace, step)
-
-        if surface_point is not None:
-            target_point = (
-                surface_point[0] + up[0] * altitude,
-                surface_point[1] + up[1] * altitude,
-                surface_point[2] + up[2] * altitude,
-            )
-            print(
-                f"Calculated point at altitude: position=({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}), "
-                f"surface_point=({surface_point[0]:.2f}, {surface_point[1]:.2f}, {surface_point[2]:.2f}), "
-                f"altitude={altitude:.2f}, target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
-            )
-            return target_point
-
-        # --- Безопасный fallback: НЕ летим вниз, а чуть поднимаемся ---
-        safe_up = 5.0
-        target_point = (
-            position[0] + up[0] * safe_up,
-            position[1] + up[1] * safe_up,
-            position[2] + up[2] * safe_up,
-        )
-        print(
-            f"Поверхность под точкой ({position[0]:.2f}, {position[1]:.2f}, {position[2]:.2f}) не найдена даже после скана, "
-            f"оставляю точку безопасно выше, смещаясь на {safe_up:.1f}м вверх по гравитации: "
-            f"target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
-        )
-        return target_point
-
     def fly_forward_to_altitude(self, distance: float, altitude: float):
         """
         Fly forward from the drone's nose to a point at specified altitude above surface.
-
-        Uses the drone's forward vector to compute a target point ahead, then calculates
-        the altitude above surface at that point, and flies the grid there.
         """
         pos = _get_pos(self.rc)
         if not pos:
@@ -400,25 +521,37 @@ class SurfaceFlightController:
 
         self.visited_points.append(pos)
 
-        # Get forward vector
         forward, _, _ = self.rc.get_orientation_vectors_world()
         print(f"Forward vector: {forward}")
 
-        # Compute forward point
         forward_point = (
             pos[0] + forward[0] * distance,
             pos[1] + forward[1] * distance,
             pos[2] + forward[2] * distance,
         )
-        print(f"Forward point: ({forward_point[0]:.2f}, {forward_point[1]:.2f}, {forward_point[2]:.2f})")
+        print(
+            f"Forward point: "
+            f"({forward_point[0]:.2f}, {forward_point[1]:.2f}, {forward_point[2]:.2f})"
+        )
 
-        # Calculate target at altitude above surface
         target_point = self.calculate_surface_point_at_altitude(forward_point, altitude)
 
-        print(f"Flying to target: ({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})")
+        print(
+            f"Flying to target: "
+            f"({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
+        )
 
-        self.grid.create_gps_marker(f"ForwardAlt{distance:.0f}m_{altitude:.0f}m", coordinates=target_point)
-        _fly_to(self.rc, target_point, f"FlyForwardAlt{distance:.0f}m_{altitude:.0f}m", speed_far=10.0, speed_near=5.0)
+        self.grid.create_gps_marker(
+            f"ForwardAlt{distance:.0f}m_{altitude:.0f}m",
+            coordinates=target_point,
+        )
+        _fly_to(
+            self.rc,
+            target_point,
+            f"FlyForwardAlt{distance:.0f}m_{altitude:.0f}m",
+            speed_far=10.0,
+            speed_near=5.0,
+        )
 
         new_pos = _get_pos(self.rc)
         if new_pos:
@@ -426,12 +559,14 @@ class SurfaceFlightController:
 
         print("Flight to forward altitude complete.")
 
-    def cruise_along_surface(self, forward_distance: float, altitude: float, altitude_tolerance: float = 1.0):
+    def cruise_along_surface(
+        self,
+        forward_distance: float,
+        altitude: float,
+        altitude_tolerance: float = 1.0,
+    ):
         """
         Keep the craft at the desired ``altitude`` above ground and move forward.
-
-        The controller first corrects altitude above the current voxel surface,
-        then computes a forward target following the sampled terrain profile.
         """
         pos = _get_pos(self.rc)
         if not pos:
@@ -447,7 +582,8 @@ class SurfaceFlightController:
             current_altitude = pos[1] - current_surface
             altitude_error = current_altitude - altitude
             print(
-                f"Current altitude over surface: {current_altitude:.2f}m (target {altitude:.2f}m, error {altitude_error:.2f}m)"
+                f"Current altitude over surface: {current_altitude:.2f}m "
+                f"(target {altitude:.2f}m, error {altitude_error:.2f}m)"
             )
             if abs(altitude_error) > altitude_tolerance:
                 correction_target = (pos[0], current_surface + altitude, pos[2])
@@ -472,7 +608,10 @@ class SurfaceFlightController:
         print(f"Forward vector: {forward}")
 
         target_point = self._compute_target_over_surface(pos, forward, forward_distance, altitude)
-        self.grid.create_gps_marker(f"CruiseTarget{forward_distance:.0f}m", coordinates=target_point)
+        self.grid.create_gps_marker(
+            f"CruiseTarget{forward_distance:.0f}m",
+            coordinates=target_point,
+        )
 
         _fly_to(
             self.rc,
@@ -519,6 +658,8 @@ class SurfaceFlightController:
 
         print(f"Flight complete. Visited points: {len(self.visited_points)}")
 
+    # ---- Обходные / сервисные методы --------------------------------------
+
     def get_visited_points(self) -> List[Tuple[float, float, float]]:
         """Get list of visited points."""
         return self.visited_points.copy()
@@ -539,16 +680,15 @@ class SurfaceFlightController:
 
         self.visited_points.append(pos)
 
-        # Adjust target_y
         surf_h = self.radar_controller.get_surface_height(target_x, target_z)
         target_y = surf_h + altitude if surf_h is not None else pos[1]
 
         _fly_to(
             self.rc,
             (target_x, target_y, target_z),
-            f"FlyToPoint",
+            "FlyToPoint",
             speed_far=10.0,
-            speed_near=5.0
+            speed_near=5.0,
         )
 
         pos = _get_pos(self.rc)
@@ -559,7 +699,6 @@ class SurfaceFlightController:
         """Move forward for given distance using ship's forward vector."""
         print(f"Moving forward {distance}m using ship's forward vector.")
 
-        # Get current position
         pos = _get_pos(self.rc)
         if not pos:
             print("Cannot get current position.")
@@ -567,30 +706,28 @@ class SurfaceFlightController:
 
         self.visited_points.append(pos)
 
-        # Get forward direction
         forward, _, _ = self.rc.get_orientation_vectors_world()
         print(f"Forward vector: {forward}")
 
-        # Calculate target point
         target_x = pos[0] + forward[0] * distance
         target_y = pos[1] + forward[1] * distance
         target_z = pos[2] + forward[2] * distance
 
         print(f"Target: ({target_x:.2f}, {target_y:.2f}, {target_z:.2f})")
 
-        # Create GPS marker for debugging
-        self.grid.create_gps_marker(f"Forward{distance:.0f}m", coordinates=(target_x, target_y, target_z))
+        self.grid.create_gps_marker(
+            f"Forward{distance:.0f}m",
+            coordinates=(target_x, target_y, target_z),
+        )
 
-        # Fly to target
         _fly_to(
             self.rc,
             (target_x, target_y, target_z),
             f"MoveForward{distance:.0f}m",
             speed_far=10.0,
-            speed_near=5.0
+            speed_near=5.0,
         )
 
-        # Update position
         pos = _get_pos(self.rc)
         if pos:
             self.visited_points.append(pos)
@@ -627,25 +764,16 @@ class SurfaceFlightController:
 
         print("Move complete.")
 
+    # ---- Работа с ресурсами и Redis-картой --------------------------------
+
     def find_nearest_resources_active_scan(
         self,
         search_radius: float = 1000.0,
         max_results: int = 5,
     ):
         """
-        Найти ближайшие ресурсы (рудные клетки) по данным радара.
-
-        Делает скан карты (scan_voxels), берёт ore_cells и возвращает
-        список словарей:
-        [
-            {"position": (x, y, z), "distance": dist_m},
-            ...
-        ]
-
-        search_radius – максимальная дистанция поиска (метры)
-        max_results   – сколько ближайших ресурсов вернуть
+        Найти ближайшие ресурсы (рудные клетки) по данным радара с активным сканом.
         """
-        # Текущая позиция дрона
         pos = _get_pos(self.rc)
         if not pos:
             print("Cannot get current position for resource search.")
@@ -654,7 +782,6 @@ class SurfaceFlightController:
         px, py, pz = pos
         print(f"Current position for resource search: ({px:.2f}, {py:.2f}, {pz:.2f})")
 
-        # Делаем скан карты (solid, metadata, contacts, ore_cells)
         solid, metadata, contacts, ore_cells = self.scan_voxels()
 
         if not ore_cells:
@@ -664,7 +791,6 @@ class SurfaceFlightController:
         resources = []
 
         for cell in ore_cells:
-            # Поддержка разных форматов: dict или (x, y, z)
             if isinstance(cell, dict):
                 x = cell.get("x") or cell.get("X")
                 y = cell.get("y") or cell.get("Y")
@@ -672,7 +798,6 @@ class SurfaceFlightController:
             elif isinstance(cell, (list, tuple)) and len(cell) >= 3:
                 x, y, z = cell[0], cell[1], cell[2]
             else:
-                # Неизвестный формат – пропускаем
                 continue
 
             try:
@@ -680,7 +805,6 @@ class SurfaceFlightController:
                 fy = float(y)
                 fz = float(z)
             except (TypeError, ValueError):
-                # Некастуемые значения – пропускаем
                 continue
 
             dx = fx - px
@@ -694,7 +818,6 @@ class SurfaceFlightController:
             print("Ore cell list is non-empty, but no valid coordinates were parsed.")
             return []
 
-        # Сортируем по расстоянию (по dist2 — без лишнего sqrt)
         resources.sort(key=lambda item: item[0])
 
         result = []
@@ -703,10 +826,7 @@ class SurfaceFlightController:
             if dist > search_radius:
                 break
 
-            result.append({
-                "position": coord,
-                "distance": dist,
-            })
+            result.append({"position": coord, "distance": dist})
 
             if len(result) >= max_results:
                 break
@@ -723,34 +843,15 @@ class SurfaceFlightController:
 
         return result
 
-    import math
-    from typing import Optional, Tuple, List, Dict, Any
-
     def find_nearest_resources(
-            self,
-            search_radius: float = 1500.0,
-            max_results: int = 5,
-            center: Optional[Tuple[float, float, float]] = None,
+        self,
+        search_radius: float = 1500.0,
+        max_results: int = 5,
+        center: Optional[Tuple[float, float, float]] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Найти ближайшие ресурсы, используя УЖЕ ГОТОВУЮ карту радара.
-
-        ВАЖНО:
-        - НИКАКИХ новых сканов здесь нет.
-        - Используются только те данные руды, которые уже есть в RadarController.
-
-        :param search_radius: радиус поиска в метрах от точки center / текущей позиции дрона
-        :param max_results: максимальное количество результатов
-        :param center: точка центра поиска (если None — берём позицию RemoteControl)
-        :return: список словарей вида:
-                 {
-                    "position": (x, y, z),
-                    "distance": float,
-                    "ore": <тип/название руды или None>
-                 }
+        Найти ближайшие ресурсы, используя УЖЕ ГОТОВУЮ карту радара (без нового скана).
         """
-
-        # 1. Определяем центр поиска
         if center is None:
             pos = _get_pos(self.rc)
             if not pos:
@@ -759,56 +860,36 @@ class SurfaceFlightController:
             center = pos
 
         cx, cy, cz = center
-        print(f"find_nearest_resources: center position ({cx:.2f}, {cy:.2f}, {cz:.2f}), search_radius={search_radius:.1f}m")
+        print(
+            f"find_nearest_resources: center position ({cx:.2f}, {cy:.2f}, {cz:.2f}), "
+            f"search_radius={search_radius:.1f}m"
+        )
 
-        # 2. Достаём уже сохранённые данные по ресурсам из RadarController
-        # Ожидаем, что где-то при сканировании они были сохранены.
         ore_points = (
-                getattr(self.radar_controller, "ore_cells", None)
-                or getattr(self.radar_controller, "ore_points", None)
+            getattr(self.radar_controller, "ore_cells", None)
+            or getattr(self.radar_controller, "ore_points", None)
         )
 
         if not ore_points:
             print(
                 "find_nearest_resources: no ore data in radar controller. "
-                "Make sure map was filled by a previous scan in another script/process."
+                "Make sure map was filled by a previous scan."
             )
             return []
 
         r2 = search_radius * search_radius
         results: List[Dict[str, Any]] = []
 
-        # 3. Перебираем все сохранённые точки руды и считаем дистанции
         for cell in ore_points:
-            # Поддерживаем разные форматы хранения: dict с position или прямые координаты
             if isinstance(cell, dict):
                 position = cell.get("position")
                 if position and isinstance(position, (list, tuple)) and len(position) >= 3:
                     x, y, z = position[0], position[1], position[2]
                 else:
-                    x = (
-                            cell.get("x")
-                            or cell.get("X")
-                            or cell.get("worldX")
-                            or cell.get("wx")
-                    )
-                    y = (
-                            cell.get("y")
-                            or cell.get("Y")
-                            or cell.get("worldY")
-                            or cell.get("wy")
-                    )
-                    z = (
-                            cell.get("z")
-                            or cell.get("Z")
-                            or cell.get("worldZ")
-                            or cell.get("wz")
-                    )
-                ore_type = (
-                        cell.get("ore")
-                        or cell.get("material")
-                        or cell.get("type")
-                )
+                    x = cell.get("x") or cell.get("X") or cell.get("worldX") or cell.get("wx")
+                    y = cell.get("y") or cell.get("Y") or cell.get("worldY") or cell.get("wy")
+                    z = cell.get("z") or cell.get("Z") or cell.get("worldZ") or cell.get("wz")
+                ore_type = cell.get("ore") or cell.get("material") or cell.get("type")
             elif isinstance(cell, (tuple, list)) and len(cell) >= 3:
                 x, y, z = cell[0], cell[1], cell[2]
                 ore_type = None
@@ -836,7 +917,6 @@ class SurfaceFlightController:
                     }
                 )
 
-        # 4. Сортируем по расстоянию и обрезаем до max_results
         results.sort(key=lambda item: item["distance"])
 
         if max_results is not None and max_results > 0:
@@ -844,11 +924,9 @@ class SurfaceFlightController:
 
         print(
             f"find_nearest_resources: found {len(results)} ore cells "
-            f"within {search_radius:.1f}m "
-            f"(limit {max_results})."
+            f"within {search_radius:.1f}m (limit {max_results})."
         )
 
-        # Debug: if no results, print all loaded ores
         if not results:
             print("Debug: All loaded ore_cells:")
             for cell in ore_points:
@@ -869,9 +947,12 @@ class SurfaceFlightController:
                     dx = fx - cx
                     dy = fy - cy
                     dz = fz - cz
-                    dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-                    print(f"  Ore: material={ore_type}, pos=({fx:.2f}, {fy:.2f}, {fz:.2f}), dist={dist:.2f}m")
-                except:
+                    dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+                    print(
+                        f"  Ore: material={ore_type}, "
+                        f"pos=({fx:.2f}, {fy:.2f}, {fz:.2f}), dist={dist:.2f}m"
+                    )
+                except Exception:
                     pass
 
         return results
@@ -882,13 +963,12 @@ class SurfaceFlightController:
         radius: float = 1500.0,
     ):
         """
-        Load voxel map (including ores) from Redis around given center and put it into radar_controller.
+        Load voxel map (including ores) from Redis around given center and
+        put it into radar_controller.
 
-        This method does NOT perform a new scan, it only loads already saved map.
-        Returns: solid, metadata, contacts, ore_cells, visited
+        НЕ выполняет новый скан — только загружает уже сохранённые данные.
+        Возвращает: solid, metadata, contacts, ore_cells, visited.
         """
-
-        # Определяем центр, если его явно не передали
         if center is None:
             pos = _get_pos(self.rc)
             if not pos:
@@ -896,64 +976,91 @@ class SurfaceFlightController:
                 return None, None, None, None, None
             center = pos
 
-        # Загружаем все данные из SharedMapController (не ограничиваем регионом, чтобы найти все ресурсы)
+        cx, cy, cz = center
+        print(
+            f"load_map_region_from_redis: center=({cx:.2f}, {cy:.2f}, {cz:.2f}), "
+            f"radius={radius:.1f}m"
+        )
+
         data = self.shared_map_controller.load()
 
-        # Преобразуем в формат, совместимый с radar_controller
         solid = data.voxels  # список точек (x,y,z)
-
-        # Создаём фиктивные metadata (поскольку SharedMapController не хранит их)
-        metadata = {
-            "size": [int(2 * radius / 10.0), 100, int(2 * radius / 10.0)],  # грубая оценка
-            "cellSize": 10.0,
-            "origin": [center[0] - radius, center[1] - radius, center[2] - radius],
-            "oreCellsTruncated": 0,
-            "rev": 0,
-            "tsMs": 0,
-        }
-
-        contacts = []  # Нет контактов в SharedMapController
-
         ore_cells = [
             {
                 "material": ore.material,
                 "position": list(ore.position),
-                "content": ore.content
+                "content": ore.content,
             }
             for ore in data.ores
         ]
+        visited = data.visited
 
-        visited = data.visited  # список точек
+        cell_size = 10.0
+        size_x = int(2 * radius / cell_size) + 2
+        size_y = 100
+        size_z = int(2 * radius / cell_size) + 2
 
-        # Сохраняем в radar_controller для совместимости
-        # Для occupancy_grid нужно построить сетку, но это сложно, оставим None или добавим позже если нужно
-        self.radar_controller.occupancy_grid = None  # Пока не строим occupancy_grid из loaded данных
-        self.radar_controller.ore_cells = ore_cells  # Сохраняем ore_cells
+        origin = [
+            center[0] - radius,
+            center[1] - radius,
+            center[2] - radius,
+        ]
+
+        metadata = {
+            "size": [size_x, size_y, size_z],
+            "cellSize": cell_size,
+            "origin": origin,
+            "oreCellsTruncated": 0,
+            "rev": 0,
+            "tsMs": 0,
+        }
+        contacts: List[Dict[str, Any]] = []
+
+        # Настраиваем radar_controller на эту сетку и заполняем occupancy_grid
+        try:
+            import numpy as np
+
+            self.radar_controller.origin = (origin[0], origin[1], origin[2])
+            self.radar_controller.cell_size = cell_size
+            self.radar_controller.size = (size_x, size_y, size_z)
+
+            if (
+                self.radar_controller.occupancy_grid is None
+                or self.radar_controller.occupancy_grid.shape
+                != (size_x, size_y, size_z)
+            ):
+                self.radar_controller.occupancy_grid = np.zeros(
+                    (size_x, size_y, size_z), dtype=bool
+                )
+
+            if solid:
+                print(
+                    f"load_map_region_from_redis: applying {len(solid)} voxels "
+                    f"into occupancy grid..."
+                )
+                self.radar_controller.apply_scan_to_occupancy(
+                    solid_points=solid,
+                    scan_center=center,
+                    scan_radius=radius,
+                )
+            else:
+                print("load_map_region_from_redis: no solid voxels loaded.")
+
+        except Exception as e:
+            print(f"load_map_region_from_redis: failed to build occupancy grid: {e}")
+
+        self.radar_controller.ore_cells = ore_cells
 
         print(
             f"load_map_region_from_redis: loaded {len(solid)} voxels, "
-            f"{len(ore_cells)} ore cells, {len(visited)} visited."
+            f"{len(ore_cells)} ore cells, {len(visited)} visited points."
         )
 
         return solid, metadata, contacts, ore_cells, visited
 
 
-
 if __name__ == "__main__":
-    # Example: fly forward 50m at 10m above surface
-    controller = SurfaceFlightController("taburet", scan_radius=80)  # Replace with actual grid name
-    # controller.move_forward_simple(10)
+    controller = SurfaceFlightController("taburet", scan_radius=80, boundingBoxY=80)
     solid, metadata, contacts, ore_cells = controller.scan_voxels()
-
-
-    controller._find_surface_point_along_gravity
-
-    # Visualize radar data
-    # from secontrol.tools.radar_visualizer import RadarVisualizer
-    # visualizer = RadarVisualizer()
-    # own_pos = _get_pos(controller.rc)
-    # print(solid)
-    # visualizer.visualize(solid, metadata, contacts, own_position=own_pos, ore_cells=ore_cells)
-
     controller.fly_forward_over_surface(10, 10)
     print("Visited points:", controller.get_visited_points())
