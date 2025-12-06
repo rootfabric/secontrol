@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """
-Патрульный полёт дрона по окружности вокруг базы
+Патрульный полёт дрона по окружностям вокруг базы
 в плоскости, перпендикулярной вектору гравитации.
 
-Высота над поверхностью по каждой точке патруля
-считается через SurfaceFlightController.calculate_surface_point_at_altitude.
+Для каждой точки патруля:
+- координаты на «горизонтальной» окружности считаются в плоскости,
+  построенной относительно гравитации;
+- высота над поверхностью считается через
+  SurfaceFlightController.calculate_surface_point_at_altitude.
+
+Шаг по углу подбирается так, чтобы расстояние между соседними
+точками по дуге не превышало max_segment_length.
 """
 
 import math
@@ -19,6 +25,7 @@ Point3D = Tuple[float, float, float]
 
 
 def _get_pos(rc) -> Optional[Point3D]:
+    """Чтение мировых координат из телеметрии RemoteControl."""
     tel = rc.telemetry or {}
     pos = tel.get("worldPosition") or tel.get("position")
     if not pos:
@@ -32,8 +39,10 @@ def _get_pos(rc) -> Optional[Point3D]:
 
 def _build_horizontal_basis(down: Point3D) -> Tuple[Point3D, Point3D]:
     """
-    Строим два ортонормальных вектора в плоскости,
+    Строим два ортонормальных вектора (h1, h2) в плоскости,
     перпендикулярной вектору гравитации (down).
+
+    down предполагается нормированным (что даёт SurfaceFlightController._get_down_vector).
     """
     dx, dy, dz = down
 
@@ -70,10 +79,10 @@ def _build_horizontal_basis(down: Point3D) -> Tuple[Point3D, Point3D]:
 def main() -> None:
     grid_name = "taburet"
 
-    # Контроллер полёта над поверхностью
+    # Контроллер полёта над поверхностью (строит карту по радару)
     controller = SurfaceFlightController(grid_name, scan_radius=200.0, boundingBoxY=60.0)
 
-    # Начальная позиция
+    # Начальная позиция — центр патруля
     base_pos = _get_pos(controller.rc)
     if base_pos is None:
         print("Не удалось получить позицию RemoteControl. Завершение.")
@@ -82,11 +91,11 @@ def main() -> None:
     print(f"Базовая позиция (центр патруля): {base_pos}")
     controller.visited_points.append(base_pos)
 
-    # Выполним один плотный скан, чтобы заполнить occupancy_grid
+    # Первый плотный скан для заполнения occupancy_grid
     print("Первичный скан поверхности для заполнения карты...")
     solid, metadata, contacts, ore_cells = controller.scan_voxels()
     print(
-        f"Начальный скан завершён: solid={len(solid or [])}, ores={len(ore_cells or [])}"
+        f"[init] Начальный скан: solid={len(solid or [])}, ores={len(ore_cells or [])}"
     )
 
     # Горизонтальная система координат относительно гравитации
@@ -96,14 +105,15 @@ def main() -> None:
     print(f"Горизонтальные базисы: h1={h1}, h2={h2}")
 
     # Параметры патруля
-    flight_altitude = 50.0      # высота над поверхностью
-    ring_radius = 100.0         # стартовый радиус
-    ring_radius_step = 100.0
-    max_ring_radius = 3000.0
+    flight_altitude = 50.0       # высота над поверхностью
+    ring_radius = 100.0          # стартовый радиус
+    ring_radius_step = 100.0     # шаг увеличения радиуса после полного круга
+    max_ring_radius = 3000.0     # максимальный радиус облёта
 
-    angle = 0.0
-    angle_step_deg = 45.0
-    angle_step = math.radians(angle_step_deg)
+    # Максимально допустимое расстояние между соседними точками по дуге
+    max_segment_length = 100.0   # метров
+
+    angle = 0.0  # начальный угол в радианах
 
     while True:
         if ring_radius > max_ring_radius:
@@ -111,7 +121,7 @@ def main() -> None:
             time.sleep(10.0)
             continue
 
-        # Текущая позиция (для контроля и логов)
+        # Текущая позиция (для логов и отладки)
         current_pos = _get_pos(controller.rc) or base_pos
         print(f"\nТекущая позиция дрона: {current_pos}")
 
@@ -124,7 +134,7 @@ def main() -> None:
             ring_radius * (cos_a * h1[2] + sin_a * h2[2]),
         )
 
-        # Точка патруля в "горизонтальной" плоскости
+        # Точка патруля в "горизонтальной" плоскости (до учёта рельефа)
         flat_point = (
             base_pos[0] + offset[0],
             base_pos[1] + offset[1],
@@ -132,7 +142,7 @@ def main() -> None:
         )
 
         print(
-            f"Плоская патрульная точка (до учёта рельефа): "
+            "Плоская патрульная точка (до учёта рельефа): "
             f"({flat_point[0]:.2f}, {flat_point[1]:.2f}, {flat_point[2]:.2f})"
         )
 
@@ -143,7 +153,8 @@ def main() -> None:
         )
 
         print(
-            f"Патрульная точка: угол={math.degrees(angle):.1f}°, "
+            "Патрульная точка: "
+            f"угол={math.degrees(angle):.1f}°, "
             f"радиус={ring_radius:.1f}м, "
             f"target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
         )
@@ -162,17 +173,37 @@ def main() -> None:
             print(f"Текущая позиция после перемещения: {new_pos}")
             controller.visited_points.append(new_pos)
 
-        # Чуть-чуть обновляем карту время от времени, чтобы не "ослепнуть"
-        # (дорого сканировать каждый шаг, поэтому редко)
+        # Периодически обновляем карту, чтобы учитывать изменения рельефа
+        # (например, добыча ресурсов). Делать слишком часто дорого.
         if int(ring_radius) % 200 == 0 and abs(math.degrees(angle)) < 1e-3:
             print("Обновляю карту радиусом 200м...")
             controller.scan_voxels()
 
-        # Следующая точка по углу / кольцу
+        # --- Динамический шаг по углу, чтобы расстояние по дуге не превышало max_segment_length ---
+
+        if ring_radius > 1e-3:
+            angle_step = max_segment_length / ring_radius
+        else:
+            # На очень маленьких радиусах считаем круг целиком за один шаг
+            angle_step = 2.0 * math.pi
+
+        # Ограничиваем максимальный шаг по углу (для стабильности траектории)
+        max_angle_step_rad = math.radians(90.0)
+        if angle_step > max_angle_step_rad:
+            angle_step = max_angle_step_rad
+
+        segment_distance = ring_radius * angle_step
+        print(
+            f"Следующий шаг по углу: {math.degrees(angle_step):.2f}°, "
+            f"дуга≈{segment_distance:.1f}м (макс {max_segment_length:.1f}м)"
+        )
+
+        # Следующая точка по углу / следующее кольцо
         angle += angle_step
         if angle >= 2.0 * math.pi:
             angle -= 2.0 * math.pi
             ring_radius += ring_radius_step
+            print(f"Переход на новое кольцо: радиус={ring_radius:.1f}м")
 
         time.sleep(0.5)
 
