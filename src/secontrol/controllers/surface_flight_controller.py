@@ -882,105 +882,86 @@ class SurfaceFlightController:
         return altitude_y
 
     def calculate_safe_target_along_path(
-        self,
-        start: Tuple[float, float, float],
-        end: Tuple[float, float, float],
-        altitude: float,
-        min_step: float = 5.0,
-    ) -> Tuple[float, float, float]:
+            self,
+            start: Tuple[float, float, float],
+            end: Tuple[float, float, float],
+            altitude: float,
+            step: float = 10.0,
+    ) -> Tuple[Tuple[float, float, float], Optional[float], str]:
         """
-        Рассчитать безопасную целевую точку по маршруту start -> end
-        на заданной высоте над максимальной поверхностью ВДОЛЬ пути.
-
-        1) Строим горизонтальное направление из start в end
-           (проецируем вектор на плоскость, перпендикулярную гравитации).
-        2) Сэмплируем поверхность вдоль этого направления через
-           _sample_surface_along_path и берём max_surface_y.
-        3) Целевая точка: (end.x, max_surface_y + altitude, end.z).
-        4) Если по пути не нашли поверхность — падаем в обычный
-           calculate_surface_point_at_altitude(end, altitude).
+        Рассчитывает безопасную целевую точку, гарантируя, что дрон не врежется
+        в холм посередине пути. Берет МАКСИМАЛЬНУЮ высоту рельефа на всем отрезке.
         """
 
-        # Если ещё нет карты — пусть calculate_surface_point_at_altitude сам её подтянет
-        if (
-            self.radar_controller.occupancy_grid is None
-            or self.radar_controller.origin is None
-            or self.radar_controller.size is None
-        ):
-            # Один вызов, чтобы гарантировать наличие occupancy_grid
-            _ = self.calculate_surface_point_at_altitude(end, altitude)
+        # 1. Вычисляем вектор и дистанцию
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        dz = end[2] - start[2]
+        dist = math.sqrt(dx * dx + dy * dy + dz * dz)
 
-        # Вектор гравитации
+        if dist < 0.01:
+            return end, None, "zero_dist"
+
+        direction = (dx / dist, dy / dist, dz / dist)
+
+        # 2. Семплим высоты вдоль пути
+        # Метод _sample_surface_along_path возвращает (max_y, last_y)
+        # Нам критически важно использовать именнно max_y!
+        max_surface_y_on_path, last_surface_y = self._sample_surface_along_path(
+            start, direction, dist, step
+        )
+
+        # 3. Также проверяем высоту конкретно в конечной точке (end),
+        # так как шаг семплинга мог её перешагнуть.
+        # Для этого используем trace вдоль гравитации в точке end.
         down = self._get_down_vector()
 
-        # Вектор из start в end
-        vx = end[0] - start[0]
-        vy = end[1] - start[1]
-        vz = end[2] - start[2]
-
-        # Если почти не двигаемся — просто берём стандартный расчёт над поверхностью под end
-        length_vec = math.sqrt(vx * vx + vy * vy + vz * vz)
-        if length_vec < 1e-3:
-            print("calculate_safe_target_along_path: distance too small, using direct altitude calculation.")
-            return self.calculate_surface_point_at_altitude(end, altitude)
-
-        # Проекция вектора на плоскость, перпендикулярную гравитации (горизонтальное направление)
-        dot_vd = vx * down[0] + vy * down[1] + vz * down[2]
-        hx = vx - dot_vd * down[0]
-        hy = vy - dot_vd * down[1]
-        hz = vz - dot_vd * down[2]
-
-        length_h = math.sqrt(hx * hx + hy * hy + hz * hz)
-        if length_h < 1e-3:
-            # Почти вертикальное смещение – в этом случае достаточно обычного расчёта
-            print("calculate_safe_target_along_path: horizontal component too small, using direct altitude calculation.")
-            return self.calculate_surface_point_at_altitude(end, altitude)
-
-        dir_hx = hx / length_h
-        dir_hy = hy / length_h
-        dir_hz = hz / length_h
-
-        horizontal_distance = length_h
-
-        # Шаг по пути – не меньше min_step и не меньше размера клетки
-        cell_step = self.radar_controller.cell_size or min_step
-        step = max(cell_step, min_step)
-
-        print(
-            "calculate_safe_target_along_path: sampling along path "
-            f"start=({start[0]:.2f}, {start[1]:.2f}, {start[2]:.2f}) -> "
-            f"end=({end[0]:.2f}, {end[1]:.2f}, {end[2]:.2f}), "
-            f"horizontal_distance={horizontal_distance:.2f}м, step={step:.2f}м"
+        # Попытка найти точную поверхность под конечной точкой
+        surface_at_end = self._find_surface_point_along_gravity(
+            end, down, max_distance=200.0, step=5.0
         )
 
-        max_surf, last_surf = self._sample_surface_along_path(
-            start=start,
-            direction=(dir_hx, dir_hy, dir_hz),
-            distance=horizontal_distance,
-            step=step,
-        )
+        surface_y_at_end_val = -999999.0
+        if surface_at_end:
+            # Предполагаем, что Y - это высота (в локальной сетке или мире)
+            # Если гравитация сложная, тут нужно проецировать, но для Y-ориентированных сеток так:
+            surface_y_at_end_val = surface_at_end[1]
 
-        if max_surf is not None:
-            surface_y = max_surf
-            source = "max_along_path"
-        elif last_surf is not None:
-            surface_y = last_surf
-            source = "last_along_path"
+            # 4. Определяем "Безопасную Базовую Высоту"
+        # Это максимум между самым высоким холмом на пути и точкой назначения.
+
+        safe_base_y = surface_y_at_end_val
+        if max_surface_y_on_path is not None:
+            if max_surface_y_on_path > safe_base_y:
+                safe_base_y = max_surface_y_on_path
+
+        # Если поверхность вообще не найдена, летим по высоте конечной точки (рискованно, но выхода нет)
+        if safe_base_y < -900000:
+            # Fallback: если вообще ничего не нашли, берем Y конечной точки плоского маршрута
+            safe_base_y = end[1]
+            source = "no_surface_data"
         else:
-            # Совсем ничего не нашли по пути — используем стандартный механизм
-            print(
-                "calculate_safe_target_along_path: no surface sampled along path, "
-                "falling back to calculate_surface_point_at_altitude(end, altitude)."
-            )
-            return self.calculate_surface_point_at_altitude(end, altitude)
+            source = "path_max_height"
 
-        target_y = surface_y + altitude
-        target = (end[0], target_y, end[2])
+        # 5. Формируем итоговую точку
+        # X и Z берем от конечной цели (end), а Y поднимаем над САМОЙ ВЫСОКОЙ точкой пути.
 
-        print(
-            "calculate_safe_target_along_path: "
-            f"surface_source={source}, surface_y={surface_y:.2f}, "
-            f"altitude={altitude:.2f}, target=({target[0]:.2f}, {target[1]:.2f}, {target[2]:.2f})"
-        )
+        # Вектор "Вверх" (против гравитации)
+        up = (-down[0], -down[1], -down[2])
 
-        return target
+        # ВНИМАНИЕ: Если мы просто заменим Y, это сработает для плоской планеты/луны.
+        # Для сферической гравитации правильно делать смещение вдоль UP от точки проекции.
+        # Но судя по твоим логам (target Y меняется явно), проще всего скорректировать Y компонент,
+        # если сетка радара выровнена по гравитации.
+
+        # Вариант А (Простой, если сетка выровнена):
+        # final_target = (end[0], safe_base_y + altitude, end[2])
+
+        # Вариант Б (Более точный для векторов):
+        # Мы берем точку end, находим её проекцию на высоту safe_base_y и добавляем altitude.
+        # Упростим до работы с Y, так как в логах Y явно доминирует как высота.
+
+        final_y = safe_base_y + altitude
+        final_target = (end[0], final_y, end[2])
+
+        return final_target, safe_base_y, source

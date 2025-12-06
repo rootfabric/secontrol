@@ -173,19 +173,11 @@ def main() -> None:
         # === НОВАЯ ЛОГИКА ВЫБОРА ВЫСОТЫ ===
         # Вместо того чтобы смотреть только под конечной точкой,
         # считаем безопасную цель с учётом максимальной высоты вдоль пути.
-        target_point = controller.calculate_safe_target_along_path(
+        target_point, surface_y_at_target, _ = controller.calculate_safe_target_along_path(
             start=current_pos,
             end=safe_flat_point,
             altitude=flight_altitude,
         )
-
-        # Для логов оценим высоту над поверхностью под целевой точкой по карте
-        surface_y_at_target = None
-        if getattr(controller, "radar_controller", None) is not None:
-            surface_y_at_target = controller.radar_controller.get_surface_height(
-                target_point[0],
-                target_point[2],
-            )
 
         if surface_y_at_target is not None:
             altitude_y = target_point[1] - surface_y_at_target
@@ -193,7 +185,7 @@ def main() -> None:
             altitude_y = float("nan")
 
         print(
-            "Патрульная точка: "
+            f"Патрульная точка: "
             f"угол={math.degrees(angle):.1f}°, "
             f"радиус={ring_radius:.1f}м, "
             f"target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f}), "
@@ -206,8 +198,8 @@ def main() -> None:
         )
 
         print("Движение к patrol-точке...")
-        alt = controller.measure_altitude_to_surface()
-        print(f"Текущая высота: {alt}")
+
+
 
         goto(controller.grid, target_point, speed=20.0)
 
