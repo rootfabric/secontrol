@@ -737,7 +737,8 @@ class SurfaceFlightController:
 
         1) Гарантирует покрытие картой вокруг цели (ensure_map_coverage_for_point).
         2) Замеряет фактическую высоту цели над поверхностью.
-        3) Если цель ниже desired_altitude (с допуском), поднимает её.
+        3) Если цель ниже desired_altitude (с допуском), поднимает её
+           ИМЕННО по оси Y над уровнем поверхности.
         """
         self.ensure_map_coverage_for_point(target, margin_cells=3)
 
@@ -752,218 +753,175 @@ class SurfaceFlightController:
             )
 
         if info.surface_point is None:
+            # Нет поверхности — нечего поднимать, возвращаем как есть
             return target, info
 
         required_alt = max(desired_altitude, min_margin)
 
+        # Уже достаточно высоко
         if info.altitude_Y >= required_alt:
             return target, info
 
-        down = self._get_down_vector()
-        up = (-down[0], -down[1], -down[2])
-
+        # Поднять по оси Y на required_alt относительно поверхности
         sx, sy, sz = info.surface_point
-        new_target = (
-            sx + up[0] * desired_altitude,
-            sy + up[1] * desired_altitude,
-            sz + up[2] * desired_altitude,
-        )
+        tx, ty, tz = target
+
+        new_y = sy + required_alt
+        new_target = (tx, new_y, tz)
 
         print(
             "ensure_safe_altitude_for_target: target too low, "
-            f"alt≈{info.altitude_Y:.2f}м, lifting to {desired_altitude:.1f}м "
-            f"over surface: ({new_target[0]:.2f}, {new_target[1]:.2f}, {new_target[2]:.2f})"
+            f"alt≈{info.altitude_Y:.2f}м, lifting to {required_alt:.1f}м "
+            f"over surface_Y={sy:.2f} -> target_y={new_y:.2f}"
         )
 
         return new_target, info
 
+
     def calculate_safe_target_along_path(
-            self,
-            current_pos: Point3D,
-            flat_target: Point3D,
-            desired_alt_over_surface: float,
-            max_step: float = 10.0,
-            unknown_proximity_threshold: float = 30.0,
-            scan_radius: float = 200.0,
+        self,
+        current_pos: Point3D,
+        flat_target: Point3D,
+        desired_alt_over_surface: float,
+        max_step: float = 10.0,
+        unknown_proximity_threshold: float = 30.0,  # оставляем для совместимости, сейчас не используем
+        scan_radius: float = 200.0,
     ) -> Tuple[Point3D, Optional[float], float]:
         """
-        Возвращает безопасную цель вдоль пути к flat_target:
-        - не заходим глубже в область, где нет поверхности;
-        - при необходимости запускаем дополнительный скан;
-        - при полном отсутствии поверхности под целью — клампимся к последней известной точке.
+        Возвращает безопасную цель вдоль пути к flat_target.
+
+        Логика:
+        1) Гарантируем покрытие карты вокруг старта и цели.
+        2) Семплируем рельеф вдоль горизонтальной проекции пути
+           с шагом max_step, находим max_surface_y по пути.
+        3) Строим цель так, чтобы её высота по Y была не ниже
+           max_surface_y + desired_alt_over_surface.
+        4) При плохом покрытии (дыры/края сетки) пробуем расширить карту
+           и пересемплировать один раз.
+
+        Возвращает:
+          target_point       – безопасная точка для полёта
+          base_surface_y     – максимум высоты поверхности по пути (или None)
+          alt_over_surface_Y – желаемая высота над surface по оси Y
         """
 
-        # Сначала убеждаемся, что вокруг старта и цели есть карта
-        self.ensure_map_coverage_for_point(
-            current_pos,
-            margin_cells=3,
-            min_scan_radius=scan_radius,
-        )
-        self.ensure_map_coverage_for_point(
-            flat_target,
-            margin_cells=3,
-            min_scan_radius=scan_radius,
-        )
+        # 0. Гарантируем, что вокруг старта и цели есть карта
+        self.ensure_map_coverage_for_point(current_pos, margin_cells=3, min_scan_radius=scan_radius)
+        self.ensure_map_coverage_for_point(flat_target, margin_cells=3, min_scan_radius=scan_radius)
 
-        def sample_path() -> dict:
-            """
-            Семплируем путь и собираем статистику:
-            - samples: список диктов {pos, has_surface, surface_y, near_border, dist}
-            - has_unknown: есть ли вообще дыры (нет поверхности или колонка у границы)
-            - first_unknown_dist: дистанция до первой такой точки
-            - last_known_sample: последний семпл с has_surface=True
-            """
-            samples: list[dict] = []
+        # 1. Горизонтальное направление и дистанция
+        dx = flat_target[0] - current_pos[0]
+        dz = flat_target[2] - current_pos[2]
+        horizontal_dist = math.sqrt(dx * dx + dz * dz)
 
-            dx = flat_target[0] - current_pos[0]
-            dy = flat_target[1] - current_pos[1]
-            dz = flat_target[2] - current_pos[2]
-
-            horizontal_dist = math.sqrt(dx * dx + dz * dz)
-            total_dist = max(horizontal_dist, 0.01)
-
-            step = max_step
-            steps = max(1, int(total_dist / step))
-
-            has_unknown = False
-            first_unknown_dist: Optional[float] = None
-            last_known_sample: Optional[dict] = None
-
-            print(f"Sampling {steps} points along path, distance={total_dist:.2f}, step={step:.2f}")
-
-            for i in range(1, steps + 1):
-                t = i / steps
-                sx = current_pos[0] + dx * t
-                sz = current_pos[2] + dz * t
-                sy = current_pos[1]  # высота тут не критична, ищем колонку по XZ
-
-                sample_pos = (sx, sy, sz)
-
-                surface_y = self._get_surface_height_for_world_xz(sx, sz)
-                near_border = self._is_close_to_scan_border(sample_pos)
-
-                dist_from_start = total_dist * t
-
-                if surface_y is None or near_border:
-                    has_surface = False
-                    if not has_unknown:
-                        has_unknown = True
-                        first_unknown_dist = dist_from_start
-                    print(
-                        "  Sampling at "
-                        f"({sample_pos[0]:.2f}, {sample_pos[1]:.2f}, {sample_pos[2]:.2f}) "
-                        f"-> No surface data (surface_y={surface_y}, near_border={near_border})"
-                    )
-                else:
-                    has_surface = True
-                    last_known_sample = {
-                        "pos": sample_pos,
-                        "surface_y": surface_y,
-                        "dist": dist_from_start,
-                    }
-                    print(
-                        "  Sampling at "
-                        f"({sample_pos[0]:.2f}, {sample_pos[1]:.2f}, {sample_pos[2]:.2f}) "
-                        f"-> Surface height: {surface_y:.2f}"
-                    )
-
-                samples.append(
-                    {
-                        "pos": sample_pos,
-                        "has_surface": has_surface,
-                        "surface_y": surface_y,
-                        "near_border": near_border,
-                        "dist": dist_from_start,
-                    }
-                )
-
-            return {
-                "samples": samples,
-                "has_unknown": has_unknown,
-                "first_unknown_dist": first_unknown_dist,
-                "last_known_sample": last_known_sample,
-                "total_dist": total_dist,
-            }
-
-        def column_state(world_pos: Point3D) -> Tuple[bool, bool]:
-            """
-            Возвращает (has_surface, near_border) для колонки под world_pos.
-            """
-            sx, _, sz = world_pos
-            surface_y = self._get_surface_height_for_world_xz(sx, sz)
-            near_border = self._is_close_to_scan_border(world_pos)
-            return surface_y is not None, near_border
-
-        # --- 1. Первый проход: семплирование пути ---
-        info = sample_path()
-
-        # Состояние под конечной точкой
-        target_has_surface, target_near_border = column_state(flat_target)
-
-        # Нужно ли делать скан?
-        need_scan = False
-        if info["has_unknown"] and info["first_unknown_dist"] is not None:
-            if info["first_unknown_dist"] <= unknown_proximity_threshold:
-                print(
-                    "calculate_safe_target_along_path: path crosses poorly mapped area "
-                    f"within {unknown_proximity_threshold:.1f}m (scan_radius={scan_radius:.1f}). "
-                    "Performing live radar scan and resampling path..."
-                )
-                need_scan = True
-
-        # Если под самой целью нет поверхности или она у границы — тоже сканируем
-        if (not target_has_surface) or target_near_border:
-            print(
-                "calculate_safe_target_along_path: target column has no reliable surface in current map, "
-                "performing live radar scan before moving into unknown region..."
-            )
-            need_scan = True
-
-        if need_scan:
-            # --- 2. Живой скан и пересемплирование ---
-            self.perform_surface_scan_blocking(scan_radius=scan_radius)
-            info = sample_path()
-            target_has_surface, target_near_border = column_state(flat_target)
-
-        # --- 3. Если даже после скана цели нет на карте — клампим к краю известной области ---
-        if not target_has_surface:
-            last_known = info["last_known_sample"]
-            if last_known is not None:
-                clamped_pos = (
-                    last_known["pos"][0],
-                    flat_target[1],  # высоту всё равно потом корректируем
-                    last_known["pos"][2],
-                )
-                print(
-                    "calculate_safe_target_along_path: still no surface under target after live scan, "
-                    f"clamping patrol point to last known surface at dist≈{last_known['dist']:.1f}m: "
-                    f"({clamped_pos[0]:.2f}, {clamped_pos[1]:.2f}, {clamped_pos[2]:.2f})"
-                )
-                target_for_altitude = clamped_pos
+        if horizontal_dist < 1e-3:
+            # Практически нет движения по XZ – просто держим/поднимаем высоту на месте
+            rc = self.radar_controller
+            surface_y = rc.get_surface_height(current_pos[0], current_pos[2]) if rc else None
+            if surface_y is not None:
+                target_y = surface_y + max(desired_alt_over_surface, 0.0)
             else:
-                # Вообще нет известных точек по пути — остаёмся на месте
-                print(
-                    "calculate_safe_target_along_path: no known surface along path even after scan, "
-                    "keeping current position as target."
-                )
-                target_for_altitude = current_pos
-        else:
-            target_for_altitude = flat_target
+                target_y = current_pos[1]
 
-        # --- 4. Подбираем безопасную высоту над поверхностью для выбранной точки ---
-        safe_target, alt_info = self.ensure_safe_altitude_for_target(
-            target_for_altitude,
-            desired_alt_over_surface,
+            target_point = (current_pos[0], target_y, current_pos[2])
+            print(
+                "calculate_safe_target_along_path: degenerate segment, "
+                f"surface_y={surface_y}, target_y={target_y:.2f}"
+            )
+            return target_point, surface_y, target_y - (surface_y or 0.0)
+
+        horiz_dir = (dx / horizontal_dist, 0.0, dz / horizontal_dist)
+
+        # 2. Первый проход: семплируем поверхность вдоль пути
+        max_surf, last_surf, had_oob, nearest_oob_dist = self._sample_surface_along_path(
+            start=current_pos,
+            direction=horiz_dir,
+            distance=horizontal_dist,
+            step=max_step,
         )
 
-        if alt_info.surface_point is not None:
-            surface_y_at_target: Optional[float] = alt_info.surface_point[1]
-        else:
-            surface_y_at_target = None
+        rc = self.radar_controller
 
-        # alt_info.altitude_Y относится к исходной target_for_altitude,
-        # но в patrol.py третье значение почти не используется.
-        return safe_target, surface_y_at_target, alt_info.altitude_Y
+        # 3. Если по пути были дыры / край сетки – пробуем расширить карту и пересемплировать
+        if had_oob and nearest_oob_dist is not None and nearest_oob_dist <= scan_radius * 0.9:
+            mid_dist = max(0.0, min(nearest_oob_dist, horizontal_dist))
+            mid_pos = (
+                current_pos[0] + horiz_dir[0] * mid_dist,
+                current_pos[1],
+                current_pos[2] + horiz_dir[2] * mid_dist,
+            )
+            print(
+                "calculate_safe_target_along_path: poor coverage along path, "
+                f"nearest_oob_dist≈{nearest_oob_dist:.1f}м, "
+                f"expanding map around mid_pos=({mid_pos[0]:.2f}, {mid_pos[1]:.2f}, {mid_pos[2]:.2f}) "
+                f"and performing live scan..."
+            )
+
+            # 3.1. Подгружаем карту из Redis вокруг проблемной точки
+            self.ensure_map_coverage_for_point(
+                mid_pos,
+                margin_cells=3,
+                min_scan_radius=scan_radius,
+            )
+
+            # 3.2. ОБЯЗАТЕЛЬНО делаем живой скан, чтобы расширить «исследованную» область
+            self.perform_surface_scan_blocking(scan_radius=scan_radius)
+
+            # 3.3. Повторно семплируем профиль рельефа вдоль пути
+            max_surf, last_surf, had_oob, nearest_oob_dist = self._sample_surface_along_path(
+                start=current_pos,
+                direction=horiz_dir,
+                distance=horizontal_dist,
+                step=max_step,
+            )
+
+
+        surface_candidates: list[float] = []
+
+        # максимум по пути
+        if max_surf is not None:
+            surface_candidates.append(max_surf)
+
+        # поверхность под целью
+        if rc is not None:
+            surf_target = rc.get_surface_height(flat_target[0], flat_target[2])
+            if surf_target is not None:
+                surface_candidates.append(surf_target)
+
+            # поверхность под стартом
+            surf_start = rc.get_surface_height(current_pos[0], current_pos[2])
+            if surf_start is not None:
+                surface_candidates.append(surf_start)
+
+        if surface_candidates:
+            base_surface_y = max(surface_candidates)
+        else:
+            base_surface_y = None
+
+        if base_surface_y is None:
+            # Совсем нет данных по поверхности – держим текущую высоту
+            print(
+                "calculate_safe_target_along_path: no surface data along path, "
+                "keeping current altitude."
+            )
+            target_point = (flat_target[0], current_pos[1], flat_target[2])
+            return target_point, None, 0.0
+
+        # 4. Строим цель на desired_alt_over_surface выше максимума рельефа по пути
+        target_y = base_surface_y + max(desired_alt_over_surface, 0.0)
+        target_point = (flat_target[0], target_y, flat_target[2])
+
+        print(
+            "calculate_safe_target_along_path: using path profile, "
+            f"max_surface_y≈{base_surface_y:.2f}м, "
+            f"target_y≈{target_y:.2f}м, "
+            f"alt_over_surface_Y≈{target_y - base_surface_y:.2f}м"
+        )
+
+        # Второе значение – базовая высота поверхности (для логов в patrol.py),
+        # третье – фактическая высота над этой поверхностью по оси Y.
+        return target_point, base_surface_y, target_y - base_surface_y
+
 
 
 
@@ -1282,3 +1240,37 @@ class SurfaceFlightController:
 
         return solid, metadata, contacts, ore_cells, visited
 
+    def perform_surface_scan_blocking(self, scan_radius: float) -> None:
+        """
+        Выполнить живой скан радара с указанным радиусом, блокирующе.
+
+        - Временно увеличивает radius у RadarController (если метод set_scan_params есть).
+        - Вызывает scan_voxels(), чтобы обновить локальную воксельную карту и SharedMap.
+        - После завершения возвращает старый радиус.
+        """
+        rc = self.radar_controller
+        old_radius = None
+
+        try:
+            scan_params = getattr(rc, "scan_params", {}) or {}
+            old_radius = scan_params.get("radius", self.default_scan_radius)
+
+            if hasattr(rc, "set_scan_params"):
+                rc.set_scan_params(radius=scan_radius)
+
+            print(
+                f"perform_surface_scan_blocking: scanning voxels "
+                f"with radius={scan_radius:.1f}m..."
+            )
+            self.scan_voxels()
+        except Exception as e:
+            print(f"perform_surface_scan_blocking: scan_voxels failed: {e}")
+        finally:
+            if old_radius is not None and hasattr(rc, "set_scan_params"):
+                try:
+                    rc.set_scan_params(radius=old_radius)
+                except Exception as e:
+                    print(
+                        "perform_surface_scan_blocking: failed to restore "
+                        f"previous scan radius {old_radius}: {e}"
+                    )
