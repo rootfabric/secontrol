@@ -8,6 +8,16 @@ from secontrol.devices.remote_control_device import RemoteControlDevice
 from secontrol.controllers.radar_controller import RadarController
 from secontrol.controllers.shared_map_controller import SharedMapController
 
+from dataclasses import dataclass
+
+@dataclass
+class AltitudeInfo:
+    position: Tuple[float, float, float]
+    surface_point: Optional[Tuple[float, float, float]]
+    altitude_Y: float
+    altitude_along_up: float
+    source: str
+
 
 def _get_pos(dev) -> Optional[Tuple[float, float, float]]:
     tel = dev.telemetry or {}
@@ -279,197 +289,78 @@ class SurfaceFlightController:
     # Высота над поверхностью                                           #
     # ------------------------------------------------------------------ #
 
-    def calculate_surface_point_at_altitude(
-        self,
-        position: Tuple[float, float, float],
-        altitude: float,
-    ) -> Tuple[float, float, float]:
+    def calculate_safe_target_along_path(
+            self,
+            start: Tuple[float, float, float],
+            end: Tuple[float, float, float],
+            altitude: float,
+            step: float = 10.0,
+    ) -> Tuple[Tuple[float, float, float], Optional[float], str]:
         """
-        Calculate a point at the specified altitude above the surface for given coordinates.
+        Рассчитывает безопасную целевую точку, гарантируя, что дрон не врежется
+        в холм посередине пути.
 
-        Новая логика:
-        1. ВСЕГДА сначала ищем поверхность трассировкой вдоль гравитации (ray-march).
-        2. Если не нашли — подгружаем карту из Redis вокруг точки и пробуем ещё раз.
-        3. Если всё ещё нет — делаем несколько активных сканов с ростом radius/boundingBoxY,
-           каждый раз заново пробуем трассировку вдоль гравитации.
-        4. Если поверхность найдена — целевая точка = surface_point + up * altitude.
-        5. Если не нашли вообще ничего — просто уходим вверх по гравитации от исходной точки.
+        Логика:
+        1) Перед расчётом убеждаемся, что вокруг start и end есть
+           достаточное покрытие картой (ensure_map_coverage_for_point).
+        2) Семплим поверхность вдоль прямой start->end и берём МАКСИМАЛЬНУЮ
+           высоту рельефа на всём отрезке.
+        3) Отдельно оцениваем поверхность под самой end (через трассировку
+           вниз по гравитации).
+        4) Берём максимум из (max по пути, поверхность под end) как базовую
+           высоту surface_y, и к ней прибавляем altitude.
         """
 
-        px, py, pz = position
+        # 0. Сначала убеждаемся, что мы не у края карты в начальной и конечной точке
+        self.ensure_map_coverage_for_point(start, margin_cells=3)
+        self.ensure_map_coverage_for_point(end, margin_cells=3)
 
+        # 1. Вычисляем вектор и дистанцию
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        dz = end[2] - start[2]
+        dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+        if dist < 0.01:
+            return end, None, "zero_dist"
+
+        direction = (dx / dist, dy / dist, dz / dist)
+
+        # 2. Семплим высоты вдоль пути
+        max_surface_y_on_path, last_surface_y = self._sample_surface_along_path(
+            start, direction, dist, step
+        )
+
+        # 3. Проверяем поверхность под конечной точкой (end)
         down = self._get_down_vector()
-        up = (-down[0], -down[1], -down[2])
 
-        surface_point: Optional[Tuple[float, float, float]] = None
-        surface_source = "none"
-
-        def _trace_surface_along_gravity() -> Optional[Tuple[float, float, float]]:
-            """Основной способ: трассировка вдоль гравитации от заданной точки."""
-            grid = getattr(self.radar_controller, "occupancy_grid", None)
-            origin = getattr(self.radar_controller, "origin", None)
-            cell_size = getattr(self.radar_controller, "cell_size", None)
-            size = getattr(self.radar_controller, "size", None)
-
-            if grid is None or origin is None or cell_size is None or size is None:
-                return None
-
-            size_x, size_y, size_z = size
-            cell_size_local = cell_size or 5.0
-
-            # Максимальное расстояние трассировки — по высоте текущей сетки
-            max_trace = cell_size_local * size_y
-            step = cell_size_local
-
-            return self._find_surface_point_along_gravity(
-                position,
-                down,
-                max_distance=max_trace,
-                step=step,
-            )
-
-        # 1) Пробуем найти поверхность по уже существующей сетке (только трассировка вдоль гравитации)
-        surface_point = _trace_surface_along_gravity()
-        if surface_point is not None:
-            surface_source = "grid_gravity"
-
-        # 2) Если не нашли — пробуем подгрузить карту из Redis вокруг точки
-        if surface_point is None:
-            print(
-                f"calculate_surface_point_at_altitude: поверхности под точкой "
-                f"({px:.2f}, {py:.2f}, {pz:.2f}) нет в текущей сетке, "
-                f"пробую загрузить карту из Redis..."
-            )
-            try:
-                self.load_map_region_from_redis(center=position, radius=self.default_scan_radius * 2.0)
-            except Exception as e:
-                print(f"Ошибка при загрузке карты из Redis: {e}")
-
-            surface_point = _trace_surface_along_gravity()
-            if surface_point is not None:
-                surface_source = "redis_gravity"
-
-        # 3) Если всё ещё нет поверхности — делаем несколько активных сканов с ростом радиуса
-        max_scan_attempts = 3
-        scan_attempt = 0
-
-        while surface_point is None and scan_attempt < max_scan_attempts:
-            current_radius = float(self.radar_controller.scan_params.get("radius", self.default_scan_radius))
-            current_bbY = float(self.radar_controller.scan_params.get("boundingBoxY", self.default_boundingBoxY))
-
-            max_allowed_radius = 800.0
-            max_allowed_bbY = 800.0
-
-            if scan_attempt == 0:
-                # Первый скан — гарантируем хотя бы дефолтные значения
-                new_radius = min(max(current_radius, self.default_scan_radius), max_allowed_radius)
-                new_bbY = min(max(current_bbY, self.default_boundingBoxY), max_allowed_bbY)
-            else:
-                # Последующие — увеличиваем радиус и высоту
-                new_radius = min(current_radius * 1.5, max_allowed_radius)
-                new_bbY = min(current_bbY * 1.5, max_allowed_bbY)
-
-            print(
-                f"calculate_surface_point_at_altitude: поверхность под точкой "
-                f"({px:.2f}, {py:.2f}, {pz:.2f}) не найдена, "
-                f"[SCAN_ATTEMPT {scan_attempt + 1}/{max_scan_attempts}] "
-                f"radius {current_radius:.1f} → {new_radius:.1f}, "
-                f"boundingBoxY {current_bbY:.1f} → {new_bbY:.1f}"
-            )
-
-            self.radar_controller.set_scan_params(radius=new_radius, boundingBoxY=new_bbY)
-            # ВАЖНО: новый скан сразу же сохраняем в SharedMap / Redis
-            self.scan_voxels()
-
-            surface_point = _trace_surface_along_gravity()
-            if surface_point is not None:
-                surface_source = f"scan_gravity#{scan_attempt + 1}"
-                break
-
-            scan_attempt += 1
-
-        # 4) Если поверхность так и не найдена — но в сетке есть твёрдые воксели,
-        #    просто логируем, что ситуация странная.
-        grid = getattr(self.radar_controller, "occupancy_grid", None)
-        if surface_point is None and grid is not None:
-            try:
-                has_any_solids = bool(grid.any())
-            except Exception:
-                has_any_solids = True
-
-            if has_any_solids:
-                print(
-                    "calculate_surface_point_at_altitude: после всех попыток трассировки "
-                    "поверхность не найдена, хотя в сетке есть твёрдые воксели. "
-                    "Возможна геометрия вне зоны трассировки."
-                )
-
-        # 5) Если поверхность найдена — выставляем точку на altitude метров ВДОЛЬ up
-        if surface_point is not None:
-            sx, sy, sz = surface_point
-
-            target_point = (
-                sx + up[0] * altitude,
-                sy + up[1] * altitude,
-                sz + up[2] * altitude,
-            )
-
-            # Высота по проекции для проверки/логов
-            alt_vec = (
-                target_point[0] - sx,
-                target_point[1] - sy,
-                target_point[2] - sz,
-            )
-            altitude_proj = (
-                alt_vec[0] * up[0]
-                + alt_vec[1] * up[1]
-                + alt_vec[2] * up[2]
-            )
-
-            print(
-                f"Calculated point at altitude (source={surface_source}): "
-                f"position=({px:.2f}, {py:.2f}, {pz:.2f}), "
-                f"surface_point=({sx:.2f}, {sy:.2f}, {sz:.2f}), "
-                f"requested_altitude={altitude:.2f}, "
-                f"altitude_along_up≈{altitude_proj:.2f}, "
-                f"target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
-            )
-
-            # Откатываем параметры радара к дефолтным, если их расширяли
-            current_radius = float(self.radar_controller.scan_params.get("radius", self.default_scan_radius))
-            current_bbY = float(self.radar_controller.scan_params.get("boundingBoxY", self.default_boundingBoxY))
-
-            if (
-                abs(current_radius - self.default_scan_radius) > 1e-3
-                or abs(current_bbY - self.default_boundingBoxY) > 1e-3
-            ):
-                print(
-                    f"Сканирование / поиск поверхности успешны, откатываю параметры радара к умолчанию: "
-                    f"radius={self.default_scan_radius:.1f}, "
-                    f"boundingBoxY={self.default_boundingBoxY:.1f}"
-                )
-                self.radar_controller.set_scan_params(
-                    radius=self.default_scan_radius,
-                    boundingBoxY=self.default_boundingBoxY,
-                )
-
-            return target_point
-
-        # 6) Полный fallback: поверхности вообще не нашли — уходим вверх по гравитации от ИСХОДНОЙ точки
-        safe_up = max(altitude, 20.0)
-        target_point = (
-            px + up[0] * safe_up,
-            py + up[1] * safe_up,
-            pz + up[2] * safe_up,
+        surface_at_end = self._find_surface_point_along_gravity(
+            end, down, max_distance=200.0, step=5.0
         )
-        print(
-            f"[NO_SURFACE] Поверхность под точкой ({px:.2f}, {py:.2f}, {pz:.2f}) "
-            f"не найдена даже после Redis и нескольких сканов, "
-            f"смещаюсь на {safe_up:.1f}м вверх по гравитации: "
-            f"target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
-        )
-        return target_point
 
+        surface_y_at_end_val = -999999.0
+        if surface_at_end:
+            surface_y_at_end_val = surface_at_end[1]
+
+        # 4. Выбираем безопасную базовую высоту: максимум по пути и под end
+        safe_base_y = surface_y_at_end_val
+        if max_surface_y_on_path is not None:
+            if max_surface_y_on_path > safe_base_y:
+                safe_base_y = max_surface_y_on_path
+
+        # Если поверхность вообще не найдена — очень рискованный кейс
+        if safe_base_y < -900000:
+            # Fallback: используем высоту Y конечной точки как базовую
+            safe_base_y = end[1]
+            source = "no_surface_data"
+        else:
+            source = "path_max_height"
+
+        # 5. Формируем итоговую точку: X/Z как у end, Y = safe_base_y + altitude
+        final_y = safe_base_y + altitude
+        final_target = (end[0], final_y, end[2])
+
+        return final_target, safe_base_y, source
 
     # ------------------------------------------------------------------ #
     # Движение относительно поверхности                                  #
@@ -965,3 +856,219 @@ class SurfaceFlightController:
         final_target = (end[0], final_y, end[2])
 
         return final_target, safe_base_y, source
+
+    def _measure_altitude_to_surface_impl(
+        self,
+        position: Tuple[float, float, float],
+        trace_distance: Optional[float] = None,
+        trace_step: Optional[float] = None,
+    ) -> AltitudeInfo:
+        """
+        Универсальный замер высоты над поверхностью из произвольной точки.
+
+        1) Ищем ближайший воксель вниз по гравитации через _find_surface_point_along_gravity.
+        2) Если не нашли, пробуем get_surface_height(x, z) и считаем поверхность как (x, surface_y, z).
+        3) Если вообще ничего нет в карте — возвращаем высоту 0 и source='no_surface'.
+        """
+
+        px, py, pz = position
+
+        # Вектор гравитации и "вверх"
+        down = self._get_down_vector()
+        up = (-down[0], -down[1], -down[2])
+
+        # Если сетки нет — мы всё равно попробуем fallback через get_surface_height,
+        # но без трассировки по вокселям.
+        cell_size = self.radar_controller.cell_size or 5.0
+        max_trace = trace_distance or cell_size * (
+            self.radar_controller.size[1] if self.radar_controller.size else 50
+        )
+        step = trace_step or cell_size
+
+        surface_point = None
+        source = "none"
+
+        # 1) Основной способ — по воксельной сетке вниз по гравитации
+        if (
+            self.radar_controller.occupancy_grid is not None
+            and self.radar_controller.origin is not None
+            and self.radar_controller.cell_size is not None
+            and self.radar_controller.size is not None
+        ):
+            surface_point = self._find_surface_point_along_gravity(
+                position,
+                down,
+                max_distance=max_trace,
+                step=step,
+            )
+            if surface_point is not None:
+                source = "gravity_trace"
+
+        # 2) Fallback — по "столбцу" get_surface_height(x, z),
+        #    если трассировка ничего не нашла, но высота по карте есть.
+        if surface_point is None and hasattr(self.radar_controller, "get_surface_height"):
+            surface_y = self.radar_controller.get_surface_height(px, pz)
+            if surface_y is not None:
+                surface_point = (px, surface_y, pz)
+                source = "vertical_lookup"
+
+        # 3) Если вообще ничего не нашли — возвращаем нули
+        if surface_point is None:
+            print(
+                "measure_altitude_to_surface: no surface found for "
+                f"position=({px:.2f}, {py:.2f}, {pz:.2f}), returning altitude=0."
+            )
+            return AltitudeInfo(
+                position=position,
+                surface_point=None,
+                altitude_Y=0.0,
+                altitude_along_up=0.0,
+                source="no_surface",
+            )
+
+        sx, sy, sz = surface_point
+
+        # Компонент по Y (как в логах) и проекция вдоль up
+        altitude_vec = (px - sx, py - sy, pz - sz)
+        altitude_Y = py - sy
+        altitude_along_up = (
+            altitude_vec[0] * up[0]
+            + altitude_vec[1] * up[1]
+            + altitude_vec[2] * up[2]
+        )
+
+        print(
+            "measure_altitude_to_surface: "
+            f"source={source}, "
+            f"position=({px:.2f}, {py:.2f}, {pz:.2f}), "
+            f"surface_point=({sx:.2f}, {sy:.2f}, {sz:.2f}), "
+            f"altitude_Y≈{altitude_Y:.2f}м, "
+            f"altitude_along_up≈{altitude_along_up:.2f}м"
+        )
+
+        return AltitudeInfo(
+            position=position,
+            surface_point=surface_point,
+            altitude_Y=altitude_Y,
+            altitude_along_up=altitude_along_up,
+            source=source,
+        )
+    # ------------------------------------------------------------------ #
+    # Проверка близости к границе воксельной карты                       #
+    # ------------------------------------------------------------------ #
+
+    def _is_close_to_scan_border(
+        self,
+        position: Tuple[float, float, float],
+        margin_cells: int = 3,
+    ) -> bool:
+        """
+        Проверяет, находится ли мировая точка рядом с границей текущей
+        воксельной сетки радара (occupancy_grid).
+
+        True  -> точка у края или за пределами сетки (опасно, мало данных).
+        False -> точка внутри сетки с запасом margin_cells.
+        """
+        rc = self.radar_controller
+
+        if (
+            rc.occupancy_grid is None
+            or rc.origin is None
+            or rc.cell_size is None
+            or rc.size is None
+        ):
+            # Карты нет вообще — считаем, что мы на "границе" (нужно сканировать)
+            return True
+
+        ox, oy, oz = rc.origin
+        cs = rc.cell_size
+        size_x, size_y, size_z = rc.size
+
+        px, py, pz = position
+
+        idx_x = int((px - ox) / cs)
+        idx_y = int((py - oy) / cs)
+        idx_z = int((pz - oz) / cs)
+
+        # Вне сетки — это тоже край / за краем
+        if not (0 <= idx_x < size_x and 0 <= idx_y < size_y and 0 <= idx_z < size_z):
+            return True
+
+        dist_left = idx_x
+        dist_right = size_x - 1 - idx_x
+        dist_front = idx_z
+        dist_back = size_z - 1 - idx_z
+
+        min_dist = min(dist_left, dist_right, dist_front, dist_back)
+
+        return min_dist <= margin_cells
+
+    def ensure_map_coverage_for_point(
+        self,
+        position: Tuple[float, float, float],
+        margin_cells: int = 3,
+        min_scan_radius: Optional[float] = None,
+    ) -> None:
+        """
+        Гарантирует, что вокруг заданной точки есть достаточное покрытие картой.
+
+        - Если точки НЕТ или МАЛО внутри occupancy_grid (близко к краю),
+          пытается:
+            1) Подгрузить карту из Redis вокруг этой позиции.
+            2) Если всё ещё у края — делает живой radar-сетевой скан
+               с увеличенным радиусом.
+
+        Вызывается перед расчётом высоты/маршрута, чтобы не опираться на
+        "обрубленную" карту.
+        """
+        if min_scan_radius is None:
+            min_scan_radius = self.default_scan_radius
+
+        # Если мы НЕ у края карты — ничего делать не надо
+        if not self._is_close_to_scan_border(position, margin_cells=margin_cells):
+            return
+
+        px, py, pz = position
+        print(
+            "ensure_map_coverage_for_point: position=("
+            f"{px:.2f}, {py:.2f}, {pz:.2f}) "
+            "находится близко к границе текущей воксельной карты, "
+            "обновляю карту вокруг неё..."
+        )
+
+        # 1) Сначала пробуем расширить карту за счёт Redis (общая карта)
+        try:
+            self.load_map_region_from_redis(
+                center=position,
+                radius=min_scan_radius * 2.0,
+            )
+        except Exception as e:
+            print(f"ensure_map_coverage_for_point: load_map_region_from_redis failed: {e}")
+
+        # После подгрузки пересчитаем: может, теперь граница далеко
+        if not self._is_close_to_scan_border(position, margin_cells=margin_cells):
+            return
+
+        # 2) Если всё ещё на краю — делаем живой radar-скан с увеличенным радиусом
+        rc = self.radar_controller
+        old_radius = None
+
+        try:
+            scan_params = getattr(rc, "scan_params", {}) or {}
+            old_radius = scan_params.get("radius", self.default_scan_radius)
+            new_radius = max(old_radius, min_scan_radius * 1.5)
+
+            if hasattr(rc, "set_scan_params"):
+                rc.set_scan_params(radius=new_radius)
+
+            print(
+                "ensure_map_coverage_for_point: performing live radar scan "
+                f"with radius={new_radius:.1f}m..."
+            )
+            self.scan_voxels()
+        except Exception as e:
+            print(f"ensure_map_coverage_for_point: scan_voxels failed: {e}")
+        finally:
+            if old_radius is not None and hasattr(rc, "set_scan_params"):
+                rc.set_scan_params(radius=old_radius)
+
