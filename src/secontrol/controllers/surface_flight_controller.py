@@ -95,9 +95,9 @@ class SurfaceFlightController:
         if not radar_tel.get("isFunctional", True) or not radar_tel.get("isWorking", True) or not radar_tel.get("enabled", True):
             raise RuntimeError("Radar device is not functional/working/enabled")
 
-        rc_tel = self.rc.telemetry or {}
-        if not rc_tel.get("isFunctional", True) or not rc_tel.get("isWorking", True) or not rc_tel.get("enabled", True):
-            raise RuntimeError("Remote control device is not functional/working/enabled")
+        # rc_tel = self.rc.telemetry or {}
+        # if not rc_tel.get("isFunctional", True) or not rc_tel.get("isWorking", True) or not rc_tel.get("enabled", True):
+        #     raise RuntimeError("Remote control device is not functional/working/enabled")
 
         self.default_scan_radius = float(scan_radius)
         self.default_boundingBoxY = float(boundingBoxY)
@@ -374,15 +374,18 @@ class SurfaceFlightController:
 
     def _is_close_to_scan_border(
         self,
-        position: Tuple[float, float, float],
+        position: Point3D,
         margin_cells: int = 3,
+        coverage_radius_cells: int = 5,
+        min_known_fraction: float = 0.7,
     ) -> bool:
         """
-        Проверяет, находится ли мировая точка рядом с геометрической границей
-        текущей воксельной сетки радара (occupancy_grid).
+        Строгая, но не параноидальная проверка «края карты».
 
-        True  -> точка у края или за пределами сетки (опасно, мало данных).
-        False -> точка внутри сетки с запасом margin_cells.
+        True  -> точка реально у края:
+                - либо очень близко к геометрической границе массива,
+                - либо в переходной зоне у края + вокруг мало известных колонок.
+        False -> точка в «ядре» карты, можно лететь даже при дырявом покрытии.
         """
         rc = self.radar_controller
 
@@ -392,7 +395,7 @@ class SurfaceFlightController:
             or rc.cell_size is None
             or rc.size is None
         ):
-            # Карты нет вообще — считаем, что мы на "границе" (нужно сканировать)
+            # Карты нет – считаем, что на краю и нужно сканировать
             return True
 
         ox, oy, oz = rc.origin
@@ -405,10 +408,11 @@ class SurfaceFlightController:
         idx_y = int((py - oy) / cs)
         idx_z = int((pz - oz) / cs)
 
-        # Вне сетки — это тоже край / за краем
+        # Вне сетки – однозначно край
         if not (0 <= idx_x < size_x and 0 <= idx_y < size_y and 0 <= idx_z < size_z):
             return True
 
+        # Геометрическое расстояние до границ по XZ
         dist_left = idx_x
         dist_right = size_x - 1 - idx_x
         dist_front = idx_z
@@ -416,7 +420,25 @@ class SurfaceFlightController:
 
         min_dist = min(dist_left, dist_right, dist_front, dist_back)
 
-        return min_dist <= margin_cells
+        # 1) Очень близко к краю массива – считаем краем без разговоров
+        strict_margin = margin_cells
+        if min_dist <= strict_margin:
+            return True
+
+        # 2) Далеко от геометрического края – считаем «ядром» карты,
+        #    даже если покрытие неидеальное. Здесь не блокируем движение.
+        soft_margin = margin_cells * 3  # напр. 3*3 = 9 ячеек от края
+        if min_dist >= soft_margin:
+            return False
+
+        # 3) Переходная зона: не совсем край, но рядом.
+        #    Здесь включаем строгий детектор по покрытию.
+        return self._is_poorly_mapped_region(
+            position,
+            radius_cells=coverage_radius_cells,
+            min_known_fraction=min_known_fraction,
+        )
+
 
     def ensure_map_coverage_for_point(
         self,
@@ -464,25 +486,34 @@ class SurfaceFlightController:
         # 2) Если всё ещё на краю — делаем живой radar-скан с увеличенным радиусом
         rc = self.radar_controller
         old_radius = None
+        old_boundingBoxY = None
 
         try:
             scan_params = getattr(rc, "scan_params", {}) or {}
             old_radius = scan_params.get("radius", self.default_scan_radius)
+            old_boundingBoxY = scan_params.get("boundingBoxY", self.default_boundingBoxY)
             new_radius = max(old_radius, min_scan_radius * 1.5)
+            new_boundingBoxY = new_radius * 2
 
             if hasattr(rc, "set_scan_params"):
-                rc.set_scan_params(radius=new_radius)
+                rc.set_scan_params(radius=new_radius, boundingBoxY=new_boundingBoxY)
 
             print(
                 "ensure_map_coverage_for_point: performing live radar scan "
-                f"with radius={new_radius:.1f}m..."
+                f"with radius={new_radius:.1f}m, boundingBoxY={new_boundingBoxY:.1f}m..."
             )
             self.scan_voxels()
         except Exception as e:
             print(f"ensure_map_coverage_for_point: scan_voxels failed: {e}")
         finally:
-            if old_radius is not None and hasattr(rc, "set_scan_params"):
-                rc.set_scan_params(radius=old_radius)
+            if hasattr(rc, "set_scan_params"):
+                restore_params = {}
+                if old_radius is not None:
+                    restore_params["radius"] = old_radius
+                if old_boundingBoxY is not None:
+                    restore_params["boundingBoxY"] = old_boundingBoxY
+                if restore_params:
+                    rc.set_scan_params(**restore_params)
 
     # ------------------------------------------------------------------ #
     # Высота над поверхностью                                           #
@@ -1283,3 +1314,237 @@ class SurfaceFlightController:
                         "perform_surface_scan_blocking: failed to restore "
                         f"previous scan radius {old_radius}: {e}"
                     )
+
+
+    def _is_poorly_mapped_region(
+        self,
+        position: Point3D,
+        radius_cells: int = 5,
+        min_known_fraction: float = 0.7,
+    ) -> bool:
+        """
+        Проверяет локальное покрытие карты вокруг позиции.
+
+        True  -> вокруг точки мало известных колонок (считаем, что это край исследованной области).
+        False -> покрытие достаточно плотное.
+
+        radius_cells       – радиус окна в индексах XZ (например 5 -> квадрат ~11x11 колонок).
+        min_known_fraction – минимальная доля колонок с твёрдыми вокселями.
+        """
+        rc = self.radar_controller
+
+        if (
+            rc.occupancy_grid is None
+            or rc.origin is None
+            or rc.cell_size is None
+            or rc.size is None
+        ):
+            # Нет карты – это точно плохо
+            return True
+
+        ox, oy, oz = rc.origin
+        cs = rc.cell_size
+        size_x, size_y, size_z = rc.size
+
+        px, py, pz = position
+
+        idx_x = int((px - ox) / cs)
+        idx_z = int((pz - oz) / cs)
+
+        if not (0 <= idx_x < size_x and 0 <= idx_z < size_z):
+            # Вне сетки – уже край
+            return True
+
+        total_columns = 0
+        known_columns = 0
+
+        for dx in range(-radius_cells, radius_cells + 1):
+            x = idx_x + dx
+            if x < 0 or x >= size_x:
+                continue
+
+            for dz in range(-radius_cells, radius_cells + 1):
+                z = idx_z + dz
+                if z < 0 or z >= size_z:
+                    continue
+
+                total_columns += 1
+
+                # Есть ли хотя бы один твёрдый воксель в колонке (по Y)?
+                has_solid = False
+                for y in range(size_y - 1, -1, -1):
+                    if rc.occupancy_grid[x, y, z]:
+                        has_solid = True
+                        break
+
+                if has_solid:
+                    known_columns += 1
+
+        if total_columns == 0:
+            # Окно полностью вывалилось за сетку
+            return True
+
+        known_fraction = known_columns / float(total_columns)
+
+        # Чем меньше порог, тем менее строгий детектор;
+        # 0.7 означает: хотя бы 70% колонок вокруг должны быть известными.
+        if known_fraction < min_known_fraction:
+            print(
+                "_is_poorly_mapped_region: position=("
+                f"{px:.2f}, {py:.2f}, {pz:.2f}), "
+                f"known_fraction={known_fraction:.2f} < {min_known_fraction:.2f} "
+                "-> рассматриваем как край исследованной области."
+            )
+            return True
+
+        return False
+
+    def find_nearest_resources(
+            self,
+            search_radius: float = 1500.0,
+            max_results: int = 5,
+            center: Optional[Tuple[float, float, float]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Найти ближайшие ресурсы, используя УЖЕ ГОТОВУЮ карту радара.
+
+        ВАЖНО:
+        - НИКАКИХ новых сканов здесь нет.
+        - Используются только те данные руды, которые уже есть в RadarController.
+
+        :param search_radius: радиус поиска в метрах от точки center / текущей позиции дрона
+        :param max_results: максимальное количество результатов
+        :param center: точка центра поиска (если None — берём позицию RemoteControl)
+        :return: список словарей вида:
+                 {
+                    "position": (x, y, z),
+                    "distance": float,
+                    "ore": <тип/название руды или None>
+                 }
+        """
+
+        # 1. Определяем центр поиска
+        if center is None:
+            pos = _get_pos(self.rc)
+            if not pos:
+                print("find_nearest_resources: cannot get current RC position.")
+                return []
+            center = pos
+
+        cx, cy, cz = center
+        print(f"find_nearest_resources: center position ({cx:.2f}, {cy:.2f}, {cz:.2f}), search_radius={search_radius:.1f}m")
+
+        # 2. Достаём уже сохранённые данные по ресурсам из RadarController
+        # Ожидаем, что где-то при сканировании они были сохранены.
+        ore_points = (
+                getattr(self.radar_controller, "ore_cells", None)
+                or getattr(self.radar_controller, "ore_points", None)
+        )
+
+        if not ore_points:
+            print(
+                "find_nearest_resources: no ore data in radar controller. "
+                "Make sure map was filled by a previous scan in another script/process."
+            )
+            return []
+
+        r2 = search_radius * search_radius
+        results: List[Dict[str, Any]] = []
+
+        # 3. Перебираем все сохранённые точки руды и считаем дистанции
+        for cell in ore_points:
+            # Поддерживаем разные форматы хранения: dict с position или прямые координаты
+            if isinstance(cell, dict):
+                position = cell.get("position")
+                if position and isinstance(position, (list, tuple)) and len(position) >= 3:
+                    x, y, z = position[0], position[1], position[2]
+                else:
+                    x = (
+                            cell.get("x")
+                            or cell.get("X")
+                            or cell.get("worldX")
+                            or cell.get("wx")
+                    )
+                    y = (
+                            cell.get("y")
+                            or cell.get("Y")
+                            or cell.get("worldY")
+                            or cell.get("wy")
+                    )
+                    z = (
+                            cell.get("z")
+                            or cell.get("Z")
+                            or cell.get("worldZ")
+                            or cell.get("wz")
+                    )
+                ore_type = (
+                        cell.get("ore")
+                        or cell.get("material")
+                        or cell.get("type")
+                )
+            elif isinstance(cell, (tuple, list)) and len(cell) >= 3:
+                x, y, z = cell[0], cell[1], cell[2]
+                ore_type = None
+            else:
+                continue
+
+            try:
+                fx = float(x)
+                fy = float(y)
+                fz = float(z)
+            except (TypeError, ValueError):
+                continue
+
+            dx = fx - cx
+            dy = fy - cy
+            dz = fz - cz
+            dist2 = dx * dx + dy * dy + dz * dz
+
+            if dist2 <= r2:
+                results.append(
+                    {
+                        "position": (fx, fy, fz),
+                        "distance": math.sqrt(dist2),
+                        "ore": ore_type,
+                    }
+                )
+
+        # 4. Сортируем по расстоянию и обрезаем до max_results
+        results.sort(key=lambda item: item["distance"])
+
+        if max_results is not None and max_results > 0:
+            results = results[:max_results]
+
+        print(
+            f"find_nearest_resources: found {len(results)} ore cells "
+            f"within {search_radius:.1f}m "
+            f"(limit {max_results})."
+        )
+
+        # Debug: if no results, print all loaded ores
+        if not results:
+            print("Debug: All loaded ore_cells:")
+            for cell in ore_points:
+                if isinstance(cell, dict):
+                    x = cell.get("x") or cell.get("X") or cell.get("worldX") or cell.get("wx")
+                    y = cell.get("y") or cell.get("Y") or cell.get("worldY") or cell.get("wy")
+                    z = cell.get("z") or cell.get("Z") or cell.get("worldZ") or cell.get("wz")
+                    ore_type = cell.get("ore") or cell.get("material") or cell.get("type")
+                elif isinstance(cell, (tuple, list)) and len(cell) >= 3:
+                    x, y, z = cell[0], cell[1], cell[2]
+                    ore_type = None
+                else:
+                    continue
+                try:
+                    fx = float(x)
+                    fy = float(y)
+                    fz = float(z)
+                    dx = fx - cx
+                    dy = fy - cy
+                    dz = fz - cz
+                    dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+                    print(f"  Ore: material={ore_type}, pos=({fx:.2f}, {fy:.2f}, {fz:.2f}), dist={dist:.2f}m")
+                except:
+                    pass
+
+        return results
