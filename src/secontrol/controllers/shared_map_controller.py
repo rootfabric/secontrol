@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import sqlite3
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from secontrol.common import resolve_owner_id
@@ -94,17 +97,12 @@ class SharedMapData:
 
 
 class SharedMapController:
-    """Контроллер для общей карты в Redis.
+    """Контроллер общей карты с переключаемыми бэкендами хранения.
 
-    Основные идеи:
-
-    - Данные распределяются по нескольким ключам вида
-      ``{memory_prefix}:<тип>:<chunk>`` (voxels, visited, ores), поэтому можно
-      читать только нужные чанки по области.
-    - Дополнительные ключи: ``{memory_prefix}:paths`` и
-      ``{memory_prefix}:meta``.
-    - В память контроллера подгружаются только выбранные чанки, что упрощает
-      работу с большими картами.
+    Можно использовать как удаленное хранилище Redis, так и локальную SQLite
+    базу. В обоих вариантах данные разбиваются на чанки фиксированного размера,
+    чтобы выборка по радиусу выполнялась за счет работы только с нужными
+    чанками.
     """
 
     def __init__(
@@ -114,17 +112,120 @@ class SharedMapController:
         redis_client: Optional[RedisEventClient] = None,
         memory_key: Optional[str] = None,
         chunk_size: float = 100.0,
+        storage_backend: str = "redis",
+        sqlite_path: str | os.PathLike[str] | None = None,
+        storage: Optional[SharedMapStorage] = None,
     ) -> None:
         self.owner_id = owner_id or resolve_owner_id()
         self.memory_key = memory_key or f"se:{self.owner_id}:memory"
         self.memory_prefix = self.memory_key  # для обратной совместимости
-        self.client = redis_client or RedisEventClient()
         self.chunk_size = float(chunk_size)
+        self.storage: SharedMapStorage
+        self.client: Optional[RedisEventClient] = None
+
+        if storage is not None:
+            self.storage = storage
+        elif storage_backend.lower() == "sqlite":
+            db_path = sqlite_path or Path.home() / ".secontrol" / "maps" / f"{self.owner_id}.sqlite"
+            self.storage = SQLiteSharedMapStorage(db_path, chunk_size=self.chunk_size)
+        else:
+            self.client = redis_client or RedisEventClient()
+            self.storage = RedisSharedMapStorage(
+                self.client,
+                memory_prefix=self.memory_prefix,
+                chunk_size=self.chunk_size,
+            )
+
+        self.chunk_size = float(self.storage.chunk_size)
         self.data = SharedMapData()
 
     # ------------------------------------------------------------------
     # Внутренние ключи и формат
     # ------------------------------------------------------------------
+    def _chunk_id(self, point: Sequence[float]) -> str:
+        x, y, z = _normalize_point(point)
+        return f"{int(math.floor(x / self.chunk_size))}:{int(math.floor(y / self.chunk_size))}:{int(math.floor(z / self.chunk_size))}"
+
+    def _load_index(self) -> Dict[str, Any]:
+        idx = self.storage.load_index()
+        self.chunk_size = float(idx.get("chunk_size", self.chunk_size))
+        self.storage.chunk_size = self.chunk_size
+        return idx
+
+    def _save_index(self, idx: Dict[str, Any]) -> None:
+        self.storage.chunk_size = self.chunk_size
+        self.storage.save_index(idx)
+
+    def _load_chunk_points(self, kind: str, chunk_id: str) -> List[Point3D]:
+        return self.storage.load_chunk_points(kind, chunk_id)
+
+    def _save_chunk_points(self, kind: str, chunk_id: str, points: Iterable[Point3D]) -> None:
+        self.storage.save_chunk_points(kind, chunk_id, points)
+
+    def _load_chunk_ores(self, chunk_id: str) -> List[OreHit]:
+        return self.storage.load_chunk_ores(chunk_id)
+
+    def _save_chunk_ores(self, chunk_id: str, ores: Iterable[OreHit]) -> None:
+        self.storage.save_chunk_ores(chunk_id, ores)
+
+    def _load_paths(self) -> Dict[str, List[Point3D]]:
+        return self.storage.load_paths()
+
+    def _save_paths(self) -> None:
+        self.storage.save_paths(self.data.paths)
+
+    def _load_metadata(self) -> Dict[str, Any]:
+        return self.storage.load_metadata()
+
+    def _save_metadata(self) -> None:
+        self.storage.chunk_size = self.chunk_size
+        self.storage.save_metadata(self.data.metadata)
+
+
+class SharedMapStorage:
+    def __init__(self, *, chunk_size: float) -> None:
+        self.chunk_size = float(chunk_size)
+
+    def load_index(self) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def save_index(self, idx: Dict[str, Any]) -> None:
+        raise NotImplementedError
+
+    def load_chunk_points(self, kind: str, chunk_id: str) -> List[Point3D]:
+        raise NotImplementedError
+
+    def save_chunk_points(self, kind: str, chunk_id: str, points: Iterable[Point3D]) -> None:
+        raise NotImplementedError
+
+    def load_chunk_ores(self, chunk_id: str) -> List[OreHit]:
+        raise NotImplementedError
+
+    def save_chunk_ores(self, chunk_id: str, ores: Iterable[OreHit]) -> None:
+        raise NotImplementedError
+
+    def load_paths(self) -> Dict[str, List[Point3D]]:
+        raise NotImplementedError
+
+    def save_paths(self, paths: Dict[str, List[Point3D]]) -> None:
+        raise NotImplementedError
+
+    def load_metadata(self) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def save_metadata(self, metadata: Dict[str, Any]) -> None:
+        raise NotImplementedError
+
+    def delete_chunk(self, kind: str, chunk_id: str) -> None:
+        raise NotImplementedError
+
+
+class RedisSharedMapStorage(SharedMapStorage):
+    def __init__(self, client: RedisEventClient, *, memory_prefix: str, chunk_size: float) -> None:
+        super().__init__(chunk_size=chunk_size)
+        self.client = client
+        self.memory_prefix = memory_prefix
+
     @property
     def index_key(self) -> str:
         return f"{self.memory_prefix}:index"
@@ -137,14 +238,10 @@ class SharedMapController:
     def metadata_key(self) -> str:
         return f"{self.memory_prefix}:meta"
 
-    def _chunk_id(self, point: Sequence[float]) -> str:
-        x, y, z = _normalize_point(point)
-        return f"{int(math.floor(x / self.chunk_size))}:{int(math.floor(y / self.chunk_size))}:{int(math.floor(z / self.chunk_size))}"
-
     def _chunk_key(self, kind: str, chunk_id: str) -> str:
         return f"{self.memory_prefix}:{kind}:{chunk_id}"
 
-    def _load_index(self) -> Dict[str, Any]:
+    def load_index(self) -> Dict[str, Any]:
         idx = self.client.get_json(self.index_key) or {}
         chunk_size = float(idx.get("chunk_size", self.chunk_size))
         self.chunk_size = chunk_size
@@ -155,7 +252,7 @@ class SharedMapController:
             "ores": set(idx.get("ores", [])),
         }
 
-    def _save_index(self, idx: Dict[str, Any]) -> None:
+    def save_index(self, idx: Dict[str, Any]) -> None:
         payload = {
             "chunk_size": self.chunk_size,
             "voxels": sorted(idx.get("voxels", [])),
@@ -164,16 +261,16 @@ class SharedMapController:
         }
         self.client.set_json(self.index_key, payload)
 
-    def _load_chunk_points(self, kind: str, chunk_id: str) -> List[Point3D]:
+    def load_chunk_points(self, kind: str, chunk_id: str) -> List[Point3D]:
         payload = self.client.get_json(self._chunk_key(kind, chunk_id))
         if not isinstance(payload, list):
             return []
         return [_normalize_point(p) for p in payload]
 
-    def _save_chunk_points(self, kind: str, chunk_id: str, points: Iterable[Point3D]) -> None:
+    def save_chunk_points(self, kind: str, chunk_id: str, points: Iterable[Point3D]) -> None:
         self.client.set_json(self._chunk_key(kind, chunk_id), list(points))
 
-    def _load_chunk_ores(self, chunk_id: str) -> List[OreHit]:
+    def load_chunk_ores(self, chunk_id: str) -> List[OreHit]:
         payload = self.client.get_json(self._chunk_key("ores", chunk_id))
         if not isinstance(payload, list):
             return []
@@ -193,26 +290,244 @@ class SharedMapController:
             )
         return ores
 
-    def _save_chunk_ores(self, chunk_id: str, ores: Iterable[OreHit]) -> None:
+    def save_chunk_ores(self, chunk_id: str, ores: Iterable[OreHit]) -> None:
         payload = [
             {"material": ore.material, "position": ore.position, "content": ore.content}
             for ore in ores
         ]
         self.client.set_json(self._chunk_key("ores", chunk_id), payload)
 
-    def _load_paths(self) -> Dict[str, List[Point3D]]:
+    def load_paths(self) -> Dict[str, List[Point3D]]:
         payload = self.client.get_json(self.paths_key) or {}
         return {name: [_normalize_point(p) for p in pts] for name, pts in payload.items() if isinstance(pts, list)}
 
-    def _save_paths(self) -> None:
-        self.client.set_json(self.paths_key, self.data.paths)
+    def save_paths(self, paths: Dict[str, List[Point3D]]) -> None:
+        self.client.set_json(self.paths_key, paths)
 
-    def _load_metadata(self) -> Dict[str, Any]:
+    def load_metadata(self) -> Dict[str, Any]:
         payload = self.client.get_json(self.metadata_key)
         return payload if isinstance(payload, dict) else {}
 
-    def _save_metadata(self) -> None:
-        self.client.set_json(self.metadata_key, self.data.metadata)
+    def save_metadata(self, metadata: Dict[str, Any]) -> None:
+        self.client.set_json(self.metadata_key, metadata)
+
+    def delete_chunk(self, kind: str, chunk_id: str) -> None:
+        try:
+            self.client._client.delete(self._chunk_key(kind, chunk_id))  # type: ignore[attr-defined]
+        except Exception:
+            # Если клиент не предоставляет прямого доступа, просто перезаписываем пустым списком
+            self.client.set_json(self._chunk_key(kind, chunk_id), [])
+
+
+class SQLiteSharedMapStorage(SharedMapStorage):
+    def __init__(self, path: str | os.PathLike[str], *, chunk_size: float) -> None:
+        self.path = Path(path).expanduser().resolve()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(str(self.path))
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute("PRAGMA foreign_keys=ON")
+        super().__init__(chunk_size=chunk_size)
+        self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        with self.conn:
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chunk_index (
+                    kind TEXT NOT NULL,
+                    chunk_id TEXT NOT NULL,
+                    PRIMARY KEY (kind, chunk_id)
+                )
+                """
+            )
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chunks (
+                    kind TEXT NOT NULL,
+                    chunk_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    PRIMARY KEY (kind, chunk_id)
+                )
+                """
+            )
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS paths (
+                    name TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
+
+    def _get_metadata(self, key: str) -> Optional[Any]:
+        cursor = self.conn.execute("SELECT value FROM metadata WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        try:
+            return json.loads(row[0])
+        except Exception:
+            return row[0]
+
+    def _set_metadata(self, key: str, value: Any) -> None:
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+                (key, json.dumps(value)),
+            )
+
+    def load_index(self) -> Dict[str, Any]:
+        stored_chunk_size = self._get_metadata("chunk_size")
+        if stored_chunk_size is not None:
+            try:
+                self.chunk_size = float(stored_chunk_size)
+            except (TypeError, ValueError):
+                pass
+
+        idx = {"chunk_size": self.chunk_size, "voxels": set(), "visited": set(), "ores": set()}
+        cursor = self.conn.execute("SELECT kind, chunk_id FROM chunk_index")
+        for kind, chunk_id in cursor.fetchall():
+            if kind in idx:
+                idx[kind].add(chunk_id)
+        return idx
+
+    def save_index(self, idx: Dict[str, Any]) -> None:
+        with self.conn:
+            self._set_metadata("chunk_size", float(self.chunk_size))
+            for kind in ("voxels", "visited", "ores"):
+                self.conn.execute("DELETE FROM chunk_index WHERE kind = ?", (kind,))
+                chunk_ids = [(kind, cid) for cid in sorted(idx.get(kind, []))]
+                if chunk_ids:
+                    self.conn.executemany(
+                        "INSERT OR IGNORE INTO chunk_index (kind, chunk_id) VALUES (?, ?)", chunk_ids
+                    )
+
+    def load_chunk_points(self, kind: str, chunk_id: str) -> List[Point3D]:
+        cursor = self.conn.execute(
+            "SELECT payload FROM chunks WHERE kind = ? AND chunk_id = ?", (kind, chunk_id)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return []
+        try:
+            payload = json.loads(row[0])
+        except Exception:
+            return []
+        if not isinstance(payload, list):
+            return []
+        return [_normalize_point(p) for p in payload]
+
+    def save_chunk_points(self, kind: str, chunk_id: str, points: Iterable[Point3D]) -> None:
+        payload = json.dumps(list(points))
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO chunks (kind, chunk_id, payload) VALUES (?, ?, ?)",
+                (kind, chunk_id, payload),
+            )
+            self.conn.execute(
+                "INSERT OR IGNORE INTO chunk_index (kind, chunk_id) VALUES (?, ?)",
+                (kind, chunk_id),
+            )
+
+    def load_chunk_ores(self, chunk_id: str) -> List[OreHit]:
+        cursor = self.conn.execute(
+            "SELECT payload FROM chunks WHERE kind = 'ores' AND chunk_id = ?", (chunk_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return []
+        try:
+            payload = json.loads(row[0])
+        except Exception:
+            return []
+        if not isinstance(payload, list):
+            return []
+        ores: List[OreHit] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            pos = item.get("position")
+            if pos is None:
+                continue
+            ores.append(
+                OreHit(
+                    material=str(item.get("material") or item.get("ore") or "unknown"),
+                    position=_normalize_point(pos),
+                    content=item.get("content"),
+                )
+            )
+        return ores
+
+    def save_chunk_ores(self, chunk_id: str, ores: Iterable[OreHit]) -> None:
+        payload = [
+            {"material": ore.material, "position": ore.position, "content": ore.content}
+            for ore in ores
+        ]
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO chunks (kind, chunk_id, payload) VALUES ('ores', ?, ?)",
+                (chunk_id, json.dumps(payload)),
+            )
+            self.conn.execute(
+                "INSERT OR IGNORE INTO chunk_index (kind, chunk_id) VALUES ('ores', ?)", (chunk_id,)
+            )
+
+    def load_paths(self) -> Dict[str, List[Point3D]]:
+        cursor = self.conn.execute("SELECT name, payload FROM paths")
+        paths: Dict[str, List[Point3D]] = {}
+        for name, payload in cursor.fetchall():
+            try:
+                pts = json.loads(payload)
+            except Exception:
+                continue
+            if isinstance(pts, list):
+                paths[name] = [_normalize_point(p) for p in pts]
+        return paths
+
+    def save_paths(self, paths: Dict[str, List[Point3D]]) -> None:
+        with self.conn:
+            self.conn.execute("DELETE FROM paths")
+            if paths:
+                self.conn.executemany(
+                    "INSERT OR REPLACE INTO paths (name, payload) VALUES (?, ?)",
+                    [(name, json.dumps(points)) for name, points in paths.items()],
+                )
+
+    def load_metadata(self) -> Dict[str, Any]:
+        cursor = self.conn.execute("SELECT key, value FROM metadata")
+        metadata: Dict[str, Any] = {}
+        for key, value in cursor.fetchall():
+            if key == "chunk_size":
+                continue
+            try:
+                metadata[key] = json.loads(value)
+            except Exception:
+                metadata[key] = value
+        return metadata
+
+    def save_metadata(self, metadata: Dict[str, Any]) -> None:
+        with self.conn:
+            self.conn.execute("DELETE FROM metadata WHERE key != 'chunk_size'")
+            for key, value in metadata.items():
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+                    (key, json.dumps(value)),
+                )
+            self._set_metadata("chunk_size", float(self.chunk_size))
+
+    def delete_chunk(self, kind: str, chunk_id: str) -> None:
+        with self.conn:
+            self.conn.execute("DELETE FROM chunks WHERE kind = ? AND chunk_id = ?", (kind, chunk_id))
+            self.conn.execute("DELETE FROM chunk_index WHERE kind = ? AND chunk_id = ?", (kind, chunk_id))
 
     # ------------------------------------------------------------------
     # Загрузка/сохранение
@@ -235,8 +550,11 @@ class SharedMapController:
 
         # Поддержка старого формата: если индекс пустой, пробуем прочитать весь
         # словарь из ``memory_prefix`` и разложить его по чанкам.
-        if not (idx["voxels"] or idx["visited"] or idx["ores"]):
-            legacy_payload = self.client.get_json(self.memory_prefix)
+        if (
+            not (idx["voxels"] or idx["visited"] or idx["ores"])
+            and isinstance(self.storage, RedisSharedMapStorage)
+        ):
+            legacy_payload = self.storage.client.get_json(self.storage.memory_prefix)
             if isinstance(legacy_payload, dict) and any(
                 legacy_payload.get(k) for k in ("voxels", "visited", "ores")
             ):
@@ -547,31 +865,33 @@ class SharedMapController:
         Для каждого ключа сначала пробуем MEMORY USAGE, при ошибке
         откатываемся на get_json + json.dumps.
         """
+        if not isinstance(self.storage, RedisSharedMapStorage):
+            raise RuntimeError("Подсчет памяти доступен только для Redis-бэкенда")
 
         idx = self._load_index()
 
         # Формируем список всех ключей, которые относятся к карте
         keys: list[str] = [
-            self.index_key,
-            self.paths_key,
-            self.metadata_key,
+            self.storage.index_key,
+            self.storage.paths_key,
+            self.storage.metadata_key,
         ]
 
         for cid in idx["voxels"]:
-            keys.append(self._chunk_key("voxels", cid))
+            keys.append(self.storage._chunk_key("voxels", cid))
         for cid in idx["visited"]:
-            keys.append(self._chunk_key("visited", cid))
+            keys.append(self.storage._chunk_key("visited", cid))
         for cid in idx["ores"]:
-            keys.append(self._chunk_key("ores", cid))
+            keys.append(self.storage._chunk_key("ores", cid))
 
         # На случай старого формата, когда всё лежало по memory_prefix
-        keys.append(self.memory_prefix)
+        keys.append(self.storage.memory_prefix)
 
         # Пытаемся достучаться до "сырого" redis-клиента
         redis_client = None
         for attr in ("client", "_client", "redis"):
-            if hasattr(self.client, attr):
-                redis_client = getattr(self.client, attr)
+            if hasattr(self.storage.client, attr):
+                redis_client = getattr(self.storage.client, attr)
                 break
 
         total_size = 0
@@ -591,7 +911,7 @@ class SharedMapController:
             # 2) Fallback: через get_json, если MEMORY USAGE недоступен или вернул 0
             if size == 0:
                 try:
-                    payload = self.client.get_json(key)
+                    payload = self.storage.client.get_json(key)
                 except Exception:
                     payload = None
 
@@ -639,13 +959,13 @@ class SharedMapController:
         verbose: bool = True,
     ) -> Dict[str, Any]:
         """
-        Проредить (разредить) облака вокселей в Redis-хранилище.
+        Проредить (разредить) облака вокселей в активном хранилище.
 
         Логика:
         - Для каждого чанка с вокселями строится 3D-сетка с шагом `resolution`.
         - В каждую ячейку сетки допускается не более `max_points_per_cell` точек.
         - Остальные точки в этой ячейке считаются "лишними" и удаляются.
-        - Операция выполняется ПРЯМО по Redis-чанкам (хранилище реально очищается).
+        - Операция выполняется ПРЯМО по чанкам (хранилище реально очищается).
 
         Параметры:
             resolution:
@@ -674,7 +994,7 @@ class SharedMapController:
             }
 
         ВАЖНО:
-        - Метод изменяет данные в Redis. Если у контроллера уже загружена
+        - Метод изменяет данные в хранилище. Если у контроллера уже загружена
           self.data.voxels, она может не совпасть с хранилищем — после
           прорядки имеет смысл вызвать load() / load_region() заново.
         """
@@ -806,7 +1126,7 @@ class SharedMapController:
             }
 
         ВАЖНО:
-        - Изменяет данные в Redis. После удаления имеет смысл вызвать load() / load_region() заново,
+        - Изменяет данные в активном хранилище. После удаления имеет смысл вызвать load() / load_region() заново,
           если self.data уже загружена.
         - Для ores удаляет по позиции OreHit.
         """
@@ -863,7 +1183,7 @@ class SharedMapController:
                             self._save_chunk_ores(cid, filtered_ores)
                         else:
                             # Чанк пуст, удаляем
-                            self.client._client.delete(self._chunk_key("ores", cid))
+                            self.storage.delete_chunk("ores", cid)
                             idx["ores"].discard(cid)
                         chunks_affected += 1
                         total_removed += removed_count
@@ -877,7 +1197,7 @@ class SharedMapController:
                             self._save_chunk_points(kind, cid, filtered_points)
                         else:
                             # Чанк пуст, удаляем
-                            self.client._client.delete(self._chunk_key(kind, cid))
+                            self.storage.delete_chunk(kind, cid)
                             idx[kind].discard(cid)
                         chunks_affected += 1
                         total_removed += removed_count
