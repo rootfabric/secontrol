@@ -56,6 +56,8 @@ def main() -> None:
             print("Ошибка: Контейнер дрона не найден на гриде!")
             return
 
+        drill.update()
+
         print(f"Найдены устройства:")
         print(f"  Drill: {drill.name or drill.device_id}")
         print(f"  Container: {container.name or container.device_id}")
