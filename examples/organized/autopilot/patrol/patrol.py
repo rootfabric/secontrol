@@ -5,9 +5,11 @@ from typing import Tuple, Optional
 
 from secontrol.controllers.surface_flight_controller import SurfaceFlightController
 from secontrol.tools.navigation_tools import goto
+from secontrol.controllers.surface_flight_controller import _fly_to
 
 Point3D = Tuple[float, float, float]
 
+# Радиус скана радара (важно: шаг патруля не должен превышать эту величину)
 DEFAULT_SCAN_RADIUS = 200.0
 DEFAULT_BOUNDING_BOX_Y = 50.0
 
@@ -35,6 +37,7 @@ def _build_horizontal_basis(down: Point3D) -> Tuple[Point3D, Point3D]:
     ax, ay, az = ref
     bx, by, bz = down
 
+    # h1 = ref x down
     ux = ay * bz - az * by
     uy = az * bx - ax * bz
     uz = ax * by - ay * bx
@@ -43,6 +46,7 @@ def _build_horizontal_basis(down: Point3D) -> Tuple[Point3D, Point3D]:
     uy /= length_u
     uz /= length_u
 
+    # h2 = down x h1
     vx = by * uz - bz * uy
     vy = bz * ux - bx * uz
     vz = bx * uy - by * ux
@@ -89,6 +93,7 @@ def main() -> None:
     except Exception as e:
         print(f"Ошибка при первичной загрузке карты из Redis: {e}")
 
+    # Пытаемся взять высоту поверхности под базой из уже загруженной occupancy-сетки
     surface_y = None
     if getattr(controller, "radar_controller", None) is not None:
         rc = controller.radar_controller
@@ -112,17 +117,24 @@ def main() -> None:
             f"ores={len(ore_cells or []) if ore_cells is not None else 0}"
         )
 
+    # Вектора гравитации и горизонтальные базисы
     down = controller._get_down_vector()
     print(f"Гравитация (down): {down}")
     h1, h2 = _build_horizontal_basis(down)
     print(f"Горизонтальные базисы: h1={h1}, h2={h2}")
 
+    # Желаемая высота полёта над поверхностью
     flight_altitude = 50.0
+
+    # Параметры колец
     ring_radius = 100.0
     ring_radius_step = 100.0
     max_ring_radius = 3000.0
 
-    max_segment_length = 100.0
+    # Максимальная длина участка траектории:
+    # ограничиваем её и сверху, и исходя из радиуса скана, чтобы
+    # дрон не улетал дальше, чем видит радар.
+    max_segment_length = min(100.0, DEFAULT_SCAN_RADIUS * 0.9)
 
     angle = 0.0
 
@@ -136,8 +148,9 @@ def main() -> None:
         print(f"\nТекущая позиция дрона: {current_pos}")
 
         down = controller._get_down_vector()
-        up = (-down[0], -down[1], -down[2])
+        up = (-down[0], -down[1], -down[2])  # пока не используется, но оставим для расширений
 
+        # Считаем плоскую точку на окружности в горизонтальной плоскости
         cos_a = math.cos(angle)
         sin_a = math.sin(angle)
         offset = (
@@ -157,28 +170,37 @@ def main() -> None:
             f"({flat_point[0]:.2f}, {flat_point[1]:.2f}, {flat_point[2]:.2f})"
         )
 
-        # НИКАКОГО SCAN-LIMIT: летим к истинной точке окружности
-        safe_flat_point = flat_point
-
-        # Плоская патрульная точка (до учёта рельефа) уже посчитана:
-        # flat_point / safe_flat_point
-
-        print(
-            "Плоская патрульная точка (до учёта рельефа): "
-            f"({flat_point[0]:.2f}, {flat_point[1]:.2f}, {flat_point[2]:.2f})"
-        )
-
-        safe_flat_point = flat_point
-
         # === НОВАЯ ЛОГИКА ВЫБОРА ВЫСОТЫ ===
         # Вместо того чтобы смотреть только под конечной точкой,
-        # считаем безопасную цель с учётом максимальной высоты вдоль пути.
-        target_point, surface_y_at_target, _ = controller.calculate_safe_target_along_path(
-            start=current_pos,
-            end=safe_flat_point,
-            altitude=flight_altitude,
-        )
+        # считаем безопасную цель с учётом рельефа вдоль пути и лимитом длины шага.
+        try:
+            target_point, surface_y_at_target, _ = controller.calculate_safe_target_along_path(
+                current_pos,     # стартовая точка
+                flat_point,      # плоская цель (по окружности)
+                flight_altitude, # желаемая высота над поверхностью
+                max_segment_length,  # максимальная длина шага по траектории
+            )
+        except TypeError as e:
+            print(
+                "ОШИБКА вызова calculate_safe_target_along_path "
+                f"(возможно, изменилась сигнатура метода): {e}"
+            )
+            print("Аварийно пропускаю шаг, делаю перескан и продолжаю...")
+            controller.scan_voxels()
+            time.sleep(2.0)
+            continue
 
+        if target_point is None:
+            # Защита: если по пути нет данных карты, не летим в пустоту
+            print(
+                "[ERROR] calculate_safe_target_along_path вернул None — "
+                "нет надёжной поверхности по пути. Выполняю скан и пропускаю шаг."
+            )
+            controller.scan_voxels()
+            time.sleep(2.0)
+            continue
+
+        # Высота над поверхностью в точке назначения (по Y)
         if surface_y_at_target is not None:
             altitude_y = target_point[1] - surface_y_at_target
         else:
@@ -192,6 +214,7 @@ def main() -> None:
             f"alt_over_surface_Y≈{altitude_y:.1f}м"
         )
 
+        # Для наглядности — GPS маркер патрульной точки
         controller.grid.create_gps_marker(
             f"Patrol_r{ring_radius:.0f}_a{math.degrees(angle):.0f}",
             coordinates=target_point,
@@ -199,26 +222,26 @@ def main() -> None:
 
         print("Движение к patrol-точке...")
 
-
-
+        # Здесь уже летим к безопасной 3D-точке над поверхностью
         goto(controller.grid, target_point, speed=20.0)
-
 
         new_pos = _get_pos(controller.rc)
         if new_pos:
             print(f"Текущая позиция после перемещения: {new_pos}")
             controller.visited_points.append(new_pos)
 
-        # Периодический перескан: можно оставить, он теперь безопасно пишется в Redis
+        # Периодический перескан: по одному разу на каждое кольцо (при прохождении угла ~0°)
         if int(ring_radius) % 200 == 0 and abs(math.degrees(angle)) < 1e-3:
             print("[SCAN] Плановый перескан поверхности (радиусом сканера)...")
             controller.scan_voxels()
 
+        # === Расчёт следующего шага по углу по ограничению длины дуги ===
         if ring_radius > 1e-3:
             angle_step = max_segment_length / ring_radius
         else:
             angle_step = 2.0 * math.pi
 
+        # Страховка от бешеных шагов по углу
         max_angle_step_rad = math.radians(90.0)
         if angle_step > max_angle_step_rad:
             angle_step = max_angle_step_rad

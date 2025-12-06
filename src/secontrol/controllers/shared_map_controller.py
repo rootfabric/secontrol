@@ -773,3 +773,120 @@ class SharedMapController:
             "resolution": float(resolution),
             "max_points_per_cell": int(max_points_per_cell),
         }
+
+    def remove_points_in_radius(
+        self,
+        center: Point3D,
+        radius: float,
+        kinds: Sequence[str] = ("voxels", "visited", "ores"),
+        save: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Удалить все точки в заданном радиусе от центра для указанных типов данных.
+
+        Логика:
+        - Находит чанки, которые могут содержать точки в сфере радиуса `radius`.
+        - Для каждого типа (`kinds`) загружает точки из этих чанков.
+        - Удаляет точки, находящиеся внутри радиуса (евклидово расстояние <= radius).
+        - Сохраняет отфильтрованные точки обратно в Redis.
+        - Обновляет индекс: пустые чанки удаляются из индекса и из Redis.
+
+        Параметры:
+            center: Центр сферы удаления (Point3D).
+            radius: Радиус сферы (float, в метрах).
+            kinds: Типы точек для обработки ("voxels", "visited", "ores").
+            save: Если True, сохраняет изменения в Redis.
+
+        Возвращает:
+            dict со статистикой:
+            {
+                "total_removed": int,  # Общее количество удаленных точек
+                "chunks_affected": int,  # Количество затронутых чанков
+                "kinds_processed": list[str],  # Обработанные типы
+            }
+
+        ВАЖНО:
+        - Изменяет данные в Redis. После удаления имеет смысл вызвать load() / load_region() заново,
+          если self.data уже загружена.
+        - Для ores удаляет по позиции OreHit.
+        """
+        if radius <= 0.0:
+            raise ValueError(f"radius must be > 0, got {radius}")
+
+        cx, cy, cz = center
+        cr = float(radius)
+
+        # Загружаем индекс
+        idx = self._load_index()
+
+        # Находим все чанки, которые могут пересекать сферу
+        chunk_size = float(self.chunk_size)
+        min_x, max_x = cx - cr, cx + cr
+        min_y, max_y = cy - cr, cy + cr
+        min_z, max_z = cz - cr, cz + cr
+
+        def _chunk_range(vmin: float, vmax: float) -> range:
+            start = math.floor(vmin / chunk_size)
+            end = math.floor(vmax / chunk_size)
+            return range(int(start), int(end) + 1)
+
+        relevant_chunk_ids = {
+            f"{ix}:{iy}:{iz}"
+            for ix in _chunk_range(min_x, max_x)
+            for iy in _chunk_range(min_y, max_y)
+            for iz in _chunk_range(min_z, max_z)
+        }
+
+        # Функция расстояния
+        def _dist(a: Point3D, b: Point3D) -> float:
+            dx, dy, dz = a[0] - b[0], a[1] - b[1], a[2] - b[2]
+            return (dx * dx + dy * dy + dz * dz) ** 0.5
+
+        total_removed = 0
+        chunks_affected = 0
+
+        # Обрабатываем каждый тип
+        for kind in kinds:
+            if kind not in ("voxels", "visited", "ores"):
+                continue
+
+            chunk_ids = idx.get(kind, set())
+            chunks_to_process = relevant_chunk_ids & chunk_ids
+
+            for cid in chunks_to_process:
+                if kind == "ores":
+                    ores = self._load_chunk_ores(cid)
+                    filtered_ores = [ore for ore in ores if _dist(ore.position, center) > radius]
+                    removed_count = len(ores) - len(filtered_ores)
+                    if removed_count > 0:
+                        if filtered_ores:
+                            self._save_chunk_ores(cid, filtered_ores)
+                        else:
+                            # Чанк пуст, удаляем
+                            self.client._client.delete(self._chunk_key("ores", cid))
+                            idx["ores"].discard(cid)
+                        chunks_affected += 1
+                        total_removed += removed_count
+                else:
+                    # voxels или visited
+                    points = self._load_chunk_points(kind, cid)
+                    filtered_points = [p for p in points if _dist(p, center) > radius]
+                    removed_count = len(points) - len(filtered_points)
+                    if removed_count > 0:
+                        if filtered_points:
+                            self._save_chunk_points(kind, cid, filtered_points)
+                        else:
+                            # Чанк пуст, удаляем
+                            self.client._client.delete(self._chunk_key(kind, cid))
+                            idx[kind].discard(cid)
+                        chunks_affected += 1
+                        total_removed += removed_count
+
+        if save:
+            self._save_index(idx)
+
+        return {
+            "total_removed": total_removed,
+            "chunks_affected": chunks_affected,
+            "kinds_processed": list(kinds),
+        }

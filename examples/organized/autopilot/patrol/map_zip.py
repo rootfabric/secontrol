@@ -21,6 +21,8 @@ print("Thinning stats:", stats)
 # mc.load()  # или load_region(...) для нужного района
 
 
+
+
 redis_size = mc.get_redis_memory_usage()
 print(f"\nПримерный размер карты в Redis: {redis_size} байт ({redis_size / 1024:.1f} KB)")
 
