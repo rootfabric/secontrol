@@ -170,41 +170,32 @@ def main() -> None:
             f"({flat_point[0]:.2f}, {flat_point[1]:.2f}, {flat_point[2]:.2f})"
         )
 
-        # === НОВАЯ ЛОГИКА ВЫБОРА ВЫСОТЫ ===
-        # Вместо того чтобы смотреть только под конечной точкой,
-        # считаем безопасную цель с учётом рельефа вдоль пути и лимитом длины шага.
-        try:
-            target_point, surface_y_at_target, _ = controller.calculate_safe_target_along_path(
-                current_pos,     # стартовая точка
-                flat_point,      # плоская цель (по окружности)
-                flight_altitude, # желаемая высота над поверхностью
-                max_segment_length,  # максимальная длина шага по траектории
-            )
-        except TypeError as e:
-            print(
-                "ОШИБКА вызова calculate_safe_target_along_path "
-                f"(возможно, изменилась сигнатура метода): {e}"
-            )
-            print("Аварийно пропускаю шаг, делаю перескан и продолжаю...")
-            controller.scan_voxels()
-            time.sleep(2.0)
-            continue
+        # Проверяем высоту поверхности под flat_point и устанавливаем target_point
+        pos = flat_point
+        down = controller._get_down_vector()
+        up = (-down[0], -down[1], -down[2])
+        cell_size = controller.radar_controller.cell_size or 5.0
+        max_trace = cell_size * (controller.radar_controller.size[1] if controller.radar_controller.size else 50)
+        step = cell_size
 
-        if target_point is None:
-            # Защита: если по пути нет данных карты, не летим в пустоту
-            print(
-                "[ERROR] calculate_safe_target_along_path вернул None — "
-                "нет надёжной поверхности по пути. Выполняю скан и пропускаю шаг."
-            )
-            controller.scan_voxels()
-            time.sleep(2.0)
-            continue
+        surface_point = controller._find_surface_point_along_gravity(pos, down, max_trace, step)
+        if surface_point is None:
+            surface_height = controller.radar_controller.get_surface_height(pos[0], pos[2])
+            if surface_height is not None:
+                surface_point = (pos[0], surface_height, pos[2])
+                print("Surface found via vertical lookup for patrol point.")
+            else:
+                print("Surface not found for patrol point; using flat_point as base.")
+                surface_point = pos
+
+        target_point = (
+            surface_point[0] + up[0] * flight_altitude,
+            surface_point[1] + up[1] * flight_altitude,
+            surface_point[2] + up[2] * flight_altitude,
+        )
 
         # Высота над поверхностью в точке назначения (по Y)
-        if surface_y_at_target is not None:
-            altitude_y = target_point[1] - surface_y_at_target
-        else:
-            altitude_y = float("nan")
+        altitude_y = target_point[1] - surface_point[1]
 
         print(
             f"Патрульная точка: "
