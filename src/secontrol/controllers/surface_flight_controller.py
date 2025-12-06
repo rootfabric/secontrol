@@ -755,3 +755,232 @@ class SurfaceFlightController:
         )
 
         return solid, metadata, contacts, ore_cells, visited
+
+
+
+    def measure_altitude_to_surface(
+        self,
+        position: Optional[Tuple[float, float, float]] = None,
+        trace_distance: Optional[float] = None,
+        trace_step: Optional[float] = None,
+    ) -> Optional[float]:
+        """
+        Измерить высоту над поверхностью для заданной точки.
+
+        :param position: мировая точка (x, y, z). Если None — берём текущую позицию RC.
+        :param trace_distance: максимальная дистанция трассировки вдоль гравитации (опционально).
+        :param trace_step: шаг трассировки (опционально).
+        :return: высота над поверхностью по оси Y (float) или None, если поверхность не найдена.
+        """
+
+        # 1) Берём позицию
+        if position is None:
+            pos = _get_pos(self.rc)
+            if not pos:
+                print("measure_altitude_to_surface: cannot get current RC position.")
+                return None
+        else:
+            pos = position
+
+        px, py, pz = float(pos[0]), float(pos[1]), float(pos[2])
+
+        # 2) Вектор гравитации / up
+        down = self._get_down_vector()
+        up = (-down[0], -down[1], -down[2])
+
+        # 3) Проверяем, что есть воксельная сетка, при необходимости загружаем / сканируем
+        if (
+            self.radar_controller.occupancy_grid is None
+            or self.radar_controller.origin is None
+            or self.radar_controller.size is None
+        ):
+            print(
+                "measure_altitude_to_surface: no occupancy grid, "
+                "trying to load map from Redis around position..."
+            )
+            try:
+                self.load_map_region_from_redis(
+                    center=pos,
+                    radius=self.default_scan_radius * 2.0,
+                )
+            except Exception as e:
+                print(
+                    "measure_altitude_to_surface: failed to load map from Redis: "
+                    f"{e}"
+                )
+
+            if (
+                self.radar_controller.occupancy_grid is None
+                or self.radar_controller.origin is None
+                or self.radar_controller.size is None
+            ):
+                print(
+                    "measure_altitude_to_surface: still no occupancy grid, "
+                    "performing radar scan..."
+                )
+                try:
+                    self.scan_voxels()
+                except Exception as e:
+                    print(
+                        "measure_altitude_to_surface: scan_voxels() failed: "
+                        f"{e}"
+                    )
+
+        # 4) Параметры трассировки вдоль гравитации
+        cell_size = self.radar_controller.cell_size or 5.0
+        max_trace = trace_distance or cell_size * (
+            self.radar_controller.size[1] if self.radar_controller.size else 50
+        )
+        step = trace_step or cell_size
+
+        surface_point = self._find_surface_point_along_gravity(
+            pos,
+            down,
+            max_distance=max_trace,
+            step=step,
+        )
+
+        surface_source = "gravity_trace"
+
+        # 5) Fallback: vertical lookup через get_surface_height
+        if surface_point is None:
+            surface_height = self.radar_controller.get_surface_height(px, pz)
+            if surface_height is not None:
+                surface_point = (px, surface_height, pz)
+                surface_source = "vertical_lookup"
+                print(
+                    "measure_altitude_to_surface: surface found via vertical lookup "
+                    f"at ({px:.2f}, {surface_height:.2f}, {pz:.2f})"
+                )
+            else:
+                print(
+                    "measure_altitude_to_surface: surface not found via gravity trace "
+                    "or vertical lookup."
+                )
+                return None
+
+        sx, sy, sz = surface_point
+
+        # 6) Считаем высоту над поверхностью
+        alt_vec = (px - sx, py - sy, pz - sz)
+        altitude_up = (
+            alt_vec[0] * up[0]
+            + alt_vec[1] * up[1]
+            + alt_vec[2] * up[2]
+        )
+        altitude_y = py - sy
+
+        print(
+            f"measure_altitude_to_surface: source={surface_source}, "
+            f"position=({px:.2f}, {py:.2f}, {pz:.2f}), "
+            f"surface_point=({sx:.2f}, {sy:.2f}, {sz:.2f}), "
+            f"altitude_Y≈{altitude_y:.2f}м, "
+            f"altitude_along_up≈{altitude_up:.2f}м"
+        )
+
+        # Возвращаем высоту по Y, т.к. по ней удобно смотреть в логах
+        return altitude_y
+
+    def calculate_safe_target_along_path(
+        self,
+        start: Tuple[float, float, float],
+        end: Tuple[float, float, float],
+        altitude: float,
+        min_step: float = 5.0,
+    ) -> Tuple[float, float, float]:
+        """
+        Рассчитать безопасную целевую точку по маршруту start -> end
+        на заданной высоте над максимальной поверхностью ВДОЛЬ пути.
+
+        1) Строим горизонтальное направление из start в end
+           (проецируем вектор на плоскость, перпендикулярную гравитации).
+        2) Сэмплируем поверхность вдоль этого направления через
+           _sample_surface_along_path и берём max_surface_y.
+        3) Целевая точка: (end.x, max_surface_y + altitude, end.z).
+        4) Если по пути не нашли поверхность — падаем в обычный
+           calculate_surface_point_at_altitude(end, altitude).
+        """
+
+        # Если ещё нет карты — пусть calculate_surface_point_at_altitude сам её подтянет
+        if (
+            self.radar_controller.occupancy_grid is None
+            or self.radar_controller.origin is None
+            or self.radar_controller.size is None
+        ):
+            # Один вызов, чтобы гарантировать наличие occupancy_grid
+            _ = self.calculate_surface_point_at_altitude(end, altitude)
+
+        # Вектор гравитации
+        down = self._get_down_vector()
+
+        # Вектор из start в end
+        vx = end[0] - start[0]
+        vy = end[1] - start[1]
+        vz = end[2] - start[2]
+
+        # Если почти не двигаемся — просто берём стандартный расчёт над поверхностью под end
+        length_vec = math.sqrt(vx * vx + vy * vy + vz * vz)
+        if length_vec < 1e-3:
+            print("calculate_safe_target_along_path: distance too small, using direct altitude calculation.")
+            return self.calculate_surface_point_at_altitude(end, altitude)
+
+        # Проекция вектора на плоскость, перпендикулярную гравитации (горизонтальное направление)
+        dot_vd = vx * down[0] + vy * down[1] + vz * down[2]
+        hx = vx - dot_vd * down[0]
+        hy = vy - dot_vd * down[1]
+        hz = vz - dot_vd * down[2]
+
+        length_h = math.sqrt(hx * hx + hy * hy + hz * hz)
+        if length_h < 1e-3:
+            # Почти вертикальное смещение – в этом случае достаточно обычного расчёта
+            print("calculate_safe_target_along_path: horizontal component too small, using direct altitude calculation.")
+            return self.calculate_surface_point_at_altitude(end, altitude)
+
+        dir_hx = hx / length_h
+        dir_hy = hy / length_h
+        dir_hz = hz / length_h
+
+        horizontal_distance = length_h
+
+        # Шаг по пути – не меньше min_step и не меньше размера клетки
+        cell_step = self.radar_controller.cell_size or min_step
+        step = max(cell_step, min_step)
+
+        print(
+            "calculate_safe_target_along_path: sampling along path "
+            f"start=({start[0]:.2f}, {start[1]:.2f}, {start[2]:.2f}) -> "
+            f"end=({end[0]:.2f}, {end[1]:.2f}, {end[2]:.2f}), "
+            f"horizontal_distance={horizontal_distance:.2f}м, step={step:.2f}м"
+        )
+
+        max_surf, last_surf = self._sample_surface_along_path(
+            start=start,
+            direction=(dir_hx, dir_hy, dir_hz),
+            distance=horizontal_distance,
+            step=step,
+        )
+
+        if max_surf is not None:
+            surface_y = max_surf
+            source = "max_along_path"
+        elif last_surf is not None:
+            surface_y = last_surf
+            source = "last_along_path"
+        else:
+            # Совсем ничего не нашли по пути — используем стандартный механизм
+            print(
+                "calculate_safe_target_along_path: no surface sampled along path, "
+                "falling back to calculate_surface_point_at_altitude(end, altitude)."
+            )
+            return self.calculate_surface_point_at_altitude(end, altitude)
+
+        target_y = surface_y + altitude
+        target = (end[0], target_y, end[2])
+
+        print(
+            "calculate_safe_target_along_path: "
+            f"surface_source={source}, surface_y={surface_y:.2f}, "
+            f"altitude={altitude:.2f}, target=({target[0]:.2f}, {target[1]:.2f}, {target[2]:.2f})"
+        )
+
+        return target

@@ -160,18 +160,37 @@ def main() -> None:
         # НИКАКОГО SCAN-LIMIT: летим к истинной точке окружности
         safe_flat_point = flat_point
 
-        # Точка на поверхности (altitude=0) и точка на высоте flight_altitude
-        surface_point = controller.calculate_surface_point_at_altitude(
-            safe_flat_point,
-            0.0,
-        )
-        target_point = controller.calculate_surface_point_at_altitude(
-            safe_flat_point,
-            flight_altitude,
+        # Плоская патрульная точка (до учёта рельефа) уже посчитана:
+        # flat_point / safe_flat_point
+
+        print(
+            "Плоская патрульная точка (до учёта рельефа): "
+            f"({flat_point[0]:.2f}, {flat_point[1]:.2f}, {flat_point[2]:.2f})"
         )
 
-        # Для логов можно оценить разницу по оси Y (реальная высота над поверхностью)
-        altitude_y = target_point[1] - surface_point[1]
+        safe_flat_point = flat_point
+
+        # === НОВАЯ ЛОГИКА ВЫБОРА ВЫСОТЫ ===
+        # Вместо того чтобы смотреть только под конечной точкой,
+        # считаем безопасную цель с учётом максимальной высоты вдоль пути.
+        target_point = controller.calculate_safe_target_along_path(
+            start=current_pos,
+            end=safe_flat_point,
+            altitude=flight_altitude,
+        )
+
+        # Для логов оценим высоту над поверхностью под целевой точкой по карте
+        surface_y_at_target = None
+        if getattr(controller, "radar_controller", None) is not None:
+            surface_y_at_target = controller.radar_controller.get_surface_height(
+                target_point[0],
+                target_point[2],
+            )
+
+        if surface_y_at_target is not None:
+            altitude_y = target_point[1] - surface_y_at_target
+        else:
+            altitude_y = float("nan")
 
         print(
             "Патрульная точка: "
@@ -187,7 +206,11 @@ def main() -> None:
         )
 
         print("Движение к patrol-точке...")
+        alt = controller.measure_altitude_to_surface()
+        print(f"Текущая высота: {alt}")
+
         goto(controller.grid, target_point, speed=20.0)
+
 
         new_pos = _get_pos(controller.rc)
         if new_pos:
