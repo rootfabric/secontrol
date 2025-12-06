@@ -97,7 +97,7 @@ class App:
         print(f"Размер карты в Redis: {redis_size} байт ({redis_size / 1024:.1f} KB)")
 
         # Радиус визуализации
-        self.visualization_radius = 500.0
+        self.visualization_radius = 1000.0
 
         # Визуализатор карты
         self.visualizer = RadarVisualizer()

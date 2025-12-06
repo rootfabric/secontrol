@@ -5,7 +5,7 @@ from typing import Tuple, Optional
 
 from secontrol.controllers.surface_flight_controller import SurfaceFlightController
 from secontrol.tools.navigation_tools import goto
-from secontrol.controllers.surface_flight_controller import _fly_to
+
 
 Point3D = Tuple[float, float, float]
 
@@ -170,31 +170,61 @@ def main() -> None:
             f"({flat_point[0]:.2f}, {flat_point[1]:.2f}, {flat_point[2]:.2f})"
         )
 
-        # Проверяем высоту поверхности под flat_point и устанавливаем target_point
-        pos = flat_point
+        # # Проверяем высоту поверхности под flat_point и устанавливаем target_point
+        # pos = flat_point
+        # down = controller._get_down_vector()
+        # up = (-down[0], -down[1], -down[2])
+        # cell_size = controller.radar_controller.cell_size or 5.0
+        # max_trace = cell_size * (controller.radar_controller.size[1] if controller.radar_controller.size else 50)
+        # step = cell_size
+        #
+        # surface_point = controller._find_surface_point_along_gravity(pos, down, max_trace, step)
+        # if surface_point is None:
+        #     surface_height = controller.radar_controller.get_surface_height(pos[0], pos[2])
+        #     if surface_height is not None:
+        #         surface_point = (pos[0], surface_height, pos[2])
+        #         print("Surface found via vertical lookup for patrol point.")
+        #     else:
+        #         print("Surface not found for patrol point; using flat_point as base.")
+        #         surface_point = pos
+        #
+        # target_point = (
+        #     surface_point[0] + up[0] * flight_altitude,
+        #     surface_point[1] + up[1] * flight_altitude,
+        #     surface_point[2] + up[2] * flight_altitude,
+        # )
+        #
+        # # Высота над поверхностью в точке назначения (по Y)
+        # altitude_y = target_point[1] - surface_point[1]
+
+        # здесь measure_altitude_to_surface сам сделает live-скан,
+        # если под flat_point пустота или нет данных в сетке
+        cell_size = controller.radar_controller.cell_size or 5.0
+        max_trace = cell_size * (
+            controller.radar_controller.size[1]
+            if controller.radar_controller.size
+            else 50
+        )
+
+        # получаем точку поверхности под flat_point
+        surface_point, altitude_y_now, altitude_along_up_now = controller.measure_altitude_to_surface(
+            flat_point,
+            max_trace_distance=max_trace,
+            allow_live_scan_on_miss=True,
+            scan_radius=DEFAULT_SCAN_RADIUS,
+        )
+
+        # пересчитаем вектор up ещё раз (на всякий случай, если гравитация изменилась)
         down = controller._get_down_vector()
         up = (-down[0], -down[1], -down[2])
-        cell_size = controller.radar_controller.cell_size or 5.0
-        max_trace = cell_size * (controller.radar_controller.size[1] if controller.radar_controller.size else 50)
-        step = cell_size
 
-        surface_point = controller._find_surface_point_along_gravity(pos, down, max_trace, step)
-        if surface_point is None:
-            surface_height = controller.radar_controller.get_surface_height(pos[0], pos[2])
-            if surface_height is not None:
-                surface_point = (pos[0], surface_height, pos[2])
-                print("Surface found via vertical lookup for patrol point.")
-            else:
-                print("Surface not found for patrol point; using flat_point as base.")
-                surface_point = pos
-
+        # строим цель на заданной высоте над поверхностью вдоль up
         target_point = (
             surface_point[0] + up[0] * flight_altitude,
             surface_point[1] + up[1] * flight_altitude,
             surface_point[2] + up[2] * flight_altitude,
         )
 
-        # Высота над поверхностью в точке назначения (по Y)
         altitude_y = target_point[1] - surface_point[1]
 
         print(
