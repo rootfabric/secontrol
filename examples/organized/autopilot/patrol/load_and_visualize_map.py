@@ -10,6 +10,59 @@ from secontrol.tools.radar_visualizer import RadarVisualizer
 from secontrol.tools.navigation_tools import get_world_position
 
 
+
+
+MAX_SOLID_POINTS = 2000
+
+
+def _downsample_points(points, max_points: int = MAX_SOLID_POINTS):
+    """Уменьшить количество точек до max_points, удаляя близкие.
+
+    Используем грубую 3D-квантовку: пространство делится на кубики,
+    и из каждой ячейки берётся только одна точка.
+    """
+    points = list(points)
+    if len(points) <= max_points:
+        return points
+
+    # Границы облака точек
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    zs = [p[2] for p in points]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    min_z, max_z = min(zs), max(zs)
+
+    range_x = max(max_x - min_x, 1e-3)
+    range_y = max(max_y - min_y, 1e-3)
+    range_z = max(max_z - min_z, 1e-3)
+
+    volume = range_x * range_y * range_z
+
+    if volume <= 0.0:
+        # Все точки почти в одном месте — просто прореживаем по шагу
+        step = max(1, len(points) // max_points)
+        return points[::step]
+
+    # Подбираем размер ячейки так, чтобы число ячеек примерно соответствовало max_points
+    cell_size = (volume / float(max_points)) ** (1.0 / 3.0)
+    cell_size = max(cell_size, 1e-3)
+
+    cells = {}
+    for p in points:
+        x, y, z = p
+        ix = int((x - min_x) / cell_size)
+        iy = int((y - min_y) / cell_size)
+        iz = int((z - min_z) / cell_size)
+        key = (ix, iy, iz)
+        if key not in cells:
+            cells[key] = p
+            if len(cells) >= max_points:
+                break
+
+    return list(cells.values())
+
+
 class App:
     def __init__(self, grid_name: str) -> None:
         # Грид
@@ -44,7 +97,7 @@ class App:
         print(f"Размер карты в Redis: {redis_size} байт ({redis_size / 1024:.1f} KB)")
 
         # Радиус визуализации
-        self.visualization_radius = 100.0
+        self.visualization_radius = 500.0
 
         # Визуализатор карты
         self.visualizer = RadarVisualizer()
@@ -70,8 +123,16 @@ class App:
         # Подготовка данных для визуализации
         solid = [list(point) for point in data.voxels]
 
+        # # Если точек слишком много — проредим до MAX_SOLID_POINTS
+        if len(solid) > MAX_SOLID_POINTS:
+            print(f"Слишком много точек для визуализации ({len(solid)}), "
+                  f"сжимаю до {MAX_SOLID_POINTS}...")
+            solid = _downsample_points(solid, max_points=MAX_SOLID_POINTS)
+            print(f"После даунсэмплинга осталось {len(solid)} точек.")
+
+
         # Вычислить метаданные для региона
-        cell_size = 1.0
+        cell_size = 10.0  # Увеличить для уменьшения размера сетки
         origin = [
             own_position[0] - self.visualization_radius,
             own_position[1] - self.visualization_radius,
@@ -87,6 +148,10 @@ class App:
 
         # Контакты: добавить visited как контакты типа "grid"
         contacts = [{"type": "grid", "position": list(point)} for point in data.visited]
+
+        # Добавить текущую позицию грида как контакт типа "grid"
+        if own_position:
+            contacts.append({"type": "grid", "position": list(own_position)})
 
         # Ячейки руды
         ore_cells = [{"position": list(ore.position)} for ore in data.ores]

@@ -629,3 +629,147 @@ class SharedMapController:
         map_controller = cls(owner_id=grid.owner_id, redis_client=redis_client)
         radar_ctrl = RadarController(radar_device, radius=radar_radius)
         return map_controller, radar_ctrl, remote
+
+    def thin_voxel_density(
+        self,
+        *,
+        resolution: float = 5.0,
+        min_points_to_thin: int = 1000,
+        max_points_per_cell: int = 1,
+        verbose: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Проредить (разредить) облака вокселей в Redis-хранилище.
+
+        Логика:
+        - Для каждого чанка с вокселями строится 3D-сетка с шагом `resolution`.
+        - В каждую ячейку сетки допускается не более `max_points_per_cell` точек.
+        - Остальные точки в этой ячейке считаются "лишними" и удаляются.
+        - Операция выполняется ПРЯМО по Redis-чанкам (хранилище реально очищается).
+
+        Параметры:
+            resolution:
+                Пространственный шаг (в метрах) для объединения близких точек.
+                Например, 5.0 означает, что все точки в кубе 5x5x5 м
+                будут сжаты до не более чем `max_points_per_cell` точек.
+            min_points_to_thin:
+                Минимальное количество точек в чанке, при котором мы вообще
+                будем что-то прореживать. Мелкие чанки не трогаем.
+            max_points_per_cell:
+                Максимальное количество точек на одну "ячейку" сетки.
+                Обычно достаточно 1.
+            verbose:
+                Если True — печатает подробную статистику.
+
+        Возвращает:
+            dict со статистикой:
+            {
+                "chunks_total": int,
+                "chunks_thinned": int,
+                "total_before": int,
+                "total_after": int,
+                "total_removed": int,
+                "resolution": float,
+                "max_points_per_cell": int,
+            }
+
+        ВАЖНО:
+        - Метод изменяет данные в Redis. Если у контроллера уже загружена
+          self.data.voxels, она может не совпасть с хранилищем — после
+          прорядки имеет смысл вызвать load() / load_region() заново.
+        """
+        if resolution <= 0.0:
+            raise ValueError(f"resolution must be > 0, got {resolution}")
+        if max_points_per_cell <= 0:
+            raise ValueError(f"max_points_per_cell must be > 0, got {max_points_per_cell}")
+
+        idx = self._load_index()
+        voxel_chunk_ids = list(idx.get("voxels", []))
+
+        chunks_total = len(voxel_chunk_ids)
+        chunks_thinned = 0
+        total_before = 0
+        total_after = 0
+
+        for cid in voxel_chunk_ids:
+            points = self._load_chunk_points("voxels", cid)
+            n_before = len(points)
+            if n_before == 0:
+                continue
+
+            total_before += n_before
+
+            # Не трогаем мелкие чанки
+            if n_before < min_points_to_thin:
+                if verbose:
+                    print(
+                        f"[thin_voxel_density] chunk {cid}: {n_before} points "
+                        f"(<{min_points_to_thin}), skip thinning."
+                    )
+                total_after += n_before
+                continue
+
+            # Квантование в мировых координатах с шагом `resolution`
+            # ВАЖНО: ключи ячеек используются только внутри одного чанка,
+            # поэтому нас не волнует граница между чанками.
+            cell_buckets: Dict[Tuple[int, int, int], List[Point3D]] = {}
+
+            for p in points:
+                x, y, z = p
+                cx = int(math.floor(x / resolution))
+                cy = int(math.floor(y / resolution))
+                cz = int(math.floor(z / resolution))
+                key = (cx, cy, cz)
+
+                bucket = cell_buckets.setdefault(key, [])
+                if len(bucket) < max_points_per_cell:
+                    bucket.append(p)
+                # Если уже достигли max_points_per_cell — остальные точки
+                # в этом кубе считаем "лишними" и не добавляем.
+
+            # Собираем новые точки
+            new_points: List[Point3D] = []
+            for bucket in cell_buckets.values():
+                # Обычно в bucket 1 точка, но теоретически может быть до max_points_per_cell.
+                # Можно было бы усреднять, но для навигации вполне достаточно любой из них.
+                new_points.extend(bucket)
+
+            n_after = len(new_points)
+            total_after += n_after
+            chunks_thinned += 1
+
+            if verbose:
+                removed = n_before - n_after
+                ratio = (n_after / n_before) if n_before > 0 else 1.0
+                print(
+                    f"[thin_voxel_density] chunk {cid}: "
+                    f"{n_before} → {n_after} points "
+                    f"(removed {removed}, kept {ratio * 100:.1f}%)"
+                )
+
+            # Перезаписываем чанк в Redis
+            self._save_chunk_points("voxels", cid, new_points)
+
+        total_removed = total_before - total_after
+
+        if verbose:
+            print(
+                "[thin_voxel_density] done: "
+                f"chunks_total={chunks_total}, "
+                f"chunks_thinned={chunks_thinned}, "
+                f"total_before={total_before}, "
+                f"total_after={total_after}, "
+                f"total_removed={total_removed}, "
+                f"resolution={resolution}, "
+                f"max_points_per_cell={max_points_per_cell}"
+            )
+
+        return {
+            "chunks_total": chunks_total,
+            "chunks_thinned": chunks_thinned,
+            "total_before": total_before,
+            "total_after": total_after,
+            "total_removed": total_removed,
+            "resolution": float(resolution),
+            "max_points_per_cell": int(max_points_per_cell),
+        }

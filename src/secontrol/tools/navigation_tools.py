@@ -450,4 +450,4 @@ def goto(ship_grid: Grid, point_target: str | Tuple[float, float, float] = None,
         if not autopilotEnabled:
             break
         print(remote.telemetry.get("position"))
-        time.sleep(0.1)
+        time.sleep(1)
