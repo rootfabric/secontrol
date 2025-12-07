@@ -1292,7 +1292,7 @@ class SQLiteSharedMapStorage(SharedMapStorage):
             except FileNotFoundError:
                 continue
 
-        return total_size
+        return self.storage.get_storage_usage()
 
     # ------------------------------------------------------------------
     # Работа с разными гридами

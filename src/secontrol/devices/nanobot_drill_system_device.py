@@ -12,7 +12,7 @@ from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
 class NanobotDrillSystemDevice(BaseDevice):
     """High level helper for SELtd Nanobot Drill & Fill systems."""
 
-    device_type = "nanobot_drill_and_fill"
+    device_type = "ship_drill"
     _PROPERTY_PREFIX = "DrillSystem"
 
     # ------------------------------------------------------------------
@@ -96,9 +96,25 @@ class NanobotDrillSystemDevice(BaseDevice):
         })
 
     def run_action(self, action_id: str) -> int:
+        """Запустить терминальное действие Nanobot Drill System.
+
+        В отличие от общих команд ``cmd``/``set`` для действий над нано-буром
+        плагин ожидает текст идентификатора действия. Чтобы повысить
+        совместимость, отправляем его в полях ``command`` и ``cmd`` и
+        продублируем в ``payload``.
+        """
+
+        action_id = str(action_id).strip()
+        if not action_id:
+            raise ValueError("action_id must not be empty")
+
         return self.send_command({
+            "cmd": action_id,
             "command": action_id,
-            "payload": {},
+            "payload": {
+                "action": action_id,
+                "command": action_id,
+            },
         })
 
     def turn_on(self) -> int:
@@ -115,6 +131,9 @@ class NanobotDrillSystemDevice(BaseDevice):
 
     def toggle_script_controlled(self) -> int:
         return self.run_action("ScriptControlled_OnOff")
+
+    def set_script_controlled_action(self, enabled: bool) -> int:
+        return self.run_action("ScriptControlled_On" if enabled else "ScriptControlled_Off")
 
     def set_use_conveyor(self, enabled: bool) -> int:
         return self.set_property("UseConveyor", bool(enabled))
@@ -140,11 +159,20 @@ class NanobotDrillSystemDevice(BaseDevice):
     def toggle_terrain_clearing_mode(self) -> int:
         return self.run_action("TerrainClearingMode")
 
+    def set_terrain_clearing_mode_action(self, enabled: bool) -> int:
+        return self.run_action("TerrainClearingMode_On" if enabled else "TerrainClearingMode_Off")
+
     def set_ore_filters(self, ore_subtypes: Iterable[str]) -> int:
         normalized = self._normalize_string_list(list(ore_subtypes))
         if not normalized:
             raise ValueError("ore_subtypes must contain at least one ore name")
         return self.set_property("OreFilter", normalized)
+
+    def set_ore_filter(self, ore_subtype: str) -> int:
+        ore = str(ore_subtype).strip()
+        if not ore:
+            raise ValueError("ore_subtype must not be empty")
+        return self.set_ore_filters([ore])
 
     def clear_ore_filters(self) -> int:
         return self.set_property("OreFilter", [])
@@ -164,6 +192,71 @@ class NanobotDrillSystemDevice(BaseDevice):
 
     def start_filling(self) -> int:
         return self.run_action("Fill_On")
+
+    def set_collect_on_idle(self, enabled: bool) -> int:
+        if enabled:
+            return self.run_action("CollectIfIdle_On")
+        return self.run_action("CollectIfIdle_Off")
+
+    def toggle_collect_if_idle_action(self) -> int:
+        return self.run_action("CollectIfIdle_OnOff")
+
+    def set_show_on_hud(self, enabled: bool) -> int:
+        return self.run_action("ShowOnHUD_On" if enabled else "ShowOnHUD_Off")
+
+    def toggle_show_on_hud(self) -> int:
+        return self.run_action("ShowOnHUD")
+
+    def set_show_area_action(self, enabled: bool) -> int:
+        return self.run_action("ShowArea_On" if enabled else "ShowArea_Off")
+
+    def set_remote_control_show_area(self, enabled: bool) -> int:
+        return self.run_action("RemoteControlShowArea_On" if enabled else "RemoteControlShowArea_Off")
+
+    def set_remote_control_work_disabled(self, enabled: bool) -> int:
+        return self.run_action("RemoteControlWorkdisabled_On" if enabled else "RemoteControlWorkdisabled_Off")
+
+    def increase_area_offset_left_right(self) -> int:
+        return self.run_action("AreaOffsetLeftRight_Increase")
+
+    def decrease_area_offset_left_right(self) -> int:
+        return self.run_action("AreaOffsetLeftRight_Decrease")
+
+    def increase_area_offset_up_down(self) -> int:
+        return self.run_action("AreaOffsetUpDown_Increase")
+
+    def decrease_area_offset_up_down(self) -> int:
+        return self.run_action("AreaOffsetUpDown_Decrease")
+
+    def increase_area_offset_front_back(self) -> int:
+        return self.run_action("AreaOffsetFrontBack_Increase")
+
+    def decrease_area_offset_front_back(self) -> int:
+        return self.run_action("AreaOffsetFrontBack_Decrease")
+
+    def increase_area_width(self) -> int:
+        return self.run_action("AreaWidth_Increase")
+
+    def decrease_area_width(self) -> int:
+        return self.run_action("AreaWidth_Decrease")
+
+    def increase_area_height(self) -> int:
+        return self.run_action("AreaHeight_Increase")
+
+    def decrease_area_height(self) -> int:
+        return self.run_action("AreaHeight_Decrease")
+
+    def increase_area_depth(self) -> int:
+        return self.run_action("AreaDepth_Increase")
+
+    def decrease_area_depth(self) -> int:
+        return self.run_action("AreaDepth_Decrease")
+
+    def increase_sound_volume(self) -> int:
+        return self.run_action("SoundVolume_Increase")
+
+    def decrease_sound_volume(self) -> int:
+        return self.run_action("SoundVolume_Decrease")
 
     # ------------------------------------------------------------------
     # Private helpers
