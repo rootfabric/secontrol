@@ -1548,3 +1548,85 @@ class SurfaceFlightController:
                     pass
 
         return results
+
+    # ------------------------------------------------------------------ #
+    # Вспомогательные функции для measure_altitude_to_surface            #
+    # ------------------------------------------------------------------ #
+
+    def _vertical_lookup_surface(self, position: Point3D) -> Optional[Point3D]:
+        """
+        Пытается найти поверхность под точкой, глядя вертикально сверху вниз
+        (через get_surface_height / occupancy_grid).
+
+        Возвращает точку на поверхности (x, surface_y, z) или None, если
+        информации по этой колонке нет.
+        """
+        x, _, z = position
+        rc = self.radar_controller
+        if rc is None:
+            return None
+
+        surface_y: Optional[float] = None
+
+        # Сначала пробуем «нормальный» метод радара, если он есть
+        if hasattr(rc, "get_surface_height"):
+            surface_y = rc.get_surface_height(x, z)
+
+        # Если метода нет или он вернул None — используем наш ручной helper
+        if surface_y is None:
+            surface_y = self._get_surface_height_for_world_xz(x, z)
+
+        if surface_y is None:
+            return None
+
+        return (x, surface_y, z)
+
+    def _gravity_trace_to_surface(
+        self,
+        position: Point3D,
+        max_trace_distance: float = 500.0,
+        step: Optional[float] = None,
+    ) -> Optional[Point3D]:
+        """
+        Трассировка вдоль вектора гравитации через воксельную сетку.
+        Ищет первый solid-воксель по направлению "down".
+        """
+        rc = self.radar_controller
+        if (
+            rc is None
+            or rc.occupancy_grid is None
+            or rc.origin is None
+            or rc.cell_size is None
+            or rc.size is None
+        ):
+            return None
+
+        cell_size = rc.cell_size or 5.0
+        if step is None or step <= 0.0:
+            step = cell_size
+
+        down = self._get_down_vector()
+
+        return self._find_surface_point_along_gravity(
+            position,
+            down,
+            max_distance=max_trace_distance,
+            step=step,
+        )
+
+    def _altitude_along_up(
+        self,
+        position: Point3D,
+        surface_point: Point3D,
+    ) -> float:
+        """
+        Скалярная высота точки относительно поверхности вдоль вектора 'up'.
+        """
+        down = self._get_down_vector()
+        up = (-down[0], -down[1], -down[2])
+
+        vx = position[0] - surface_point[0]
+        vy = position[1] - surface_point[1]
+        vz = position[2] - surface_point[2]
+
+        return vx * up[0] + vy * up[1] + vz * up[2]
