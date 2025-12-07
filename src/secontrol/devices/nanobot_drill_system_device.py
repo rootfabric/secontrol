@@ -603,38 +603,55 @@ class NanobotDrillSystemDevice(BaseDevice):
     # В NanobotDrillSystemDevice добавь эти методы:
 
     def set_work_mode(self, mode: str) -> int:
-        """Установить WorkMode: 'Drill' (0), 'Collect' (1), 'Fill' (2)."""
-        mode_map = {"drill": 0, "collect": 1, "fill": 2}
+        """
+        Установить WorkMode Nanobot Drill & Fill.
+
+        По фактической телеметрии:
+          0 = Fill
+          1 = Collect
+          2 = Drill
+        """
+        mode_map = {"drill": 2, "collect": 1, "fill": 0}
         mode_lower = mode.lower().strip()
         if mode_lower not in mode_map:
             raise ValueError(f"Invalid mode '{mode}'. Use: drill, collect, fill")
 
         mode_value = mode_map[mode_lower]
-        # Без префикса! (реальный ID = "WorkMode")
+
+        # Реальный property-id: "Drill.WorkMode"
         return self.send_command(
             {
                 "cmd": "set",
                 "payload": {
-                    "property": "WorkMode",  # ← КЛЮЧ: без "DrillSystem."
-                    "value": mode_value,  # ← int, а не string (для enum)
+                    "property": "Drill.WorkMode",
+                    "value": mode_value,
                 },
             }
         )
 
     def get_work_mode(self) -> Optional[str]:
-        """Получить текущий WorkMode из телеметрии."""
+        """Получить текущий WorkMode из телеметрии Nanobot Drill & Fill."""
         telemetry = self.telemetry or {}
         props = telemetry.get("properties", {})
-        mode_raw = props.get("WorkMode") or props.get("drillsystemworkmode")  # fallback normalized
+
+        mode_raw = props.get("Drill.WorkMode")
+        if mode_raw is None:
+            mode_raw = telemetry.get("drill_workmode")
+
         if mode_raw is None:
             return None
 
-        # Enum может быть int или string — маппим обратно
-        mode_map = {0: "Drill", 1: "Collect", 2: "Fill"}
-        if isinstance(mode_raw, int) and mode_raw in mode_map:
-            return mode_map[mode_raw]
-        # Если string — возвращаем как есть
-        return str(mode_raw)
+        # 0 = Fill, 1 = Collect, 2 = Drill
+        mode_map = {0: "Fill", 1: "Collect", 2: "Drill"}
+
+        if isinstance(mode_raw, int):
+            return mode_map.get(mode_raw, str(mode_raw))
+
+        try:
+            num = int(str(mode_raw))
+            return mode_map.get(num, str(mode_raw))
+        except (TypeError, ValueError):
+            return str(mode_raw)
 
     # После всех настроек — используй ПРАВИЛЬНЫЙ фильтр для Collect-режима!
     # Это НЕ OreFilter, а отдельная команда!
