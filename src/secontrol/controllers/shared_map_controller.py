@@ -553,6 +553,10 @@ class SharedMapStorage:
     def delete_chunk(self, kind: str, chunk_id: str) -> None:
         raise NotImplementedError
 
+    def get_storage_usage(self) -> int:
+        """Вернуть примерный размер сохраненных данных в байтах."""
+        raise NotImplementedError
+
 
 class RedisSharedMapStorage(SharedMapStorage):
     def __init__(self, client: RedisEventClient, *, memory_prefix: str, chunk_size: float) -> None:
@@ -651,6 +655,59 @@ class RedisSharedMapStorage(SharedMapStorage):
         except Exception:
             # Если клиент не предоставляет прямого доступа, просто перезаписываем пустым списком
             self.client.set_json(self._chunk_key(kind, chunk_id), [])
+
+    def get_storage_usage(self) -> int:
+        """Подсчитать примерный размер всех ключей карты в Redis."""
+        idx = self.load_index()
+
+        keys: list[str] = [self.index_key, self.paths_key, self.metadata_key]
+
+        for cid in idx["voxels"]:
+            keys.append(self._chunk_key("voxels", cid))
+        for cid in idx["visited"]:
+            keys.append(self._chunk_key("visited", cid))
+        for cid in idx["ores"]:
+            keys.append(self._chunk_key("ores", cid))
+
+        # На случай старого формата, когда всё лежало по memory_prefix
+        keys.append(self.memory_prefix)
+
+        redis_client = None
+        for attr in ("client", "_client", "redis"):
+            if hasattr(self.client, attr):
+                redis_client = getattr(self.client, attr)
+                break
+
+        total_size = 0
+        for key in keys:
+            size = 0
+            if redis_client is not None and hasattr(redis_client, "memory_usage"):
+                try:
+                    usage = redis_client.memory_usage(key)  # type: ignore[attr-defined]
+                    if usage is not None:
+                        size = int(usage)
+                except Exception:
+                    size = 0
+
+            if size == 0:
+                try:
+                    payload = self.client.get_json(key)
+                except Exception:
+                    payload = None
+
+                if payload is None:
+                    continue
+
+                try:
+                    dump = json.dumps(payload, separators=(",", ":"))
+                except TypeError:
+                    dump = json.dumps(payload)
+
+                size = len(dump.encode("utf-8", "ignore"))
+
+            total_size += size
+
+        return total_size
 
 
 class SQLiteSharedMapStorage(SharedMapStorage):
@@ -862,6 +919,18 @@ class SQLiteSharedMapStorage(SharedMapStorage):
         with self.conn:
             self.conn.execute("DELETE FROM chunks WHERE kind = ? AND chunk_id = ?", (kind, chunk_id))
             self.conn.execute("DELETE FROM chunk_index WHERE kind = ? AND chunk_id = ?", (kind, chunk_id))
+
+    def get_storage_usage(self) -> int:
+        """Подсчитать примерный размер базы SQLite, включая WAL/SHM."""
+        # Текущие транзакции могут лежать в WAL, поэтому учитываем все файлы рядом
+        files = [self.path, self.path.with_suffix(self.path.suffix + "-wal"), self.path.with_suffix(self.path.suffix + "-shm")]
+        total_size = 0
+        for file_path in files:
+            try:
+                total_size += file_path.stat().st_size
+            except FileNotFoundError:
+                continue
+        return total_size
 
     # ------------------------------------------------------------------
     # Загрузка/сохранение
@@ -1187,81 +1256,17 @@ class SQLiteSharedMapStorage(SharedMapStorage):
         return path
 
     # ------------------------------------------------------------------
-    # Размер в памяти Redis
+    # Размер сохраненных данных
     # ------------------------------------------------------------------
     def get_redis_memory_usage(self) -> int:
-        """
-        Примерный размер карты в Redis в байтах.
+        """Старое название метода, теперь делегирует на общий подсчет размера."""
 
-        Считаем сумму по всем ключам карты, которые известны из индекса:
-        - index, paths, meta
-        - чанки voxels / visited / ores.
-        Для каждого ключа сначала пробуем MEMORY USAGE, при ошибке
-        откатываемся на get_json + json.dumps.
-        """
-        if not isinstance(self.storage, RedisSharedMapStorage):
-            raise RuntimeError("Подсчет памяти доступен только для Redis-бэкенда")
+        return self.get_storage_usage()
 
-        idx = self._load_index()
+    def get_storage_usage(self) -> int:
+        """Вернуть примерный размер карты в текущем бэкенде хранения."""
 
-        # Формируем список всех ключей, которые относятся к карте
-        keys: list[str] = [
-            self.storage.index_key,
-            self.storage.paths_key,
-            self.storage.metadata_key,
-        ]
-
-        for cid in idx["voxels"]:
-            keys.append(self.storage._chunk_key("voxels", cid))
-        for cid in idx["visited"]:
-            keys.append(self.storage._chunk_key("visited", cid))
-        for cid in idx["ores"]:
-            keys.append(self.storage._chunk_key("ores", cid))
-
-        # На случай старого формата, когда всё лежало по memory_prefix
-        keys.append(self.storage.memory_prefix)
-
-        # Пытаемся достучаться до "сырого" redis-клиента
-        redis_client = None
-        for attr in ("client", "_client", "redis"):
-            if hasattr(self.storage.client, attr):
-                redis_client = getattr(self.storage.client, attr)
-                break
-
-        total_size = 0
-
-        for key in keys:
-            size = 0
-
-            # 1) Основной вариант: MEMORY USAGE, если доступен
-            if redis_client is not None and hasattr(redis_client, "memory_usage"):
-                try:
-                    usage = redis_client.memory_usage(key)  # type: ignore[attr-defined]
-                    if usage is not None:
-                        size = int(usage)
-                except Exception:
-                    size = 0
-
-            # 2) Fallback: через get_json, если MEMORY USAGE недоступен или вернул 0
-            if size == 0:
-                try:
-                    payload = self.storage.client.get_json(key)
-                except Exception:
-                    payload = None
-
-                if payload is None:
-                    continue
-
-                try:
-                    dump = json.dumps(payload, separators=(",", ":"))
-                except TypeError:
-                    dump = json.dumps(payload)
-
-                size = len(dump.encode("utf-8", "ignore"))
-
-            total_size += size
-
-        return total_size
+        return self.storage.get_storage_usage()
 
     # ------------------------------------------------------------------
     # Работа с разными гридами
