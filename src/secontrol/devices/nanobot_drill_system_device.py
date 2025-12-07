@@ -12,7 +12,7 @@ from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
 class NanobotDrillSystemDevice(BaseDevice):
     """High level helper for SELtd Nanobot Drill & Fill systems."""
 
-    device_type = "nanobot_drill_and_fill"
+    device_type = "ship_drill"
     _PROPERTY_PREFIX = "DrillSystem"
 
     # ------------------------------------------------------------------
