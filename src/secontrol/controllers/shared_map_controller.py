@@ -181,6 +181,340 @@ class SharedMapController:
         self.storage.chunk_size = self.chunk_size
         self.storage.save_metadata(self.data.metadata)
 
+    # ------------------------------------------------------------------
+    # Загрузка/сохранение
+    # ------------------------------------------------------------------
+    def load(
+        self,
+        *,
+        chunk_ids: Optional[Iterable[str]] = None,
+        kinds: Sequence[str] = ("voxels", "visited", "ores"),
+        include_paths: bool = True,
+        include_metadata: bool = True,
+    ) -> SharedMapData:
+        """Загрузить выбранные чанки карты."""
+
+        idx = self._load_index()
+
+        # Поддержка старого формата: если индекс пустой, пробуем прочитать весь
+        # словарь из ``memory_prefix`` и разложить его по чанкам.
+        if (
+            not (idx["voxels"] or idx["visited"] or idx["ores"])
+            and isinstance(self.storage, RedisSharedMapStorage)
+        ):
+            legacy_payload = self.storage.client.get_json(self.storage.memory_prefix)
+            if isinstance(legacy_payload, dict) and any(
+                legacy_payload.get(k) for k in ("voxels", "visited", "ores")
+            ):
+                legacy = SharedMapData.from_payload(legacy_payload)
+                if legacy.voxels:
+                    self.add_voxel_points(legacy.voxels, save=True)
+                if legacy.visited:
+                    self.add_flight_points(legacy.visited, save=True)
+                if legacy.ores:
+                    self.add_ore_cells(
+                        [
+                            {"material": ore.material, "position": ore.position, "content": ore.content}
+                            for ore in legacy.ores
+                        ],
+                        save=True,
+                    )
+                if legacy.paths:
+                    self.data.paths = legacy.paths
+                    self._save_paths()
+                if legacy.metadata:
+                    self.data.metadata = legacy.metadata
+                    self._save_metadata()
+                idx = self._load_index()
+
+        self.data = SharedMapData()
+
+        load_chunk_ids = set(chunk_ids) if chunk_ids is not None else None
+
+        def _should_load(cid: str) -> bool:
+            return load_chunk_ids is None or cid in load_chunk_ids
+
+        if "voxels" in kinds:
+            for cid in idx["voxels"]:
+                if _should_load(cid):
+                    self.data.merge_voxels(self._load_chunk_points("voxels", cid))
+
+        if "visited" in kinds:
+            for cid in idx["visited"]:
+                if _should_load(cid):
+                    self.data.merge_visited(self._load_chunk_points("visited", cid))
+
+        if "ores" in kinds:
+            for cid in idx["ores"]:
+                if _should_load(cid):
+                    self.data.merge_ores(self._load_chunk_ores(cid))
+
+        if include_paths:
+            self.data.paths = self._load_paths()
+
+        if include_metadata:
+            self.data.metadata = self._load_metadata()
+
+        return self.data
+
+    def load_region(
+        self,
+        center: Point3D,
+        radius: float,
+        *,
+        kinds: Sequence[str] = ("voxels", "visited", "ores"),
+        include_paths: bool = True,
+        include_metadata: bool = True,
+    ) -> SharedMapData:
+        idx = self._load_index()
+        chunk_size = float(self.chunk_size)
+
+        cx, cy, cz = center
+        cr = float(radius)
+        min_x, max_x = cx - cr, cx + cr
+        min_y, max_y = cy - cr, cy + cr
+        min_z, max_z = cz - cr, cz + cr
+
+        def _chunk_range(vmin: float, vmax: float) -> range:
+            start = math.floor(vmin / chunk_size)
+            end = math.floor(vmax / chunk_size)
+            return range(int(start), int(end) + 1)
+
+        chunk_ids = {
+            f"{ix}:{iy}:{iz}"
+            for ix in _chunk_range(min_x, max_x)
+            for iy in _chunk_range(min_y, max_y)
+            for iz in _chunk_range(min_z, max_z)
+        }
+
+        return self.load(
+            chunk_ids=chunk_ids,
+            kinds=kinds,
+            include_paths=include_paths,
+            include_metadata=include_metadata,
+        )
+
+    def save(self) -> None:
+        self._save_metadata()
+        self._save_paths()
+        self._save_index(self._load_index())
+
+    def add_voxel_points(self, points: Iterable[Sequence[float]], *, save: bool = True) -> None:
+        idx = self._load_index()
+        buckets: Dict[str, List[Point3D]] = {}
+        for point in points:
+            normalized = _normalize_point(point)
+            cid = self._chunk_id(normalized)
+            buckets.setdefault(cid, []).append(normalized)
+
+        for cid, pts in buckets.items():
+            existing = self._load_chunk_points("voxels", cid)
+            merged = list({*existing, *pts})
+            self._save_chunk_points("voxels", cid, merged)
+            idx["voxels"].add(cid)
+            self.data.merge_voxels(pts)
+
+        if save:
+            self._save_index(idx)
+            self._save_metadata()
+
+    def add_flight_points(self, points: Iterable[Sequence[float]], *, save: bool = True) -> None:
+        idx = self._load_index()
+        buckets: Dict[str, List[Point3D]] = {}
+        for point in points:
+            normalized = _normalize_point(point)
+            cid = self._chunk_id(normalized)
+            buckets.setdefault(cid, []).append(normalized)
+
+        for cid, pts in buckets.items():
+            existing = self._load_chunk_points("visited", cid)
+            merged = list({*existing, *pts})
+            self._save_chunk_points("visited", cid, merged)
+            idx["visited"].add(cid)
+            self.data.merge_visited(pts)
+
+        if save:
+            self._save_index(idx)
+            self._save_metadata()
+
+    def add_ore_cells(self, cells: Iterable[dict], *, save: bool = True) -> None:
+        idx = self._load_index()
+        buckets: Dict[str, List[OreHit]] = {}
+        for cell in cells:
+            if not isinstance(cell, dict):
+                continue
+            if cell.get("position") is None:
+                continue
+            ore = OreHit(
+                material=str(cell.get("material") or cell.get("ore") or "unknown"),
+                position=_normalize_point(cell.get("position")),
+                content=cell.get("content"),
+            )
+            cid = self._chunk_id(ore.position)
+            buckets.setdefault(cid, []).append(ore)
+
+        for cid, ores in buckets.items():
+            existing = self._load_chunk_ores(cid)
+            merged = list({(o.material, o.position): o for o in [*existing, *ores]}.values())
+            self._save_chunk_ores(cid, merged)
+            idx["ores"].add(cid)
+            self.data.merge_ores(ores)
+
+        if save:
+            self._save_index(idx)
+            self._save_metadata()
+
+    def add_remote_position(self, remote: RemoteControlDevice, *, save: bool = True) -> Optional[Point3D]:
+        remote.update()
+        pos = get_world_position(remote)
+        if pos:
+            self.add_flight_points([pos], save=save)
+        return pos
+
+    def ingest_radar_scan(
+        self,
+        radar_controller: RadarController,
+        *,
+        persist_metadata: bool = True,
+        save: bool = True,
+    ) -> tuple[list[list[float]] | None, dict | None, list | None, list | None]:
+        solid, metadata, contacts, ore_cells = radar_controller.scan_voxels()
+
+        if solid:
+            self.add_voxel_points(solid, save=save)
+        if ore_cells:
+            self.add_ore_cells(ore_cells, save=save)
+
+        if persist_metadata and metadata:
+            self.data.metadata["last_radar"] = metadata
+            if save:
+                self._save_metadata()
+
+        return solid, metadata, contacts, ore_cells
+
+    def get_known_ores(
+        self,
+        material: Optional[str] = None,
+        *,
+        chunk_ids: Optional[Iterable[str]] = None,
+    ) -> List[OreHit]:
+        idx = self._load_index()
+        ids = set(chunk_ids) if chunk_ids is not None else set(idx["ores"])
+
+        ore_map: Dict[tuple[str, Point3D], OreHit] = {}
+        material_filter = material.lower() if material else None
+
+        for cid in ids:
+            ores = self._load_chunk_ores(cid)
+            for ore in ores:
+                if material_filter and ore.material.lower() != material_filter:
+                    continue
+                ore_map[(ore.material, ore.position)] = ore
+
+        return list(ore_map.values())
+
+    def reduce_points(self, *, max_points: int = 1_000_000) -> Dict[str, int]:
+        if max_points <= 0:
+            raise ValueError("max_points must be positive")
+
+        idx = self._load_index()
+        voxel_chunk_ids = list(idx.get("voxels", []))
+
+        total_points = 0
+        for cid in voxel_chunk_ids:
+            total_points += len(self._load_chunk_points("voxels", cid))
+
+        removed = 0
+
+        if total_points > max_points:
+            factor = total_points / max_points
+            for cid in voxel_chunk_ids:
+                points = self._load_chunk_points("voxels", cid)
+                keep_every = math.ceil(factor)
+                reduced = [p for i, p in enumerate(points) if i % keep_every == 0]
+                removed += len(points) - len(reduced)
+                self._save_chunk_points("voxels", cid, reduced)
+
+        return {"removed": removed, "total": total_points, "kept": max(total_points - removed, 0)}
+
+    def clear_region(
+        self,
+        center: Point3D,
+        radius: float,
+        *,
+        kinds: Sequence[str] = ("voxels", "visited", "ores"),
+        save: bool = True,
+    ) -> Dict[str, Any]:
+        idx = self._load_index()
+        chunk_size = float(self.chunk_size)
+
+        cx, cy, cz = center
+
+        def _chunk_range(vmin: float, vmax: float) -> range:
+            start = math.floor(vmin / chunk_size)
+            end = math.floor(vmax / chunk_size)
+            return range(int(start), int(end) + 1)
+
+        min_x, max_x = cx - radius, cx + radius
+        min_y, max_y = cy - radius, cy + radius
+        min_z, max_z = cz - radius, cz + radius
+
+        relevant_chunk_ids = {
+            f"{ix}:{iy}:{iz}"
+            for ix in _chunk_range(min_x, max_x)
+            for iy in _chunk_range(min_y, max_y)
+            for iz in _chunk_range(min_z, max_z)
+        }
+
+        def _dist(a: Point3D, b: Point3D) -> float:
+            dx, dy, dz = a[0] - b[0], a[1] - b[1], a[2] - b[2]
+            return (dx * dx + dy * dy + dz * dz) ** 0.5
+
+        total_removed = 0
+        chunks_affected = 0
+
+        for kind in kinds:
+            if kind not in ("voxels", "visited", "ores"):
+                continue
+
+            chunk_ids = idx.get(kind, set())
+            chunks_to_process = relevant_chunk_ids & chunk_ids
+
+            for cid in chunks_to_process:
+                if kind == "ores":
+                    ores = self._load_chunk_ores(cid)
+                    filtered_ores = [ore for ore in ores if _dist(ore.position, center) > radius]
+                    removed_count = len(ores) - len(filtered_ores)
+                    if removed_count > 0:
+                        if filtered_ores:
+                            self._save_chunk_ores(cid, filtered_ores)
+                        else:
+                            self.storage.delete_chunk("ores", cid)
+                            idx["ores"].discard(cid)
+                        chunks_affected += 1
+                        total_removed += removed_count
+                else:
+                    points = self._load_chunk_points(kind, cid)
+                    filtered_points = [p for p in points if _dist(p, center) > radius]
+                    removed_count = len(points) - len(filtered_points)
+                    if removed_count > 0:
+                        if filtered_points:
+                            self._save_chunk_points(kind, cid, filtered_points)
+                        else:
+                            self.storage.delete_chunk(kind, cid)
+                            idx[kind].discard(cid)
+                        chunks_affected += 1
+                        total_removed += removed_count
+
+        if save:
+            self._save_index(idx)
+
+        return {
+            "total_removed": total_removed,
+            "chunks_affected": chunks_affected,
+            "kinds_processed": list(kinds),
+        }
+
 
 class SharedMapStorage:
     def __init__(self, *, chunk_size: float) -> None:
