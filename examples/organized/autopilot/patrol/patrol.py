@@ -244,7 +244,8 @@ def main() -> None:
         print("Движение к patrol-точке...")
 
         # Здесь уже летим к безопасной 3D-точке над поверхностью
-        goto(controller.grid, target_point, speed=20.0)
+        controller.lift_drone_to_point_altitude( target_point, 30)
+        # goto(controller.grid, target_point, speed=20.0)
 
         new_pos = _get_pos(controller.rc)
         if new_pos:

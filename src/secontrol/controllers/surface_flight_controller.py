@@ -9,6 +9,7 @@ from secontrol.devices.ore_detector_device import OreDetectorDevice
 from secontrol.devices.remote_control_device import RemoteControlDevice
 from secontrol.controllers.radar_controller import RadarController
 from secontrol.controllers.shared_map_controller import SharedMapController
+from secontrol.tools.navigation_tools import goto
 
 Point3D = Tuple[float, float, float]
 
@@ -1018,6 +1019,59 @@ class SurfaceFlightController:
         self.visited_points.append(pos)
         self.grid.create_gps_marker("LiftTarget", coordinates=target_point)
         _fly_to(self.rc, target_point, "LiftToAltitude", speed_far=10.0, speed_near=5.0)
+
+        new_pos = _get_pos(self.rc)
+        if new_pos:
+            self.visited_points.append(new_pos)
+
+    def lift_drone_to_point_altitude(
+        self,
+        point: Tuple[float, float, float],
+        altitude: float,
+        trace_step: Optional[float] = None,
+        trace_distance: Optional[float] = None,
+        speed: Optional[float] = 20
+    ) -> None:
+        if self.radar_controller.occupancy_grid is None:
+            print("No radar occupancy grid, performing scan...")
+            self.scan_voxels()
+
+        cell_size = self.radar_controller.cell_size or 5.0
+        max_trace = trace_distance or cell_size * (
+            self.radar_controller.size[1] if self.radar_controller.size else 50
+        )
+        step = trace_step or cell_size
+
+        down = self._get_down_vector()
+        up = (-down[0], -down[1], -down[2])
+
+        surface_point = self._find_surface_point_along_gravity(point, down, max_trace, step)
+        if surface_point is None:
+            surface_height = self.radar_controller.get_surface_height(point[0], point[2])
+            if surface_height is not None:
+                surface_point = (point[0], surface_height, point[2])
+                print("Surface found via vertical lookup.")
+            else:
+                print("Surface not found; moving along up vector from given point.")
+                surface_point = point
+
+        target_point = (
+            surface_point[0] + up[0] * altitude,
+            surface_point[1] + up[1] * altitude,
+            surface_point[2] + up[2] * altitude,
+        )
+
+        print(
+            f"Lifting to altitude over point: point={point}, surface={surface_point}, "
+            f"target=({target_point[0]:.2f}, {target_point[1]:.2f}, {target_point[2]:.2f})"
+        )
+
+
+        # self.grid.create_gps_marker("LiftTarget", coordinates=target_point)
+        # _fly_to(self.rc, target_point, "LiftToPointAltitude", speed_far=speed, speed_near=speed)
+        goto(self.grid, target_point, speed=speed)
+
+        self.visited_points.append(point)
 
         new_pos = _get_pos(self.rc)
         if new_pos:

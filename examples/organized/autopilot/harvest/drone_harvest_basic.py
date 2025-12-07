@@ -46,7 +46,8 @@ def main() -> None:
     grid = prepare_grid(GRID_NAME)
     try:
         # Поиск устройств
-        drill, container = find_devices(grid)
+        drill = grid.get_first_device(NanobotDrillSystemDevice)
+        container = grid.get_first_device(ContainerDevice)
 
         if not drill:
             print("Ошибка: Nanobot Drill System не найден на гриде!")

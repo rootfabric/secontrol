@@ -1538,7 +1538,8 @@ class Grid:
                 or entry.get("subtype")
                 or "generic"
             )
-            device_type = normalize_device_type(raw_type)
+            subtype = entry.get("subtype") or entry.get("SubtypeName")
+            device_type = normalize_device_type(raw_type, subtype)
 
             # id может быть int — приводим к строке
             raw_id = (

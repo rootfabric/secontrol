@@ -92,9 +92,9 @@ class App:
         data_all = self.map_ctrl.load()
         print(f"Всего сохранено: {len(data_all.voxels)} вокселей, {len(data_all.ores)} руд, {len(data_all.visited)} посещенных")
 
-        # Размер в Redis
-        redis_size = self.map_ctrl.get_redis_memory_usage()
-        print(f"Размер карты в Redis: {redis_size} байт ({redis_size / 1024:.1f} KB)")
+        # Размер данных
+        # redis_size = self.map_ctrl.get_storage_usage()
+        # print(f"Размер карты в Redis: {redis_size} байт ({redis_size / 1024:.1f} KB)")
 
         # Радиус визуализации
         self.visualization_radius = 1000.0
