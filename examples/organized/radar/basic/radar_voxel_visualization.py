@@ -92,9 +92,11 @@ def main() -> None:
                                      radius=200,
                                      voxel_step=1,
                                      cell_size=10.0,
-                                     # boundingBoxX=60,
-                                     # boundingBoxZ=60,
-                                     boundingBoxY=50,
+
+                                     # boundingBoxX=20,
+                                     # boundingBoxZ=20,
+
+                                     boundingBoxY=100,
                                      # fullSolidScan=False
                                      )
 

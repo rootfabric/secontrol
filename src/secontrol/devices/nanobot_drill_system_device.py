@@ -4,9 +4,45 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
+
+
+class NanobotDrillHashResolver:
+    """Сопоставление хешей руд (Voxel Materials) и их названий,
+    используемых в Nanobot Drill and Fill System (FNV-1a 32-bit hashes).
+    """
+
+    # Сопоставление: Имя руды (в нижнем регистре) -> ХЕШ
+    ORE_HASHES: Dict[str, int] = {
+        "stone": 1137917536,
+        "ice": 1579040667,
+        "iron": 2112235764,
+        "nickel": -723128632,
+        "silicon": -122448462,
+        "cobalt": -2115209756,
+        "magnesium": 2104309205,
+        "silver": 1033257407,
+        "gold": -496794321,
+        "platinum": -510410391,
+        "uranium": 1880922462,
+    }
+
+    @classmethod
+    def resolve_hash(cls, ore_name: str) -> Optional[int]:
+        """Возвращает хеш для заданного имени руды. Имя нечувствительно к регистру."""
+        if not ore_name:
+            return None
+        return cls.ORE_HASHES.get(ore_name.lower())
+
+    @classmethod
+    def resolve_name(cls, ore_hash: int) -> Optional[str]:
+        """Возвращает имя руды для заданного хеша."""
+        for name, hash_value in cls.ORE_HASHES.items():
+            if hash_value == ore_hash:
+                return name
+        return None
 
 
 class NanobotDrillSystemDevice(BaseDevice):
@@ -67,6 +103,7 @@ class NanobotDrillSystemDevice(BaseDevice):
         return action_id in self.available_action_ids()
 
     def ore_filters(self) -> List[str]:
+        """Список текущих отфильтрованных руд (если плагин/мод отдаёт это поле)."""
         telemetry = self.telemetry or {}
         for key in ("oreFilters", "oreFilter", "OreFilter"):
             values = self._normalize_string_list(telemetry.get(key))
@@ -75,6 +112,7 @@ class NanobotDrillSystemDevice(BaseDevice):
         return []
 
     def known_ore_targets(self) -> List[str]:
+        """Известные цели бурения (если мод их отдаёт)."""
         telemetry = self.telemetry or {}
         for key in ("oreTargets", "availableOres", "oreOptions"):
             values = self._normalize_string_list(telemetry.get(key))
@@ -87,35 +125,33 @@ class NanobotDrillSystemDevice(BaseDevice):
     # ------------------------------------------------------------------
     def set_property(self, property_name: str, value: Any) -> int:
         qualified_name = f"{self._PROPERTY_PREFIX}.{property_name}"
-        return self.send_command({
-            "cmd": "set",
-            "payload": {
-                "property": qualified_name,
-                "value": value,
-            },
-        })
+        return self.send_command(
+            {
+                "cmd": "set",
+                "payload": {
+                    "property": qualified_name,
+                    "value": value,
+                },
+            }
+        )
 
     def run_action(self, action_id: str) -> int:
-        """Запустить терминальное действие Nanobot Drill System.
-
-        В отличие от общих команд ``cmd``/``set`` для действий над нано-буром
-        плагин ожидает текст идентификатора действия. Чтобы повысить
-        совместимость, отправляем его в полях ``command`` и ``cmd`` и
-        продублируем в ``payload``.
-        """
+        """Запустить терминальное действие Nanobot Drill System."""
 
         action_id = str(action_id).strip()
         if not action_id:
             raise ValueError("action_id must not be empty")
 
-        return self.send_command({
-            "cmd": action_id,
-            "command": action_id,
-            "payload": {
-                "action": action_id,
+        return self.send_command(
+            {
+                "cmd": action_id,
                 "command": action_id,
-            },
-        })
+                "payload": {
+                    "action": action_id,
+                    "command": action_id,
+                },
+            }
+        )
 
     def turn_on(self) -> int:
         return self.run_action("OnOff_On")
@@ -160,23 +196,213 @@ class NanobotDrillSystemDevice(BaseDevice):
         return self.run_action("TerrainClearingMode")
 
     def set_terrain_clearing_mode_action(self, enabled: bool) -> int:
-        return self.run_action("TerrainClearingMode_On" if enabled else "TerrainClearingMode_Off")
+        return self.run_action(
+            "TerrainClearingMode_On" if enabled else "TerrainClearingMode_Off"
+        )
+
+    # ---------- НОВАЯ ЛОГИКА ФИЛЬТРОВ ПО РУДЕ ----------
+
+    def _get_drill_priority_list(self) -> List[str]:
+        """Получить текущий список приоритетов бурения/сбора в формате 'ХЕШ;True/False'."""
+        telemetry = self.telemetry or {}
+
+        raw_list: Any = None
+
+        # Сначала пытаемся взять из properties
+        props = telemetry.get("properties")
+        if isinstance(props, dict):
+            raw_list = props.get("Drill.DrillPriorityList")
+
+        # Если не нашли — берём из корня по нормализованному ключу
+        if raw_list is None:
+            raw_list = telemetry.get("Drill.DrillPriorityList") or telemetry.get(
+                "drill_drillprioritylist"
+            )
+
+        if isinstance(raw_list, list):
+            return self._normalize_string_list(raw_list)
+        return []
+
+    @staticmethod
+    def _parse_priority_entry(entry: str) -> Optional[Tuple[int, bool]]:
+        """Разобрать строку вида '1137917536;True' -> (1137917536, True)."""
+        if not entry:
+            return None
+        parts = str(entry).split(";")
+        if not parts:
+            return None
+        try:
+            ore_hash = int(parts[0])
+        except ValueError:
+            return None
+
+        enabled = True
+        if len(parts) >= 2:
+            flag = parts[1].strip().lower()
+            if flag in ("false", "0", "no", "off"):
+                enabled = False
+            elif flag in ("true", "1", "yes", "on"):
+                enabled = True
+        return ore_hash, enabled
+
+    @staticmethod
+    def _format_priority_entry(ore_hash: int, enabled: bool) -> str:
+        """Сформировать строку 'ХЕШ;True/False'."""
+        return f"{int(ore_hash)};{bool(enabled)}"
+
+    def _get_drill_priority_map(self) -> Tuple[List[int], Dict[int, bool]]:
+        """Построить карту приоритетов: порядок хешей + текущее состояние (по телеметрии)."""
+        entries = self._get_drill_priority_list()
+        order: List[int] = []
+        state: Dict[int, bool] = {}
+
+        for entry in entries:
+            parsed = self._parse_priority_entry(entry)
+            if parsed is None:
+                continue
+            ore_hash, enabled = parsed
+            if ore_hash not in order:
+                order.append(ore_hash)
+            state[ore_hash] = enabled
+
+        return order, state
+
+    def _compute_slot_indices_for_ore_names(
+        self, ore_names: Iterable[str]
+    ) -> List[int]:
+        """По списку имён руд вычислить индексы слотов в Drill.DrillPriorityList."""
+        names = self._normalize_string_list(list(ore_names))
+        if not names:
+            return []
+
+        # Множество хешей нужных руд
+        target_hashes: set[int] = set()
+        unknown: List[str] = []
+        for name in {n.lower() for n in names}:
+            ore_hash = NanobotDrillHashResolver.resolve_hash(name)
+            if ore_hash is None:
+                unknown.append(name)
+            else:
+                target_hashes.add(ore_hash)
+
+        if unknown:
+            raise ValueError(
+                "Unknown ore names in filter: " + ", ".join(sorted(unknown))
+            )
+
+        entries = self._get_drill_priority_list()
+        indices: List[int] = []
+
+        for idx, entry in enumerate(entries):
+            parsed = self._parse_priority_entry(entry)
+            if parsed is None:
+                continue
+            ore_hash, _enabled = parsed
+            if ore_hash in target_hashes:
+                indices.append(idx)
+
+        return indices
+
+    def _send_orefilter_indices(self, indices: Iterable[int]) -> int:
+        """Отправить в плагин спец-команду OreFilter с индексами слотов.
+
+        Это уходит в NanobotDrillAndFillDevice.ApplyOreFilterFromPayload,
+        который вызывает Drill.SetDrillEnabled(index, enabled).
+        """
+        idx_list = [int(i) for i in indices]
+        if not idx_list:
+            # Специальный случай: выключить всё
+            # Плагин интерпретирует 'none' / 'off' как selectNone=True.
+            return self.send_command(
+                {
+                    "cmd": "set",
+                    "payload": {
+                        "property": "OreFilter",
+                        "value": ["none"],
+                    },
+                }
+            )
+
+        return self.send_command(
+            {
+                "cmd": "set",
+                "payload": {
+                    "property": "OreFilter",
+                    "value": idx_list,
+                },
+            }
+        )
 
     def set_ore_filters(self, ore_subtypes: Iterable[str]) -> int:
-        normalized = self._normalize_string_list(list(ore_subtypes))
-        if not normalized:
-            raise ValueError("ore_subtypes must contain at least one ore name")
-        return self.set_property("OreFilter", normalized)
+        """Установить фильтры по рудам по их ИМЕНАМ через спец-команду OreFilter.
+
+        Пример:
+            set_ore_filters(["Uranium"])         -> только уран
+            set_ore_filters(["Uranium", "Iron"]) -> уран + железо
+            set_ore_filters([])                  -> выключить все слоты
+        """
+        names = self._normalize_string_list(list(ore_subtypes))
+        if not names:
+            # Пустой список — отключаем всё.
+            return self._send_orefilter_indices([])
+
+        indices = self._compute_slot_indices_for_ore_names(names)
+        return self._send_orefilter_indices(indices)
 
     def set_ore_filter(self, ore_subtype: str) -> int:
+        """Сокращённый вариант: оставить включённой только одну руду."""
         ore = str(ore_subtype).strip()
         if not ore:
             raise ValueError("ore_subtype must not be empty")
         return self.set_ore_filters([ore])
 
     def clear_ore_filters(self) -> int:
-        return self.set_property("OreFilter", [])
+        """Отключить все руды."""
+        return self._send_orefilter_indices([])
 
+    def set_ore_collection_priority(self, ore_name: str, collect: bool = True) -> int:
+        """Установить флаг collect для одной руды по имени.
+
+        Реализовано через перезапись всего фильтра:
+        - читаем текущее состояние (по DrillPriorityList, если мод его обновляет);
+        - добавляем/убираем одну руду;
+        - вызываем set_ore_filters().
+
+        Если мод НЕ обновляет DrillPriorityList при изменении фильтра скриптом,
+        этот метод сохраняет корректность только относительно UI-состояния.
+        """
+        ore_name = str(ore_name).strip()
+        if not ore_name:
+            raise ValueError("ore_name must not be empty")
+
+        ore_hash = NanobotDrillHashResolver.resolve_hash(ore_name)
+        if ore_hash is None:
+            raise ValueError(f"Unknown ore name '{ore_name}'. Cannot resolve hash.")
+
+        # Читаем текущее состояние из DrillPriorityList
+        _order, state = self._get_drill_priority_map()
+
+        enabled_hashes: set[int] = {
+            h for h, enabled in state.items() if enabled
+        }
+
+        if collect:
+            enabled_hashes.add(ore_hash)
+        else:
+            enabled_hashes.discard(ore_hash)
+
+        enabled_names: List[str] = []
+        for h in enabled_hashes:
+            name = NanobotDrillHashResolver.resolve_name(h)
+            if name is not None:
+                enabled_names.append(name)
+
+        # Перезаписываем фильтр
+        return self.set_ore_filters(enabled_names)
+
+    # ---------------------------------------------------
+    # Остальные high-level методы
+    # ---------------------------------------------------
     def start_drilling(self) -> int:
         return self.run_action("Drill_On")
 
@@ -211,10 +437,16 @@ class NanobotDrillSystemDevice(BaseDevice):
         return self.run_action("ShowArea_On" if enabled else "ShowArea_Off")
 
     def set_remote_control_show_area(self, enabled: bool) -> int:
-        return self.run_action("RemoteControlShowArea_On" if enabled else "RemoteControlShowArea_Off")
+        return self.run_action(
+            "RemoteControlShowArea_On" if enabled else "RemoteControlShowArea_Off"
+        )
 
     def set_remote_control_work_disabled(self, enabled: bool) -> int:
-        return self.run_action("RemoteControlWorkdisabled_On" if enabled else "RemoteControlWorkdisabled_Off")
+        return self.run_action(
+            "RemoteControlWorkdisabled_On"
+            if enabled
+            else "RemoteControlWorkdisabled_Off"
+        )
 
     def increase_area_offset_left_right(self) -> int:
         return self.run_action("AreaOffsetLeftRight_Increase")
@@ -314,6 +546,129 @@ class NanobotDrillSystemDevice(BaseDevice):
                 if text:
                     result.append(text)
         return result
+
+    # ---------- Отладочные методы для твоего скрипта ----------
+
+    # ---------- DEBUG-ХЕЛПЕРЫ ДЛЯ ПРОВЕРКИ ФИЛЬТРОВ ----------
+
+    def debug_get_priority_list_raw(self) -> List[str]:
+        """Сырой список Drill.DrillPriorityList из последней телеметрии."""
+        return list(self._get_drill_priority_list())
+
+    def debug_get_enabled_known_ores(self) -> Dict[str, bool]:
+        """
+        Карта {имя_руды: включена_ли} на основе:
+        - oreFilterIndices из плагина, если есть;
+        - иначе — флага True/False внутри Drill.DrillPriorityList.
+        """
+        result: Dict[str, bool] = {}
+
+        entries = self._get_drill_priority_list()
+        if not entries:
+            return result
+
+        # 1) Пробуем использовать oreFilterIndices от плагина
+        telemetry = self.telemetry or {}
+        indices = telemetry.get("oreFilterIndices")
+
+        if isinstance(indices, list) and indices:
+            enabled_indices = {int(i) for i in indices}
+
+            for idx, entry in enumerate(entries):
+                parsed = self._parse_priority_entry(entry)
+                if parsed is None:
+                    continue
+                ore_hash, _ = parsed
+                name = NanobotDrillHashResolver.resolve_name(ore_hash)
+                if not name:
+                    continue
+                # считаем включённой, если индекс есть в oreFilterIndices
+                result[name] = idx in enabled_indices
+
+            return result
+
+        # 2) Фоллбек: разбираем True/False внутри самой строки
+        for entry in entries:
+            parsed = self._parse_priority_entry(entry)
+            if parsed is None:
+                continue
+            ore_hash, enabled = parsed
+            name = NanobotDrillHashResolver.resolve_name(ore_hash)
+            if not name:
+                continue
+            result[name] = enabled
+
+        return result
+
+    # В NanobotDrillSystemDevice добавь эти методы:
+
+    def set_work_mode(self, mode: str) -> int:
+        """Установить WorkMode: 'Drill' (0), 'Collect' (1), 'Fill' (2)."""
+        mode_map = {"drill": 0, "collect": 1, "fill": 2}
+        mode_lower = mode.lower().strip()
+        if mode_lower not in mode_map:
+            raise ValueError(f"Invalid mode '{mode}'. Use: drill, collect, fill")
+
+        mode_value = mode_map[mode_lower]
+        # Без префикса! (реальный ID = "WorkMode")
+        return self.send_command(
+            {
+                "cmd": "set",
+                "payload": {
+                    "property": "WorkMode",  # ← КЛЮЧ: без "DrillSystem."
+                    "value": mode_value,  # ← int, а не string (для enum)
+                },
+            }
+        )
+
+    def get_work_mode(self) -> Optional[str]:
+        """Получить текущий WorkMode из телеметрии."""
+        telemetry = self.telemetry or {}
+        props = telemetry.get("properties", {})
+        mode_raw = props.get("WorkMode") or props.get("drillsystemworkmode")  # fallback normalized
+        if mode_raw is None:
+            return None
+
+        # Enum может быть int или string — маппим обратно
+        mode_map = {0: "Drill", 1: "Collect", 2: "Fill"}
+        if isinstance(mode_raw, int) and mode_raw in mode_map:
+            return mode_map[mode_raw]
+        # Если string — возвращаем как есть
+        return str(mode_raw)
+
+    # После всех настроек — используй ПРАВИЛЬНЫЙ фильтр для Collect-режима!
+    # Это НЕ OreFilter, а отдельная команда!
+
+    def set_collect_filter(self, ores: list):
+        """Устанавливает Collect-фильтр (работает при ScriptControlled = true)"""
+        # Сначала выключаем всё
+        for i in range(11):
+            self.send_command({
+                "cmd": "set",
+                "payload": {
+                    "property": "Drill.SetCollectEnabled",
+                    "value": [i, False]
+                }
+            })
+
+        # Включаем нужные руды
+        ore_indices = {
+            "Stone": 0, "Ice": 1, "Iron": 2, "Nickel": 3, "Silicon": 4,
+            "Cobalt": 5, "Magnesium": 6, "Silver": 7, "Gold": 8,
+            "Platinum": 9, "Uranium": 10
+        }
+
+        for ore in ores:
+            idx = ore_indices.get(ore)
+            if idx is not None:
+                self.send_command({
+                    "cmd": "set",
+                    "payload": {
+                        "property": "Drill.SetCollectEnabled",
+                        "value": [idx, True]
+                    }
+                })
+
 
 
 DEVICE_TYPE_MAP[NanobotDrillSystemDevice.device_type] = NanobotDrillSystemDevice

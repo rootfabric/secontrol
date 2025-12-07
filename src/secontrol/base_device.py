@@ -1963,7 +1963,7 @@ class Grid:
     def _normalize_type_for_telemetry(self, dev_type: str) -> str:
         """
         Приведение типа к сегменту ключа телеметрии.
-        Пример: 'MyObjectBuilder_BatteryBlock' -> 'battery_block'.
+        Пример: 'MyObjectBuilder_Xxx' -> 'xxx'.
 
         Также учитывает различия между нормализованным типом устройства и
         фактическим сегментом ключа телеметрии. Например, для контейнеров
@@ -1980,6 +1980,8 @@ class Grid:
             "textpanel": "text_panel",
             # Wheels публикуют телеметрию как 'motor_suspension'
             "wheel": "motor_suspension",
+            # Nanobot drill systems публикуют телеметрию как 'drill'
+            "nanobot_drill_system": "drill",
         }
 
         key = dev_type

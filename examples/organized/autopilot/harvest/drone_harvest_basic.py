@@ -46,7 +46,7 @@ def main() -> None:
     grid = prepare_grid(GRID_NAME)
     try:
         # Поиск устройств
-        drill = grid.get_first_device(NanobotDrillSystemDevice)
+        drill: NanobotDrillSystemDevice= grid.get_first_device(NanobotDrillSystemDevice)
         container = grid.get_first_device(ContainerDevice)
 
         if not drill:
@@ -56,51 +56,64 @@ def main() -> None:
             print("Ошибка: Контейнер дрона не найден на гриде!")
             return
 
+        drill.set_script_controlled(True)
+        time.sleep(0.7)
+
+        drill.run_action("OnOff_On")
+        time.sleep(0.3)
+
+        drill.run_action("Collect_On")
+        time.sleep(0.7)
+
+        drill.set_property("CollectIfIdle", True)
+        drill.set_property("UseConveyor", True)
+
+        # Увеличиваем зону
+        for _ in range(10):
+            drill.run_action("AreaWidth_Increase")
+            drill.run_action("AreaHeight_Increase")
+            drill.run_action("AreaDepth_Increase")
+
+        drill.set_show_area(True)
+
+        # ←←← ВОТ ЭТО ГЛАВНОЕ! ←←←
+        print("Устанавливаем ПРАВИЛЬНЫЙ Collect-фильтр...")
+        drill.set_collect_filter(["Ice"])  # ← Только лёд!
+
+        drill.run_action("PickFirstDrillTarget")
+        time.sleep(1.0)
+
+        drill.run_action("Work_On")
+
+        print("ЛЁД ДОБЫВАЕТСЯ И СОБИРАЕТСЯ В КОНТЕЙНЕР!")
+
+
         drill.update()
         drill.wait_for_telemetry(timeout=5)
 
-        print(f"Найдены устройства:")
-        print(f"  Drill: {drill.name or drill.device_id}")
-        print(f"  Container: {container.name or container.device_id}")
+        print(drill.telemetry.get("properties"))
 
-        # Настройка бура
-        print(f"Настраиваем бур на добычу: {ORE_TYPE}")
-        drill.set_ore_filter(ORE_TYPE)
-        drill.set_script_controlled_action(True)
-        drill.set_use_conveyor(True)
-        drill.start_collecting()
+        print("ГОТОВО! Состояние:")
+        print("  ScriptControlled:", drill.telemetry.get("scriptControlled"))
+        print("  oreFilterIndices:", drill.telemetry.get("oreFilterIndices"))
+        print("  enabled ores:", drill.debug_get_enabled_known_ores())
+
+        print("Бур включён в режиме Collect — добывает только Silicon и Uranium!")
+        print("Stone и остальные руды игнорируются.")
+
+        print("=== ПРОВЕРКА СОСТОЯНИЯ ПО ПЛАГИНУ ===")
+        print("ScriptControlled:", drill.telemetry.get("scriptControlled"))
+        print("WorkMode (если есть):", drill.telemetry.get("properties", {}).get("WorkMode"))
+        print("oreFilterIndices (истина в последней инстанции):", drill.telemetry.get("oreFilterIndices"))
+        print("enabled ores (по плагину):", drill.debug_get_enabled_known_ores())
+
+
 
         # Проверяем статус бура
         status = drill.status_summary()
         if status:
             print(f"Статус бура: {status}")
 
-        print("Начинаем бурение на месте...")
-        drill.turn_on()
-        drill.start_drilling()
-        drill.wait_for_telemetry(timeout=5, need_update=False)
-
-        # Ждем окончания бурения
-        print(f"Бурим {DRILL_DURATION_SECONDS} секунд...")
-        time.sleep(DRILL_DURATION_SECONDS)
-
-        print("Останавливаем бурение...")
-        drill.stop_drilling()
-        drill.turn_off()
-
-        # Собираем ресурсы из бура в контейнер дрона
-        print("Собираем ресурсы...")
-        drill_items = drill.items()
-        if drill_items:
-            print(f"Найдено ресурсов: {len(drill_items)} тип(ов)")
-            for item in drill_items:
-                print(f"  - {item.get('type', 'unknown')}: {item.get('amount', 0)}")
-            drill.move_all(container)
-            print("Ресурсы перенесены в контейнер дрона")
-        else:
-            print("Ресурсы не найдены в буре")
-
-        print("Harvest завершен!")
 
     finally:
         close(grid)

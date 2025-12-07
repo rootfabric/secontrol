@@ -170,6 +170,34 @@ def main() -> None:
             f"({flat_point[0]:.2f}, {flat_point[1]:.2f}, {flat_point[2]:.2f})"
         )
 
+        # Быстрый скан поверхности под точкой назначения перед расчётом высоты
+        # Это позволит обнаружить пропущенные воксели и предотвратить неверную высоту
+        print("Выполняем быстрый скан поверхности под патрульной точкой...")
+        rc = controller.radar_controller
+        old_scan_params = rc.scan_params.copy() if hasattr(rc, "scan_params") else {}
+        try:
+            if hasattr(rc, "set_scan_params"):
+                # Маленький радиус для точного скана, но boundingBoxY большой для узкого луча вниз
+                rc.set_scan_params(
+                    # radius=100.0, boundingBoxY=200.0, boundingBoxX=20.0, boundingBoxZ=20.0
+                centerX =flat_point[0],
+                centerY =flat_point[1],
+                centerZ =flat_point[2],
+                radius = 100,
+                voxel_step = 1,
+                cell_size = 10.0,
+
+                boundingBoxX = 20,
+                boundingBoxZ = 20,
+
+                boundingBoxY = 100,
+                                   )
+            controller.scan_voxels(persist_to_shared_map=True)
+            print("Быстрый скан завершён.")
+        finally:
+            if hasattr(rc, "set_scan_params") and old_scan_params:
+                rc.set_scan_params(**old_scan_params)
+
         # # Проверяем высоту поверхности под flat_point и устанавливаем target_point
         # pos = flat_point
         # down = controller._get_down_vector()
@@ -244,8 +272,8 @@ def main() -> None:
         print("Движение к patrol-точке...")
 
         # Здесь уже летим к безопасной 3D-точке над поверхностью
-        controller.lift_drone_to_point_altitude( target_point, 30)
-        # goto(controller.grid, target_point, speed=20.0)
+        # controller.lift_drone_to_point_altitude( target_point, 30)
+        goto(controller.grid, target_point, speed=20.0)
 
         new_pos = _get_pos(controller.rc)
         if new_pos:
