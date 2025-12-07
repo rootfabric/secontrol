@@ -29,7 +29,6 @@ def find_devices(grid) -> tuple[Optional[NanobotDrillSystemDevice], Optional[Con
     print(f"Найдено устройств: {len(grid.devices)}")
 
     for device in grid.devices.values():
-        # print(f"  Устройство: {device.name or 'unnamed'} (ID: {device.device_id}, тип: {getattr(device, 'device_type', 'unknown')})")
         if device.device_type == "ship_drill":
             drill = device
         elif isinstance(device, ContainerDevice):
@@ -57,6 +56,7 @@ def main() -> None:
             return
 
         drill.update()
+        drill.wait_for_telemetry(timeout=5)
 
         print(f"Найдены устройства:")
         print(f"  Drill: {drill.name or drill.device_id}")
@@ -64,31 +64,28 @@ def main() -> None:
 
         # Настройка бура
         print(f"Настраиваем бур на добычу: {ORE_TYPE}")
-        if hasattr(drill, 'set_ore_filters'):
-            drill.set_ore_filters([ORE_TYPE])
-        if hasattr(drill, 'set_script_controlled'):
-            drill.set_script_controlled(True)
+        drill.set_ore_filter(ORE_TYPE)
+        drill.set_script_controlled_action(True)
+        drill.set_use_conveyor(True)
+        drill.start_collecting()
 
         # Проверяем статус бура
-        if hasattr(drill, 'status_summary'):
-            status = drill.status_summary()
+        status = drill.status_summary()
+        if status:
             print(f"Статус бура: {status}")
 
         print("Начинаем бурение на месте...")
-        if hasattr(drill, 'turn_on'):
-            drill.turn_on()
-        if hasattr(drill, 'start_drilling'):
-            drill.start_drilling()
+        drill.turn_on()
+        drill.start_drilling()
+        drill.wait_for_telemetry(timeout=5, need_update=False)
 
         # Ждем окончания бурения
         print(f"Бурим {DRILL_DURATION_SECONDS} секунд...")
         time.sleep(DRILL_DURATION_SECONDS)
 
         print("Останавливаем бурение...")
-        if hasattr(drill, 'stop_drilling'):
-            drill.stop_drilling()
-        if hasattr(drill, 'turn_off'):
-            drill.turn_off()
+        drill.stop_drilling()
+        drill.turn_off()
 
         # Собираем ресурсы из бура в контейнер дрона
         print("Собираем ресурсы...")
