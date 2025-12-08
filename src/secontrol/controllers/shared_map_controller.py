@@ -515,6 +515,19 @@ class SharedMapController:
             "kinds_processed": list(kinds),
         }
 
+    # ------------------------------------------------------------------
+    # Размер сохраненных данных
+    # ------------------------------------------------------------------
+    def get_redis_memory_usage(self) -> int:
+        """Старое название метода, теперь делегирует на общий подсчет размера."""
+
+        return self.get_storage_usage()
+
+    def get_storage_usage(self) -> int:
+        """Вернуть примерный размер карты в текущем бэкенде хранения."""
+
+        return self.storage.get_storage_usage()
+
 
 class SharedMapStorage:
     def __init__(self, *, chunk_size: float) -> None:
@@ -1265,6 +1278,19 @@ class SQLiteSharedMapStorage(SharedMapStorage):
 
     def get_storage_usage(self) -> int:
         """Вернуть примерный размер карты в текущем бэкенде хранения."""
+
+        files = [
+            self.path,
+            self.path.with_suffix(self.path.suffix + "-wal"),
+            self.path.with_suffix(self.path.suffix + "-shm"),
+        ]
+
+        total_size = 0
+        for file_path in files:
+            try:
+                total_size += file_path.stat().st_size
+            except FileNotFoundError:
+                continue
 
         return self.storage.get_storage_usage()
 
