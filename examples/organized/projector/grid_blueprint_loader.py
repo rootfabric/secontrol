@@ -69,7 +69,7 @@ def load_blueprint(projector, input_file: str, keep = False) -> bool:
 
 
 def main():
-    grid = prepare_grid()
+    grid = prepare_grid("taburet2")
 
     try:
         # Refresh devices to ensure correct classes

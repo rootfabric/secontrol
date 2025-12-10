@@ -66,12 +66,9 @@ def configure_drill_for_ice_drill(drill: NanobotDrillSystemDevice) -> None:
 
     # 1. Выключаем ScriptControlled (чтобы мод работал как обычный блок)
     #    Важно: мы задаём именно Drill.ScriptControlled
-    drill.set_property("ScriptControlled", False)
+    drill.set_property("ScriptControlled", True)
     time.sleep(0.2)
 
-    # 2. Включаем блок
-    drill.turn_on()
-    time.sleep(0.2)
 
     # 3. Конвейер
     drill.set_use_conveyor(True)
@@ -85,6 +82,11 @@ def configure_drill_for_ice_drill(drill: NanobotDrillSystemDevice) -> None:
     print(f"Выставляем OreFilter на руду: {ORE_TYPE}")
     drill.set_ore_filter(ORE_TYPE)
     time.sleep(0.5)
+
+    # 2. Включаем блок
+    drill.turn_on()
+    time.sleep(0.2)
+
 
     # 6. Обновляем телеметрию
     drill.update()
@@ -132,7 +134,7 @@ def main() -> None:
         time.sleep(1.0)
 
         print("=== БУРЕНИЕ ЛЬДА ===")
-        for i in range(3):
+        for i in range(10):
             time.sleep(10)
             drill.update()
             drill.wait_for_telemetry(timeout=5)

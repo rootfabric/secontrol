@@ -106,7 +106,7 @@ def show_format_info():
 def main():
 
 
-    grid = prepare_grid()
+    grid = prepare_grid("taburet2")
 
     try:
         # Refresh devices to ensure correct classes

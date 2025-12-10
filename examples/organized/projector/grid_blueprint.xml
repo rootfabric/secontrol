@@ -1,38 +1,1537 @@
 <?xml version="1.0" encoding="utf-16"?>
 <MyObjectBuilder_ShipBlueprintDefinition xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <Id Type="MyObjectBuilder_ShipBlueprintDefinition" Subtype="Static_Grid_1503" />
-  <DisplayName>Static_Grid_1503</DisplayName>
+  <Id Type="MyObjectBuilder_ShipBlueprintDefinition" Subtype="taburet2" />
+  <DisplayName>taburet2</DisplayName>
   <Description>Exported from grid via telemetry projector command.</Description>
   <CubeGrids>
     <CubeGrid>
       <SubtypeName />
-      <EntityId>107388166128751503</EntityId>
+      <EntityId>72488825819566966</EntityId>
       <PersistentFlags>CastShadows InScene</PersistentFlags>
-      <Name>107388166128751503</Name>
+      <Name>114025149767465199</Name>
       <PositionAndOrientation>
-        <Position x="1009785.2530897014" y="170685.79927263275" z="1672342.6148523293" />
-        <Forward x="-0.6890099" y="0.311334461" z="-0.654474" />
-        <Up x="-0.3489624" y="0.64895016" z="0.6760835" />
+        <Position x="1083681.0087566948" y="145624.49718530726" z="1662090.1286408808" />
+        <Forward x="-0.326016784" y="-0.376999259" z="0.866939664" />
+        <Up x="0.822544456" y="0.338895917" z="0.456694722" />
         <Orientation>
-          <X>0.288003862</X>
-          <Y>0.299694449</Y>
-          <Z>0.304267436</Z>
-          <W>0.8571221</W>
+          <X>0.5152834</X>
+          <Y>0.817283869</Y>
+          <Z>0.255019754</Z>
+          <W>0.03866585</W>
         </Orientation>
       </PositionAndOrientation>
       <LocalPositionAndOrientation xsi:nil="true" />
-      <GridSizeEnum>Large</GridSizeEnum>
+      <GridSizeEnum>Small</GridSizeEnum>
       <CubeBlocks>
-        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
-          <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_BatteryBlock">
+          <SubtypeName>SmallBlockBatteryBlock</SubtypeName>
+          <EntityId>104845757374422486</EntityId>
+          <Name>104845757374422486</Name>
+          <Min x="-2" y="23" z="1" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <Owner>144115188075855919</Owner>
           <BuiltBy>144115188075855919</BuiltBy>
+          <ShareMode>Faction</ShareMode>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>2</NumberInGrid>
+          <Enabled>true</Enabled>
+          <CurrentStoredPower>0.9999996</CurrentStoredPower>
+          <ProducerEnabled>true</ProducerEnabled>
+          <MaxStoredPower>0</MaxStoredPower>
+          <SemiautoEnabled>false</SemiautoEnabled>
+          <OnlyDischargeEnabled>false</OnlyDischargeEnabled>
+          <ChargeMode>0</ChargeMode>
         </MyObjectBuilder_CubeBlock>
-        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Projector">
-          <SubtypeName>LargeProjector</SubtypeName>
-          <EntityId>89263408412910957</EntityId>
-          <Name>89263408412910957</Name>
-          <Min x="0" y="1" z="0" />
-          <BlockOrientation Forward="Right" Up="Up" />
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>87955479885169501</EntityId>
+          <Name>87955479885169501</Name>
+          <Min x="-2" y="25" z="1" />
+          <BlockOrientation Forward="Backward" Up="Up" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>28</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>79903162420695077</EntityId>
+          <Name>79903162420695077</Name>
+          <Min x="-1" y="25" z="1" />
+          <BlockOrientation Forward="Backward" Up="Up" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>29</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>79066736118478326</EntityId>
+          <Name>79066736118478326</Name>
+          <Min x="0" y="25" z="1" />
+          <BlockOrientation Forward="Backward" Up="Up" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>30</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_ShipConnector">
+          <SubtypeName>ConnectorMedium</SubtypeName>
+          <EntityId>133073725032945593</EntityId>
+          <Name>133073725032945593</Name>
+          <Min x="-2" y="21" z="-2" />
+          <BlockOrientation Forward="Down" Up="Forward" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <Owner>144115188075855919</Owner>
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ShareMode>Faction</ShareMode>
+          <DeformationRatio>0.5</DeformationRatio>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyInventoryBase</TypeId>
+                <Component xsi:type="MyObjectBuilder_Inventory">
+                  <CanPutItems>true</CanPutItems>
+                  <Items />
+                  <nextItemId>0</nextItemId>
+                  <Volume>1.152</Volume>
+                  <Mass>9223372036854.775807</Mass>
+                  <MaxItemCount>2147483647</MaxItemCount>
+                  <Size xsi:nil="true" />
+                  <InventoryFlags>CanSend</InventoryFlags>
+                  <RemoveEntityOnEmpty>false</RemoveEntityOnEmpty>
+                </Component>
+              </ComponentData>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame10</TimerType>
+                  <FramesFromLastTrigger>20</FramesFromLastTrigger>
+                  <TimerTickInFrames>80</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>1</NumberInGrid>
+          <Enabled>true</Enabled>
+          <ThrowOut>true</ThrowOut>
+          <CollectAll>true</CollectAll>
+          <MasterToSlaveTransform xsi:nil="true" />
+          <MasterToSlaveGrid xsi:nil="true" />
+          <IsMaster>true</IsMaster>
+          <TradingEnabled>false</TradingEnabled>
+          <AutoUnlockTime>0</AutoUnlockTime>
+          <TimeOfConnection>0</TimeOfConnection>
+          <IsParkingEnabled>true</IsParkingEnabled>
+          <IsPowerTransferOverrideEnabled>false</IsPowerTransferOverrideEnabled>
+          <IsApproaching>false</IsApproaching>
+          <IsConnecting>false</IsConnecting>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Cockpit">
+          <SubtypeName>SmallBlockCockpit</SubtypeName>
+          <EntityId>137053891261524085</EntityId>
+          <Name>137053891261524085</Name>
+          <Min x="-2" y="23" z="-5" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <Owner>144115188075855919</Owner>
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ShareMode>Faction</ShareMode>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyInventoryBase</TypeId>
+                <Component xsi:type="MyObjectBuilder_Inventory">
+                  <CanPutItems>true</CanPutItems>
+                  <Items>
+                    <MyObjectBuilder_InventoryItem>
+                      <Amount>8.680446</Amount>
+                      <PhysicalContent xsi:type="MyObjectBuilder_Ore">
+                        <SubtypeName>Stone</SubtypeName>
+                        <MaterialNameString>MarsSoil</MaterialNameString>
+                      </PhysicalContent>
+                      <ItemId>4</ItemId>
+                    </MyObjectBuilder_InventoryItem>
+                    <MyObjectBuilder_InventoryItem>
+                      <Amount>2694</Amount>
+                      <PhysicalContent xsi:type="MyObjectBuilder_Ore">
+                        <SubtypeName>Ice</SubtypeName>
+                        <MaterialNameString>Ice</MaterialNameString>
+                      </PhysicalContent>
+                      <ItemId>5</ItemId>
+                    </MyObjectBuilder_InventoryItem>
+                  </Items>
+                  <nextItemId>6</nextItemId>
+                  <Volume>1</Volume>
+                  <Mass>9223372036854.775807</Mass>
+                  <MaxItemCount>2147483647</MaxItemCount>
+                  <Size xsi:nil="true" />
+                  <InventoryFlags>CanSend</InventoryFlags>
+                  <RemoveEntityOnEmpty>false</RemoveEntityOnEmpty>
+                </Component>
+              </ComponentData>
+              <ComponentData>
+                <TypeId>MyMultiTextPanelComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_MultiTextPanelComponent">
+                  <TextPanelsContents>
+                    <MySerializedTextPanelData>
+                      <ChangeInterval>0</ChangeInterval>
+                      <Font Type="MyObjectBuilder_FontDefinition" Subtype="Debug" />
+                      <FontSize>1</FontSize>
+                      <ShowText>NONE</ShowText>
+                      <FontColor>
+                        <PackedValue>4294967295</PackedValue>
+                        <X>255</X>
+                        <Y>255</Y>
+                        <Z>255</Z>
+                        <R>255</R>
+                        <G>255</G>
+                        <B>255</B>
+                        <A>255</A>
+                      </FontColor>
+                      <BackgroundColor>
+                        <PackedValue>4278190080</PackedValue>
+                        <X>0</X>
+                        <Y>0</Y>
+                        <Z>0</Z>
+                        <R>0</R>
+                        <G>0</G>
+                        <B>0</B>
+                        <A>255</A>
+                      </BackgroundColor>
+                      <CurrentShownTexture>0</CurrentShownTexture>
+                      <ContentType>SCRIPT</ContentType>
+                      <SelectedScript>TSS_ArtificialHorizon</SelectedScript>
+                      <TextPadding>2</TextPadding>
+                      <CustomizeScripts>true</CustomizeScripts>
+                      <ScriptBackgroundColor>
+                        <PackedValue>4288108544</PackedValue>
+                        <X>0</X>
+                        <Y>88</Y>
+                        <Z>151</Z>
+                        <R>0</R>
+                        <G>88</G>
+                        <B>151</B>
+                        <A>255</A>
+                      </ScriptBackgroundColor>
+                      <ScriptForegroundColor>
+                        <PackedValue>4294962611</PackedValue>
+                        <X>179</X>
+                        <Y>237</Y>
+                        <Z>255</Z>
+                        <R>179</R>
+                        <G>237</G>
+                        <B>255</B>
+                        <A>255</A>
+                      </ScriptForegroundColor>
+                      <Sprites>
+                        <Length>0</Length>
+                      </Sprites>
+                      <UpdateStartOfFirstTexture>413411432</UpdateStartOfFirstTexture>
+                    </MySerializedTextPanelData>
+                    <MySerializedTextPanelData>
+                      <ChangeInterval>0</ChangeInterval>
+                      <Font Type="MyObjectBuilder_FontDefinition" Subtype="Debug" />
+                      <FontSize>1</FontSize>
+                      <ShowText>NONE</ShowText>
+                      <FontColor>
+                        <PackedValue>4294967295</PackedValue>
+                        <X>255</X>
+                        <Y>255</Y>
+                        <Z>255</Z>
+                        <R>255</R>
+                        <G>255</G>
+                        <B>255</B>
+                        <A>255</A>
+                      </FontColor>
+                      <BackgroundColor>
+                        <PackedValue>4278190080</PackedValue>
+                        <X>0</X>
+                        <Y>0</Y>
+                        <Z>0</Z>
+                        <R>0</R>
+                        <G>0</G>
+                        <B>0</B>
+                        <A>255</A>
+                      </BackgroundColor>
+                      <CurrentShownTexture>0</CurrentShownTexture>
+                      <ContentType>SCRIPT</ContentType>
+                      <SelectedScript>TSS_EnergyHydrogen</SelectedScript>
+                      <TextPadding>2</TextPadding>
+                      <CustomizeScripts>true</CustomizeScripts>
+                      <ScriptBackgroundColor>
+                        <PackedValue>4288108544</PackedValue>
+                        <X>0</X>
+                        <Y>88</Y>
+                        <Z>151</Z>
+                        <R>0</R>
+                        <G>88</G>
+                        <B>151</B>
+                        <A>255</A>
+                      </ScriptBackgroundColor>
+                      <ScriptForegroundColor>
+                        <PackedValue>4294962611</PackedValue>
+                        <X>179</X>
+                        <Y>237</Y>
+                        <Z>255</Z>
+                        <R>179</R>
+                        <G>237</G>
+                        <B>255</B>
+                        <A>255</A>
+                      </ScriptForegroundColor>
+                      <Sprites>
+                        <Length>0</Length>
+                      </Sprites>
+                      <UpdateStartOfFirstTexture>413411432</UpdateStartOfFirstTexture>
+                    </MySerializedTextPanelData>
+                    <MySerializedTextPanelData>
+                      <ChangeInterval>0</ChangeInterval>
+                      <Font Type="MyObjectBuilder_FontDefinition" Subtype="Debug" />
+                      <FontSize>1</FontSize>
+                      <ShowText>NONE</ShowText>
+                      <FontColor>
+                        <PackedValue>4294967295</PackedValue>
+                        <X>255</X>
+                        <Y>255</Y>
+                        <Z>255</Z>
+                        <R>255</R>
+                        <G>255</G>
+                        <B>255</B>
+                        <A>255</A>
+                      </FontColor>
+                      <BackgroundColor>
+                        <PackedValue>4278190080</PackedValue>
+                        <X>0</X>
+                        <Y>0</Y>
+                        <Z>0</Z>
+                        <R>0</R>
+                        <G>0</G>
+                        <B>0</B>
+                        <A>255</A>
+                      </BackgroundColor>
+                      <CurrentShownTexture>0</CurrentShownTexture>
+                      <ContentType>SCRIPT</ContentType>
+                      <SelectedScript>TSS_Gravity</SelectedScript>
+                      <TextPadding>2</TextPadding>
+                      <CustomizeScripts>true</CustomizeScripts>
+                      <ScriptBackgroundColor>
+                        <PackedValue>4288108544</PackedValue>
+                        <X>0</X>
+                        <Y>88</Y>
+                        <Z>151</Z>
+                        <R>0</R>
+                        <G>88</G>
+                        <B>151</B>
+                        <A>255</A>
+                      </ScriptBackgroundColor>
+                      <ScriptForegroundColor>
+                        <PackedValue>4294962611</PackedValue>
+                        <X>179</X>
+                        <Y>237</Y>
+                        <Z>255</Z>
+                        <R>179</R>
+                        <G>237</G>
+                        <B>255</B>
+                        <A>255</A>
+                      </ScriptForegroundColor>
+                      <Sprites>
+                        <Length>0</Length>
+                      </Sprites>
+                      <UpdateStartOfFirstTexture>413411432</UpdateStartOfFirstTexture>
+                    </MySerializedTextPanelData>
+                    <MySerializedTextPanelData>
+                      <ChangeInterval>0</ChangeInterval>
+                      <Font Type="MyObjectBuilder_FontDefinition" Subtype="Debug" />
+                      <FontSize>1</FontSize>
+                      <ShowText>NONE</ShowText>
+                      <FontColor>
+                        <PackedValue>4294967295</PackedValue>
+                        <X>255</X>
+                        <Y>255</Y>
+                        <Z>255</Z>
+                        <R>255</R>
+                        <G>255</G>
+                        <B>255</B>
+                        <A>255</A>
+                      </FontColor>
+                      <BackgroundColor>
+                        <PackedValue>4278190080</PackedValue>
+                        <X>0</X>
+                        <Y>0</Y>
+                        <Z>0</Z>
+                        <R>0</R>
+                        <G>0</G>
+                        <B>0</B>
+                        <A>255</A>
+                      </BackgroundColor>
+                      <CurrentShownTexture>0</CurrentShownTexture>
+                      <SelectedScript />
+                      <TextPadding>2</TextPadding>
+                      <ScriptBackgroundColor>
+                        <PackedValue>4288108544</PackedValue>
+                        <X>0</X>
+                        <Y>88</Y>
+                        <Z>151</Z>
+                        <R>0</R>
+                        <G>88</G>
+                        <B>151</B>
+                        <A>255</A>
+                      </ScriptBackgroundColor>
+                      <ScriptForegroundColor>
+                        <PackedValue>4294962611</PackedValue>
+                        <X>179</X>
+                        <Y>237</Y>
+                        <Z>255</Z>
+                        <R>179</R>
+                        <G>237</G>
+                        <B>255</B>
+                        <A>255</A>
+                      </ScriptForegroundColor>
+                      <Sprites>
+                        <Length>0</Length>
+                      </Sprites>
+                      <UpdateStartOfFirstTexture>413411432</UpdateStartOfFirstTexture>
+                    </MySerializedTextPanelData>
+                  </TextPanelsContents>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>2</NumberInGrid>
+          <UseSingleWeaponMode>false</UseSingleWeaponMode>
+          <Toolbar>
+            <ToolbarType>Character</ToolbarType>
+            <SelectedSlot xsi:nil="true" />
+            <Slots />
+            <SlotsGamepad />
+          </Toolbar>
+          <SelectedGunId xsi:nil="true" />
+          <BuildToolbar>
+            <ToolbarType>Character</ToolbarType>
+            <SelectedSlot xsi:nil="true" />
+            <Slots />
+            <SlotsGamepad />
+          </BuildToolbar>
+          <OnLockedToolbar>
+            <ToolbarType>Character</ToolbarType>
+            <SelectedSlot xsi:nil="true" />
+            <Slots />
+            <SlotsGamepad />
+          </OnLockedToolbar>
+          <PilotRelativeWorld>
+            <Position x="2.2834851741790771" y="0.65469592809677124" z="-1.7076514959335327" />
+            <Forward x="-0.493514955" y="-0.5934498" z="0.6358146" />
+            <Up x="-0.711860061" y="0.695627034" z="0.09673581" />
+            <Orientation>
+              <X>-0.331846982</X>
+              <Y>0.841299534</Y>
+              <Z>0.205095112</Z>
+              <W>0.37420404</W>
+            </Orientation>
+          </PilotRelativeWorld>
+          <PilotGunDefinition xsi:nil="true" />
+          <IsInFirstPersonView>true</IsInFirstPersonView>
+          <OxygenLevel>0</OxygenLevel>
+          <PilotJetpackEnabled xsi:nil="true" />
+          <TargetData>
+            <TargetId>0</TargetId>
+            <IsTargetLocked>false</IsTargetLocked>
+            <LockingProgress>0</LockingProgress>
+          </TargetData>
+          <SitAnimation>983393</SitAnimation>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>123643394564319194</EntityId>
+          <Name>123643394564319194</Name>
+          <Min x="1" y="23" z="-1" />
+          <BlockOrientation Forward="Down" Up="Forward" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>17</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>113263542273485377</EntityId>
+          <Name>113263542273485377</Name>
+          <Min x="1" y="23" z="-2" />
+          <BlockOrientation Forward="Down" Up="Forward" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>18</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>137407021250351019</EntityId>
+          <Name>137407021250351019</Name>
+          <Min x="-3" y="24" z="-5" />
+          <BlockOrientation Forward="Forward" Up="Right" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>18</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CargoContainer">
+          <SubtypeName>SmallBlockMediumContainer</SubtypeName>
+          <EntityId>75826879218982967</EntityId>
+          <Name>75826879218982967</Name>
+          <Min x="-2" y="23" z="-2" />
+          <BlockOrientation Forward="Forward" Up="Left" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <Owner>144115188075855919</Owner>
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ShareMode>Faction</ShareMode>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyInventoryBase</TypeId>
+                <Component xsi:type="MyObjectBuilder_Inventory">
+                  <CanPutItems>true</CanPutItems>
+                  <Items />
+                  <nextItemId>0</nextItemId>
+                  <Volume>3.375</Volume>
+                  <Mass>9223372036854.775807</Mass>
+                  <MaxItemCount>2147483647</MaxItemCount>
+                  <Size xsi:nil="true" />
+                  <InventoryFlags>CanReceive CanSend</InventoryFlags>
+                  <RemoveEntityOnEmpty>false</RemoveEntityOnEmpty>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>1</NumberInGrid>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>74014799347116366</EntityId>
+          <Name>74014799347116366</Name>
+          <Min x="-2" y="26" z="-2" />
+          <BlockOrientation Forward="Left" Up="Backward" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>34</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>129589055431872543</EntityId>
+          <Name>129589055431872543</Name>
+          <Min x="-2" y="26" z="2" />
+          <BlockOrientation Forward="Right" Up="Backward" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>39</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Gyro">
+          <SubtypeName>SmallBlockGyro</SubtypeName>
+          <EntityId>73943961828016853</EntityId>
+          <Name>73943961828016853</Name>
+          <Min x="-1" y="27" z="2" />
+          <BlockOrientation Forward="Backward" Up="Up" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <Owner>144115188075855919</Owner>
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ShareMode>Faction</ShareMode>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>2</NumberInGrid>
+          <Enabled>true</Enabled>
+          <TargetAngularVelocity x="-3E-06" y="0.0005" z="0" />
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_RemoteControl">
+          <SubtypeName>SmallBlockRemoteControl</SubtypeName>
+          <EntityId>130779211071452543</EntityId>
+          <Name>130779211071452543</Name>
+          <Min x="-1" y="22" z="-3" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <Owner>144115188075855919</Owner>
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ShareMode>Faction</ShareMode>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyAutopilotComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_AutopilotComponent">
+                  <AutoPilotEnabled>false</AutoPilotEnabled>
+                  <FlightMode>2</FlightMode>
+                  <CurrentWaypointIndex>0</CurrentWaypointIndex>
+                  <Waypoints>
+                    <MyObjectBuilder_AutopilotWaypoint xsi:type="MyObjectBuilder_AutopilotWaypoint">
+                      <Coords>
+                        <X>974361.95</X>
+                        <Y>107976</Y>
+                        <Z>1621999.71</Z>
+                      </Coords>
+                      <Name>cmd_target</Name>
+                      <Actions />
+                      <Indexes />
+                      <Draw>false</Draw>
+                      <ForceRotation>false</ForceRotation>
+                      <RelatedEntityId>0</RelatedEntityId>
+                      <Matrix>
+                        <Position x="974361.95" y="107976" z="1621999.71" />
+                        <Forward x="-0" y="-0" z="-1" />
+                        <Up x="0" y="1" z="0" />
+                        <Orientation>
+                          <X>0</X>
+                          <Y>0</Y>
+                          <Z>0</Z>
+                          <W>1</W>
+                        </Orientation>
+                      </Matrix>
+                      <RelatedMatrixCurrent>
+                        <Position x="974361.95" y="107976" z="1621999.71" />
+                        <Forward x="-0" y="-0" z="-1" />
+                        <Up x="0" y="1" z="0" />
+                        <Orientation>
+                          <X>0</X>
+                          <Y>0</Y>
+                          <Z>0</Z>
+                          <W>1</W>
+                        </Orientation>
+                      </RelatedMatrixCurrent>
+                      <RelatedEntityMatrix>
+                        <Position x="974361.95" y="107976" z="1621999.71" />
+                        <Forward x="-0" y="-0" z="-1" />
+                        <Up x="0" y="1" z="0" />
+                        <Orientation>
+                          <X>0</X>
+                          <Y>0</Y>
+                          <Z>0</Z>
+                          <W>1</W>
+                        </Orientation>
+                      </RelatedEntityMatrix>
+                      <RelatedEntityWorldOffset>
+                        <X>0</X>
+                        <Y>0</Y>
+                        <Z>0</Z>
+                      </RelatedEntityWorldOffset>
+                      <StoppingTimeMultiplier>1</StoppingTimeMultiplier>
+                      <AdaptiveRotationSpeed>false</AdaptiveRotationSpeed>
+                      <AreaUp>
+                        <X>0</X>
+                        <Y>0</Y>
+                        <Z>0</Z>
+                      </AreaUp>
+                      <SerializeForCopy>true</SerializeForCopy>
+                      <DistancePrecisionMultiplier>1</DistancePrecisionMultiplier>
+                      <IsCorrectRotationNeeded>true</IsCorrectRotationNeeded>
+                    </MyObjectBuilder_AutopilotWaypoint>
+                  </Waypoints>
+                  <DockingModeEnabled>false</DockingModeEnabled>
+                  <CollisionAvoidance>false</CollisionAvoidance>
+                  <Direction>0</Direction>
+                  <WaitForFreeWay>false</WaitForFreeWay>
+                  <WaypointThresholdDistance>0</WaypointThresholdDistance>
+                  <Coords />
+                  <Names />
+                  <LookAtPosition xsi:nil="true" />
+                  <FacingDirection>Forward</FacingDirection>
+                  <AlignToGravity>true</AlignToGravity>
+                  <MinHeightAboveTerrain>25</MinHeightAboveTerrain>
+                  <IsWorkAreaReturningToStart>false</IsWorkAreaReturningToStart>
+                  <WorkAreaStartForward>
+                    <X>0</X>
+                    <Y>0</Y>
+                    <Z>0</Z>
+                  </WorkAreaStartForward>
+                  <PitchAngle>0</PitchAngle>
+                  <RollAngle>0</RollAngle>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>2</NumberInGrid>
+          <UseSingleWeaponMode>false</UseSingleWeaponMode>
+          <Toolbar>
+            <ToolbarType>Character</ToolbarType>
+            <SelectedSlot xsi:nil="true" />
+            <Slots />
+            <SlotsGamepad />
+          </Toolbar>
+          <SelectedGunId xsi:nil="true" />
+          <BuildToolbar>
+            <ToolbarType>Character</ToolbarType>
+            <SelectedSlot xsi:nil="true" />
+            <Slots />
+            <SlotsGamepad />
+          </BuildToolbar>
+          <OnLockedToolbar>
+            <ToolbarType>Character</ToolbarType>
+            <SelectedSlot xsi:nil="true" />
+            <Slots />
+            <SlotsGamepad />
+          </OnLockedToolbar>
+          <IsTargetLockingEnabled>false</IsTargetLockingEnabled>
+          <PreviousControlledEntityId xsi:nil="true" />
+          <AutoPilotEnabled>false</AutoPilotEnabled>
+          <FlightMode>0</FlightMode>
+          <BindedCamera>0</BindedCamera>
+          <CurrentWaypointIndex>-1</CurrentWaypointIndex>
+          <Waypoints />
+          <Direction>0</Direction>
+          <DockingModeEnabled>false</DockingModeEnabled>
+          <CollisionAvoidance>false</CollisionAvoidance>
+          <Coords />
+          <Names />
+          <WaypointThresholdDistance>0</WaypointThresholdDistance>
+          <IsMainRemoteControl>false</IsMainRemoteControl>
+          <WaitForFreeWay>false</WaitForFreeWay>
+          <IsUpdatedSave>true</IsUpdatedSave>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>100541747052227229</EntityId>
+          <Name>100541747052227229</Name>
+          <Min x="-3" y="23" z="-5" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>24</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>130526729274118536</EntityId>
+          <Name>130526729274118536</Name>
+          <Min x="1" y="23" z="-5" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>26</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>101281895345697875</EntityId>
+          <Name>101281895345697875</Name>
+          <Min x="-2" y="26" z="-1" />
+          <BlockOrientation Forward="Left" Up="Backward" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>36</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>104747215530001891</EntityId>
+          <Name>104747215530001891</Name>
+          <Min x="-2" y="26" z="1" />
+          <BlockOrientation Forward="Right" Up="Backward" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>38</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>135422721416883903</EntityId>
+          <Name>135422721416883903</Name>
+          <Min x="-2" y="26" z="3" />
+          <BlockOrientation Forward="Right" Up="Backward" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>40</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_OreDetector">
+          <SubtypeName>SmallBlockOreDetector</SubtypeName>
+          <EntityId>94753304276522461</EntityId>
+          <Name>94753304276522461</Name>
+          <Min x="-1" y="22" z="2" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <Owner>144115188075855919</Owner>
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ShareMode>Faction</ShareMode>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>2</NumberInGrid>
+          <Enabled>true</Enabled>
+          <DetectionRadius>50</DetectionRadius>
+          <BroadcastUsingAntennas>true</BroadcastUsingAntennas>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Reactor">
+          <SubtypeName>SmallBlockSmallGenerator</SubtypeName>
+          <EntityId>109755843948255397</EntityId>
+          <Name>109755843948255397</Name>
+          <Min x="-1" y="22" z="1" />
+          <BlockOrientation Forward="Forward" Up="Down" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <Owner>144115188075855919</Owner>
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ShareMode>Faction</ShareMode>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyInventoryBase</TypeId>
+                <Component xsi:type="MyObjectBuilder_Inventory">
+                  <CanPutItems>true</CanPutItems>
+                  <Items>
+                    <MyObjectBuilder_InventoryItem>
+                      <Amount>0.702764</Amount>
+                      <PhysicalContent xsi:type="MyObjectBuilder_Ingot">
+                        <SubtypeName>Uranium</SubtypeName>
+                      </PhysicalContent>
+                      <ItemId>0</ItemId>
+                    </MyObjectBuilder_InventoryItem>
+                  </Items>
+                  <nextItemId>1</nextItemId>
+                  <Volume>0.125</Volume>
+                  <Mass>9223372036854.775807</Mass>
+                  <MaxItemCount>2147483647</MaxItemCount>
+                  <Size xsi:nil="true" />
+                  <InventoryFlags>CanReceive</InventoryFlags>
+                  <RemoveEntityOnEmpty>false</RemoveEntityOnEmpty>
+                </Component>
+              </ComponentData>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>400</FramesFromLastTrigger>
+                  <TimerTickInFrames>900</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>5</NumberInGrid>
+          <Enabled>true</Enabled>
+          <Capacity>0.702764</Capacity>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>120974121898772931</EntityId>
+          <Name>120974121898772931</Name>
+          <Min x="-2" y="26" z="0" />
+          <BlockOrientation Forward="Left" Up="Forward" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>20</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Reactor">
+          <SubtypeName>SmallBlockSmallGenerator</SubtypeName>
+          <EntityId>113833707728900445</EntityId>
+          <Name>113833707728900445</Name>
+          <Min x="-3" y="22" z="-1" />
+          <BlockOrientation Forward="Right" Up="Down" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <Owner>144115188075855919</Owner>
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ShareMode>Faction</ShareMode>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyInventoryBase</TypeId>
+                <Component xsi:type="MyObjectBuilder_Inventory">
+                  <CanPutItems>true</CanPutItems>
+                  <Items>
+                    <MyObjectBuilder_InventoryItem>
+                      <Amount>0.693949</Amount>
+                      <PhysicalContent xsi:type="MyObjectBuilder_Ingot">
+                        <SubtypeName>Uranium</SubtypeName>
+                      </PhysicalContent>
+                      <ItemId>0</ItemId>
+                    </MyObjectBuilder_InventoryItem>
+                  </Items>
+                  <nextItemId>1</nextItemId>
+                  <Volume>0.125</Volume>
+                  <Mass>9223372036854.775807</Mass>
+                  <MaxItemCount>2147483647</MaxItemCount>
+                  <Size xsi:nil="true" />
+                  <InventoryFlags>CanReceive</InventoryFlags>
+                  <RemoveEntityOnEmpty>false</RemoveEntityOnEmpty>
+                </Component>
+              </ComponentData>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>400</FramesFromLastTrigger>
+                  <TimerTickInFrames>900</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>4</NumberInGrid>
+          <Enabled>true</Enabled>
+          <Capacity>0.693949</Capacity>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Reactor">
+          <SubtypeName>SmallBlockLargeGenerator</SubtypeName>
+          <EntityId>142870682697834323</EntityId>
+          <Name>142870682697834323</Name>
+          <Min x="-2" y="27" z="-2" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <Owner>144115188075855919</Owner>
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ShareMode>Faction</ShareMode>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyInventoryBase</TypeId>
+                <Component xsi:type="MyObjectBuilder_Inventory">
+                  <CanPutItems>true</CanPutItems>
+                  <Items>
+                    <MyObjectBuilder_InventoryItem>
+                      <Amount>991.736755</Amount>
+                      <PhysicalContent xsi:type="MyObjectBuilder_Ingot">
+                        <SubtypeName>Uranium</SubtypeName>
+                      </PhysicalContent>
+                      <ItemId>0</ItemId>
+                    </MyObjectBuilder_InventoryItem>
+                  </Items>
+                  <nextItemId>1</nextItemId>
+                  <Volume>1</Volume>
+                  <Mass>9223372036854.775807</Mass>
+                  <MaxItemCount>2147483647</MaxItemCount>
+                  <Size xsi:nil="true" />
+                  <InventoryFlags>CanReceive</InventoryFlags>
+                  <RemoveEntityOnEmpty>false</RemoveEntityOnEmpty>
+                </Component>
+              </ComponentData>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>400</FramesFromLastTrigger>
+                  <TimerTickInFrames>900</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>2</NumberInGrid>
+          <Enabled>true</Enabled>
+          <Capacity>991.736755</Capacity>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>82659720572574260</EntityId>
+          <Name>82659720572574260</Name>
+          <Min x="1" y="24" z="-5" />
+          <BlockOrientation Forward="Forward" Up="Right" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>19</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>94636424843872360</EntityId>
+          <Name>94636424843872360</Name>
+          <Min x="-3" y="23" z="1" />
+          <BlockOrientation Forward="Up" Up="Left" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>26</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>116778013537160359</EntityId>
+          <Name>116778013537160359</Name>
+          <Min x="-3" y="23" z="0" />
+          <BlockOrientation Forward="Up" Up="Left" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>25</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>119489330526247556</EntityId>
+          <Name>119489330526247556</Name>
+          <Min x="-3" y="23" z="-1" />
+          <BlockOrientation Forward="Up" Up="Left" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>24</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>131092375718496398</EntityId>
+          <Name>131092375718496398</Name>
+          <Min x="-3" y="23" z="-2" />
+          <BlockOrientation Forward="Up" Up="Left" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>23</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>135634420261966956</EntityId>
+          <Name>135634420261966956</Name>
+          <Min x="1" y="23" z="1" />
+          <BlockOrientation Forward="Down" Up="Right" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>22</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+          <SubtypeName>SmallBlockSmallAtmosphericThrust</SubtypeName>
+          <EntityId>91740084098560334</EntityId>
+          <Name>91740084098560334</Name>
+          <Min x="1" y="23" z="0" />
+          <BlockOrientation Forward="Down" Up="Right" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ComponentContainer>
+            <Components>
+              <ComponentData>
+                <TypeId>MyTimerComponent</TypeId>
+                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                  <Repeat>true</Repeat>
+                  <TimeToEvent>0</TimeToEvent>
+                  <SetTimeMinutes>0</SetTimeMinutes>
+                  <TimerEnabled>true</TimerEnabled>
+                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                  <TimerType>Frame100</TimerType>
+                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
+                  <TimerTickInFrames>100</TimerTickInFrames>
+                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                </Component>
+              </ComponentData>
+            </Components>
+          </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>21</NumberInGrid>
+          <Enabled>true</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_RadioAntenna">
+          <SubtypeName>SmallBlockRadioAntenna</SubtypeName>
+          <EntityId>137193978090863739</EntityId>
+          <Name>137193978090863739</Name>
+          <Min x="-1" y="26" z="-4" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <Owner>144115188075855919</Owner>
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ShareMode>Faction</ShareMode>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>1</NumberInGrid>
+          <Enabled>true</Enabled>
+          <BroadcastRadius>5000</BroadcastRadius>
+          <ShowShipName>false</ShowShipName>
+          <EnableBroadcasting>true</EnableBroadcasting>
+          <AttachedPB>0</AttachedPB>
+          <IgnoreAllied>false</IgnoreAllied>
+          <IgnoreOther>true</IgnoreOther>
+          <HudText />
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Drill">
+          <SubtypeName>SELtdSmallNanobotDrillSystem</SubtypeName>
+          <EntityId>128758850115954407</EntityId>
+          <Name>128758850115954407</Name>
+          <Min x="-2" y="22" z="-11" />
+          <BlockOrientation Forward="Backward" Up="Up" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
           <Owner>144115188075855919</Owner>
           <BuiltBy>144115188075855919</BuiltBy>
           <ShareMode>Faction</ShareMode>
@@ -44,15 +1543,121 @@
                   <Storage>
                     <dictionary>
                       <item>
-                        <Key>74de02b3-27f9-4960-b1c4-27351f2b06d1</Key>
-                        <Value />
+                        <Key>cd2d351c-44bf-4bc1-93c1-d986bfac58d3</Key>
+                        <Value>&lt;?xml version="1.0" encoding="utf-16"?&gt;
+&lt;SyncBlockSettings xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"&gt;
+  &lt;Flags /&gt;
+  &lt;WorkMode&gt;Drill&lt;/WorkMode&gt;
+  &lt;AreaOffset&gt;
+    &lt;X&gt;0&lt;/X&gt;
+    &lt;Y&gt;0&lt;/Y&gt;
+    &lt;Z&gt;0&lt;/Z&gt;
+  &lt;/AreaOffset&gt;
+  &lt;AreaSize&gt;
+    &lt;X&gt;25&lt;/X&gt;
+    &lt;Y&gt;25&lt;/Y&gt;
+    &lt;Z&gt;25&lt;/Z&gt;
+  &lt;/AreaSize&gt;
+  &lt;DrillPriority&gt;1137917536;True|1579040667;True|2112235764;True|-723128632;True|-122448462;True|-2115209756;True|2104309205;True|1033257407;True|-496794321;True|-510410391;False|1880922462;True&lt;/DrillPriority&gt;
+  &lt;ComponentCollectPriority /&gt;
+  &lt;FillMaterial&gt;0&lt;/FillMaterial&gt;
+  &lt;RemoteControlledBy xsi:nil="true" /&gt;
+  &lt;SoundVolume&gt;1&lt;/SoundVolume&gt;
+&lt;/SyncBlockSettings&gt;</Value>
                       </item>
                     </dictionary>
                   </Storage>
                 </Component>
               </ComponentData>
+              <ComponentData>
+                <TypeId>MyInventoryBase</TypeId>
+                <Component xsi:type="MyObjectBuilder_Inventory">
+                  <CanPutItems>true</CanPutItems>
+                  <Items>
+                    <MyObjectBuilder_InventoryItem>
+                      <Amount>7266.81056</Amount>
+                      <PhysicalContent xsi:type="MyObjectBuilder_Ore">
+                        <SubtypeName>Ice</SubtypeName>
+                        <MaterialNameString>Ice</MaterialNameString>
+                      </PhysicalContent>
+                      <ItemId>19</ItemId>
+                    </MyObjectBuilder_InventoryItem>
+                    <MyObjectBuilder_InventoryItem>
+                      <Amount>2.670906</Amount>
+                      <PhysicalContent xsi:type="MyObjectBuilder_Ore">
+                        <SubtypeName>Stone</SubtypeName>
+                        <MaterialNameString>MarsSoil</MaterialNameString>
+                      </PhysicalContent>
+                      <ItemId>21</ItemId>
+                    </MyObjectBuilder_InventoryItem>
+                  </Items>
+                  <nextItemId>22</nextItemId>
+                  <Volume>3.375</Volume>
+                  <Mass>9223372036854.775807</Mass>
+                  <MaxItemCount>2147483647</MaxItemCount>
+                  <Size xsi:nil="true" />
+                  <InventoryFlags>CanSend</InventoryFlags>
+                  <RemoveEntityOnEmpty>false</RemoveEntityOnEmpty>
+                </Component>
+              </ComponentData>
             </Components>
           </ComponentContainer>
+          <ShowOnHUD>false</ShowOnHUD>
+          <ShowInTerminal>true</ShowInTerminal>
+          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+          <ShowInInventory>true</ShowInInventory>
+          <NumberInGrid>2</NumberInGrid>
+          <Enabled>false</Enabled>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+          <SubtypeName>SmallBlockConveyor</SubtypeName>
+          <EntityId>118536820099799120</EntityId>
+          <Name>118536820099799120</Name>
+          <Min x="1" y="23" z="-6" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+          <SubtypeName>SmallBlockConveyor</SubtypeName>
+          <EntityId>91947471658688285</EntityId>
+          <Name>91947471658688285</Name>
+          <Min x="1" y="22" z="-6" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+          <SubtypeName>SmallBlockConveyor</SubtypeName>
+          <EntityId>99980974897588116</EntityId>
+          <Name>99980974897588116</Name>
+          <Min x="1" y="22" z="-5" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+          <SubtypeName>SmallBlockConveyor</SubtypeName>
+          <EntityId>108643483353638873</EntityId>
+          <Name>108643483353638873</Name>
+          <Min x="1" y="22" z="-3" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+          <SubtypeName>SmallBlockConveyor</SubtypeName>
+          <EntityId>74444695583189986</EntityId>
+          <Name>74444695583189986</Name>
+          <Min x="1" y="22" z="-4" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <BuiltBy>144115188075855919</BuiltBy>
+        </MyObjectBuilder_CubeBlock>
+        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Projector">
+          <SubtypeName>SmallProjector</SubtypeName>
+          <EntityId>103934683266862461</EntityId>
+          <Name>103934683266862461</Name>
+          <Min x="0" y="26" z="-3" />
+          <ColorMaskHSV x="0" y="-0.8" z="0" />
+          <Owner>144115188075855919</Owner>
+          <BuiltBy>144115188075855919</BuiltBy>
+          <ShareMode>Faction</ShareMode>
           <ShowOnHUD>false</ShowOnHUD>
           <ShowInTerminal>true</ShowInTerminal>
           <ShowInToolbarConfig>true</ShowInToolbarConfig>
@@ -62,9 +1667,9 @@
           <ProjectedGrids>
             <MyObjectBuilder_CubeGrid>
               <SubtypeName />
-              <EntityId>74785014761243263</EntityId>
+              <EntityId>135517783982558549</EntityId>
               <PersistentFlags>CastShadows InScene</PersistentFlags>
-              <Name>132991728939318218</Name>
+              <Name>135517783982558549</Name>
               <PositionAndOrientation>
                 <Position x="0" y="0" z="0" />
                 <Forward x="-0.6890099" y="0.311334431" z="-0.654474" />
@@ -113,18 +1718,18 @@
                   <ProjectedGrids>
                     <MyObjectBuilder_CubeGrid>
                       <SubtypeName />
-                      <EntityId>116145132292087965</EntityId>
+                      <EntityId>119992951826373141</EntityId>
                       <PersistentFlags>CastShadows InScene</PersistentFlags>
-                      <Name>116145132292087965</Name>
+                      <Name>119992951826373141</Name>
                       <PositionAndOrientation>
                         <Position x="0" y="0" z="0" />
-                        <Forward x="-0" y="-0" z="-1" />
-                        <Up x="0" y="1" z="0" />
+                        <Forward x="-0.6890099" y="0.311334431" z="-0.654474" />
+                        <Up x="-0.348962367" y="0.6489502" z="0.6760835" />
                         <Orientation>
-                          <X>0</X>
-                          <Y>0</Y>
-                          <Z>0</Z>
-                          <W>1</W>
+                          <X>0.288003862</X>
+                          <Y>0.299694449</Y>
+                          <Z>0.304267436</Z>
+                          <W>0.8571221</W>
                         </Orientation>
                       </PositionAndOrientation>
                       <LocalPositionAndOrientation xsi:nil="true" />
@@ -133,11 +1738,303 @@
                         <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
                           <SubtypeName>LargeBlockArmorBlock</SubtypeName>
                         </MyObjectBuilder_CubeBlock>
+                        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Projector">
+                          <SubtypeName>LargeProjector</SubtypeName>
+                          <Name>0</Name>
+                          <Min x="0" y="1" z="0" />
+                          <BlockOrientation Forward="Right" Up="Up" />
+                          <ComponentContainer>
+                            <Components>
+                              <ComponentData>
+                                <TypeId>MyModStorageComponent</TypeId>
+                                <Component xsi:type="MyObjectBuilder_ModStorageComponent">
+                                  <Storage>
+                                    <dictionary>
+                                      <item>
+                                        <Key>74de02b3-27f9-4960-b1c4-27351f2b06d1</Key>
+                                        <Value />
+                                      </item>
+                                    </dictionary>
+                                  </Storage>
+                                </Component>
+                              </ComponentData>
+                            </Components>
+                          </ComponentContainer>
+                          <ShowOnHUD>false</ShowOnHUD>
+                          <ShowInTerminal>true</ShowInTerminal>
+                          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+                          <ShowInInventory>true</ShowInInventory>
+                          <NumberInGrid>1</NumberInGrid>
+                          <Enabled>false</Enabled>
+                          <ProjectedGrids>
+                            <MyObjectBuilder_CubeGrid>
+                              <SubtypeName />
+                              <EntityId>121433695988993626</EntityId>
+                              <PersistentFlags>CastShadows InScene</PersistentFlags>
+                              <Name>121433695988993626</Name>
+                              <PositionAndOrientation>
+                                <Position x="0" y="0" z="0" />
+                                <Forward x="-0" y="-0" z="-1" />
+                                <Up x="0" y="1" z="0" />
+                                <Orientation>
+                                  <X>0</X>
+                                  <Y>0</Y>
+                                  <Z>0</Z>
+                                  <W>1</W>
+                                </Orientation>
+                              </PositionAndOrientation>
+                              <LocalPositionAndOrientation xsi:nil="true" />
+                              <GridSizeEnum>Large</GridSizeEnum>
+                              <CubeBlocks>
+                                <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+                                  <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+                                </MyObjectBuilder_CubeBlock>
+                              </CubeBlocks>
+                              <DestructibleBlocks>false</DestructibleBlocks>
+                              <CreatePhysics>false</CreatePhysics>
+                              <IsRespawnGrid>false</IsRespawnGrid>
+                              <LocalCoordSys>0</LocalCoordSys>
+                              <TargetingTargets />
+                              <NPCGridClaimElapsed xsi:nil="true" />
+                            </MyObjectBuilder_CubeGrid>
+                          </ProjectedGrids>
+                          <ProjectionOffset>
+                            <X>0</X>
+                            <Y>0</Y>
+                            <Z>0</Z>
+                          </ProjectionOffset>
+                          <ProjectionRotation>
+                            <X>0</X>
+                            <Y>0</Y>
+                            <Z>0</Z>
+                          </ProjectionRotation>
+                          <KeepProjection>false</KeepProjection>
+                          <ShowOnlyBuildable>false</ShowOnlyBuildable>
+                          <InstantBuildingEnabled>false</InstantBuildingEnabled>
+                          <MaxNumberOfProjections>5</MaxNumberOfProjections>
+                          <MaxNumberOfBlocks>200</MaxNumberOfBlocks>
+                          <ProjectionsRemaining>0</ProjectionsRemaining>
+                          <GetOwnershipFromProjector>false</GetOwnershipFromProjector>
+                          <Scale>1</Scale>
+                          <MarkUnfinishedBlocks>false</MarkUnfinishedBlocks>
+                          <MarkMissingBlocks>false</MarkMissingBlocks>
+                        </MyObjectBuilder_CubeBlock>
+                        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_BatteryBlock">
+                          <SubtypeName>LargeBlockBatteryBlock</SubtypeName>
+                          <Name>0</Name>
+                          <Min x="0" y="0" z="-1" />
+                          <BlockOrientation Forward="Down" Up="Forward" />
+                          <ShowOnHUD>false</ShowOnHUD>
+                          <ShowInTerminal>true</ShowInTerminal>
+                          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+                          <ShowInInventory>true</ShowInInventory>
+                          <NumberInGrid>1</NumberInGrid>
+                          <Enabled>false</Enabled>
+                          <CurrentStoredPower>0</CurrentStoredPower>
+                          <ProducerEnabled>true</ProducerEnabled>
+                          <MaxStoredPower>0</MaxStoredPower>
+                          <SemiautoEnabled>false</SemiautoEnabled>
+                          <OnlyDischargeEnabled>false</OnlyDischargeEnabled>
+                          <ChargeMode>0</ChargeMode>
+                        </MyObjectBuilder_CubeBlock>
+                        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_SurvivalKit">
+                          <SubtypeName>SurvivalKitLarge</SubtypeName>
+                          <Name>0</Name>
+                          <Min x="0" y="0" z="1" />
+                          <BlockOrientation Forward="Right" Up="Up" />
+                          <ComponentContainer>
+                            <Components>
+                              <ComponentData>
+                                <TypeId>MyMultiTextPanelComponent</TypeId>
+                                <Component xsi:type="MyObjectBuilder_MultiTextPanelComponent">
+                                  <TextPanelsContents>
+                                    <MySerializedTextPanelData>
+                                      <ChangeInterval>0</ChangeInterval>
+                                      <Font Type="MyObjectBuilder_FontDefinition" Subtype="Debug" />
+                                      <FontSize>1</FontSize>
+                                      <ShowText>NONE</ShowText>
+                                      <FontColor>
+                                        <PackedValue>4294967295</PackedValue>
+                                        <X>255</X>
+                                        <Y>255</Y>
+                                        <Z>255</Z>
+                                        <R>255</R>
+                                        <G>255</G>
+                                        <B>255</B>
+                                        <A>255</A>
+                                      </FontColor>
+                                      <BackgroundColor>
+                                        <PackedValue>4278190080</PackedValue>
+                                        <X>0</X>
+                                        <Y>0</Y>
+                                        <Z>0</Z>
+                                        <R>0</R>
+                                        <G>0</G>
+                                        <B>0</B>
+                                        <A>255</A>
+                                      </BackgroundColor>
+                                      <CurrentShownTexture>0</CurrentShownTexture>
+                                      <SelectedScript />
+                                      <TextPadding>2</TextPadding>
+                                      <ScriptBackgroundColor>
+                                        <PackedValue>4288108544</PackedValue>
+                                        <X>0</X>
+                                        <Y>88</Y>
+                                        <Z>151</Z>
+                                        <R>0</R>
+                                        <G>88</G>
+                                        <B>151</B>
+                                        <A>255</A>
+                                      </ScriptBackgroundColor>
+                                      <ScriptForegroundColor>
+                                        <PackedValue>4294962611</PackedValue>
+                                        <X>179</X>
+                                        <Y>237</Y>
+                                        <Z>255</Z>
+                                        <R>179</R>
+                                        <G>237</G>
+                                        <B>255</B>
+                                        <A>255</A>
+                                      </ScriptForegroundColor>
+                                      <Sprites>
+                                        <Length>0</Length>
+                                      </Sprites>
+                                      <UpdateStartOfFirstTexture>-9223372036854775808</UpdateStartOfFirstTexture>
+                                    </MySerializedTextPanelData>
+                                    <MySerializedTextPanelData>
+                                      <ChangeInterval>0</ChangeInterval>
+                                      <Font Type="MyObjectBuilder_FontDefinition" Subtype="Debug" />
+                                      <FontSize>1</FontSize>
+                                      <ShowText>NONE</ShowText>
+                                      <FontColor>
+                                        <PackedValue>4294967295</PackedValue>
+                                        <X>255</X>
+                                        <Y>255</Y>
+                                        <Z>255</Z>
+                                        <R>255</R>
+                                        <G>255</G>
+                                        <B>255</B>
+                                        <A>255</A>
+                                      </FontColor>
+                                      <BackgroundColor>
+                                        <PackedValue>4278190080</PackedValue>
+                                        <X>0</X>
+                                        <Y>0</Y>
+                                        <Z>0</Z>
+                                        <R>0</R>
+                                        <G>0</G>
+                                        <B>0</B>
+                                        <A>255</A>
+                                      </BackgroundColor>
+                                      <CurrentShownTexture>0</CurrentShownTexture>
+                                      <SelectedScript />
+                                      <TextPadding>2</TextPadding>
+                                      <ScriptBackgroundColor>
+                                        <PackedValue>4288108544</PackedValue>
+                                        <X>0</X>
+                                        <Y>88</Y>
+                                        <Z>151</Z>
+                                        <R>0</R>
+                                        <G>88</G>
+                                        <B>151</B>
+                                        <A>255</A>
+                                      </ScriptBackgroundColor>
+                                      <ScriptForegroundColor>
+                                        <PackedValue>4294962611</PackedValue>
+                                        <X>179</X>
+                                        <Y>237</Y>
+                                        <Z>255</Z>
+                                        <R>179</R>
+                                        <G>237</G>
+                                        <B>255</B>
+                                        <A>255</A>
+                                      </ScriptForegroundColor>
+                                      <Sprites>
+                                        <Length>0</Length>
+                                      </Sprites>
+                                      <UpdateStartOfFirstTexture>-9223372036854775808</UpdateStartOfFirstTexture>
+                                    </MySerializedTextPanelData>
+                                  </TextPanelsContents>
+                                </Component>
+                              </ComponentData>
+                              <ComponentData>
+                                <TypeId>MyInventoryBase</TypeId>
+                                <Component xsi:type="MyObjectBuilder_InventoryAggregate">
+                                  <InventoryId>Inventory</InventoryId>
+                                  <CanPutItems>true</CanPutItems>
+                                  <Inventories>
+                                    <MyObjectBuilder_InventoryBase xsi:type="MyObjectBuilder_Inventory">
+                                      <CanPutItems>true</CanPutItems>
+                                      <Items />
+                                      <nextItemId>0</nextItemId>
+                                      <Volume>2</Volume>
+                                      <Mass>9223372036854.775807</Mass>
+                                      <MaxItemCount>2147483647</MaxItemCount>
+                                      <Size xsi:nil="true" />
+                                      <InventoryFlags>CanReceive</InventoryFlags>
+                                      <RemoveEntityOnEmpty>false</RemoveEntityOnEmpty>
+                                    </MyObjectBuilder_InventoryBase>
+                                    <MyObjectBuilder_InventoryBase xsi:type="MyObjectBuilder_Inventory">
+                                      <CanPutItems>true</CanPutItems>
+                                      <Items />
+                                      <nextItemId>0</nextItemId>
+                                      <Volume>2</Volume>
+                                      <Mass>9223372036854.775807</Mass>
+                                      <MaxItemCount>2147483647</MaxItemCount>
+                                      <Size xsi:nil="true" />
+                                      <InventoryFlags>CanSend</InventoryFlags>
+                                      <RemoveEntityOnEmpty>false</RemoveEntityOnEmpty>
+                                    </MyObjectBuilder_InventoryBase>
+                                  </Inventories>
+                                </Component>
+                              </ComponentData>
+                              <ComponentData>
+                                <TypeId>MyTimerComponent</TypeId>
+                                <Component xsi:type="MyObjectBuilder_TimerComponent">
+                                  <Repeat>true</Repeat>
+                                  <TimeToEvent>0</TimeToEvent>
+                                  <SetTimeMinutes>0</SetTimeMinutes>
+                                  <TimerEnabled>true</TimerEnabled>
+                                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
+                                  <TimerType>Frame10</TimerType>
+                                  <FramesFromLastTrigger>10</FramesFromLastTrigger>
+                                  <TimerTickInFrames>60</TimerTickInFrames>
+                                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
+                                </Component>
+                              </ComponentData>
+                            </Components>
+                          </ComponentContainer>
+                          <ShowOnHUD>false</ShowOnHUD>
+                          <ShowInTerminal>true</ShowInTerminal>
+                          <ShowInToolbarConfig>true</ShowInToolbarConfig>
+                          <ShowInInventory>true</ShowInInventory>
+                          <NumberInGrid>2</NumberInGrid>
+                          <Enabled>false</Enabled>
+                          <CurrentProgress>0</CurrentProgress>
+                          <DisassembleEnabled>false</DisassembleEnabled>
+                          <RepeatAssembleEnabled>false</RepeatAssembleEnabled>
+                          <RepeatDisassembleEnabled>false</RepeatDisassembleEnabled>
+                          <SlaveEnabled>false</SlaveEnabled>
+                          <SpawnName />
+                        </MyObjectBuilder_CubeBlock>
+                        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+                          <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+                          <Min x="0" y="1" z="-1" />
+                        </MyObjectBuilder_CubeBlock>
+                        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+                          <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+                          <Min x="0" y="1" z="-2" />
+                        </MyObjectBuilder_CubeBlock>
+                        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+                          <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+                          <Min x="0" y="1" z="-3" />
+                        </MyObjectBuilder_CubeBlock>
                       </CubeBlocks>
+                      <DisplayName>Static Grid 1503</DisplayName>
                       <DestructibleBlocks>false</DestructibleBlocks>
                       <CreatePhysics>false</CreatePhysics>
                       <IsRespawnGrid>false</IsRespawnGrid>
-                      <LocalCoordSys>0</LocalCoordSys>
+                      <LocalCoordSys>2</LocalCoordSys>
                       <TargetingTargets />
                       <NPCGridClaimElapsed xsi:nil="true" />
                     </MyObjectBuilder_CubeGrid>
@@ -243,6 +2140,7 @@
                               <Sprites>
                                 <Length>0</Length>
                               </Sprites>
+                              <UpdateStartOfFirstTexture>-9223372036854775808</UpdateStartOfFirstTexture>
                             </MySerializedTextPanelData>
                             <MySerializedTextPanelData>
                               <ChangeInterval>0</ChangeInterval>
@@ -295,6 +2193,7 @@
                               <Sprites>
                                 <Length>0</Length>
                               </Sprites>
+                              <UpdateStartOfFirstTexture>-9223372036854775808</UpdateStartOfFirstTexture>
                             </MySerializedTextPanelData>
                           </TextPanelsContents>
                         </Component>
@@ -339,7 +2238,7 @@
                           <TimerEnabled>true</TimerEnabled>
                           <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
                           <TimerType>Frame10</TimerType>
-                          <FramesFromLastTrigger>10</FramesFromLastTrigger>
+                          <FramesFromLastTrigger>0</FramesFromLastTrigger>
                           <TimerTickInFrames>60</TimerTickInFrames>
                           <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
                         </Component>
@@ -359,18 +2258,6 @@
                   <SlaveEnabled>false</SlaveEnabled>
                   <SpawnName />
                 </MyObjectBuilder_CubeBlock>
-                <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
-                  <SubtypeName>LargeBlockArmorBlock</SubtypeName>
-                  <Min x="0" y="1" z="-1" />
-                </MyObjectBuilder_CubeBlock>
-                <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
-                  <SubtypeName>LargeBlockArmorBlock</SubtypeName>
-                  <Min x="0" y="1" z="-2" />
-                </MyObjectBuilder_CubeBlock>
-                <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
-                  <SubtypeName>LargeBlockArmorBlock</SubtypeName>
-                  <Min x="0" y="1" z="-3" />
-                </MyObjectBuilder_CubeBlock>
               </CubeBlocks>
               <DisplayName>Static Grid 1503</DisplayName>
               <DestructibleBlocks>false</DestructibleBlocks>
@@ -383,11 +2270,11 @@
           </ProjectedGrids>
           <ProjectionOffset>
             <X>0</X>
-            <Y>0</Y>
+            <Y>1</Y>
             <Z>0</Z>
           </ProjectionOffset>
           <ProjectionRotation>
-            <X>0</X>
+            <X>45</X>
             <Y>0</Y>
             <Z>0</Z>
           </ProjectionRotation>
@@ -402,216 +2289,287 @@
           <MarkUnfinishedBlocks>false</MarkUnfinishedBlocks>
           <MarkMissingBlocks>false</MarkMissingBlocks>
         </MyObjectBuilder_CubeBlock>
-        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_BatteryBlock">
-          <SubtypeName>LargeBlockBatteryBlock</SubtypeName>
-          <EntityId>73798548590002988</EntityId>
-          <Name>73798548590002988</Name>
-          <Min x="0" y="0" z="-1" />
-          <BlockOrientation Forward="Down" Up="Forward" />
-          <Owner>144115188075855919</Owner>
-          <BuiltBy>144115188075855919</BuiltBy>
-          <ShareMode>Faction</ShareMode>
-          <ShowOnHUD>false</ShowOnHUD>
-          <ShowInTerminal>true</ShowInTerminal>
-          <ShowInToolbarConfig>true</ShowInToolbarConfig>
-          <ShowInInventory>true</ShowInInventory>
-          <NumberInGrid>1</NumberInGrid>
-          <Enabled>true</Enabled>
-          <CurrentStoredPower>0.882995248</CurrentStoredPower>
-          <ProducerEnabled>true</ProducerEnabled>
-          <MaxStoredPower>0</MaxStoredPower>
-          <SemiautoEnabled>false</SemiautoEnabled>
-          <OnlyDischargeEnabled>false</OnlyDischargeEnabled>
-          <ChargeMode>0</ChargeMode>
-        </MyObjectBuilder_CubeBlock>
-        <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_SurvivalKit">
-          <SubtypeName>SurvivalKitLarge</SubtypeName>
-          <EntityId>97172703007147129</EntityId>
-          <Name>97172703007147129</Name>
-          <Min x="0" y="0" z="1" />
-          <BlockOrientation Forward="Right" Up="Up" />
-          <Owner>144115188075855919</Owner>
-          <BuiltBy>144115188075855919</BuiltBy>
-          <ShareMode>Faction</ShareMode>
-          <ComponentContainer>
-            <Components>
-              <ComponentData>
-                <TypeId>MyMultiTextPanelComponent</TypeId>
-                <Component xsi:type="MyObjectBuilder_MultiTextPanelComponent">
-                  <TextPanelsContents>
-                    <MySerializedTextPanelData>
-                      <ChangeInterval>0</ChangeInterval>
-                      <Font Type="MyObjectBuilder_FontDefinition" Subtype="Debug" />
-                      <FontSize>1</FontSize>
-                      <ShowText>NONE</ShowText>
-                      <FontColor>
-                        <PackedValue>4294967295</PackedValue>
-                        <X>255</X>
-                        <Y>255</Y>
-                        <Z>255</Z>
-                        <R>255</R>
-                        <G>255</G>
-                        <B>255</B>
-                        <A>255</A>
-                      </FontColor>
-                      <BackgroundColor>
-                        <PackedValue>4278190080</PackedValue>
-                        <X>0</X>
-                        <Y>0</Y>
-                        <Z>0</Z>
-                        <R>0</R>
-                        <G>0</G>
-                        <B>0</B>
-                        <A>255</A>
-                      </BackgroundColor>
-                      <CurrentShownTexture>0</CurrentShownTexture>
-                      <SelectedScript />
-                      <TextPadding>2</TextPadding>
-                      <ScriptBackgroundColor>
-                        <PackedValue>4288108544</PackedValue>
-                        <X>0</X>
-                        <Y>88</Y>
-                        <Z>151</Z>
-                        <R>0</R>
-                        <G>88</G>
-                        <B>151</B>
-                        <A>255</A>
-                      </ScriptBackgroundColor>
-                      <ScriptForegroundColor>
-                        <PackedValue>4294962611</PackedValue>
-                        <X>179</X>
-                        <Y>237</Y>
-                        <Z>255</Z>
-                        <R>179</R>
-                        <G>237</G>
-                        <B>255</B>
-                        <A>255</A>
-                      </ScriptForegroundColor>
-                      <Sprites>
-                        <Length>0</Length>
-                      </Sprites>
-                    </MySerializedTextPanelData>
-                    <MySerializedTextPanelData>
-                      <ChangeInterval>0</ChangeInterval>
-                      <Font Type="MyObjectBuilder_FontDefinition" Subtype="Debug" />
-                      <FontSize>1</FontSize>
-                      <ShowText>NONE</ShowText>
-                      <FontColor>
-                        <PackedValue>4294967295</PackedValue>
-                        <X>255</X>
-                        <Y>255</Y>
-                        <Z>255</Z>
-                        <R>255</R>
-                        <G>255</G>
-                        <B>255</B>
-                        <A>255</A>
-                      </FontColor>
-                      <BackgroundColor>
-                        <PackedValue>4278190080</PackedValue>
-                        <X>0</X>
-                        <Y>0</Y>
-                        <Z>0</Z>
-                        <R>0</R>
-                        <G>0</G>
-                        <B>0</B>
-                        <A>255</A>
-                      </BackgroundColor>
-                      <CurrentShownTexture>0</CurrentShownTexture>
-                      <SelectedScript />
-                      <TextPadding>2</TextPadding>
-                      <ScriptBackgroundColor>
-                        <PackedValue>4288108544</PackedValue>
-                        <X>0</X>
-                        <Y>88</Y>
-                        <Z>151</Z>
-                        <R>0</R>
-                        <G>88</G>
-                        <B>151</B>
-                        <A>255</A>
-                      </ScriptBackgroundColor>
-                      <ScriptForegroundColor>
-                        <PackedValue>4294962611</PackedValue>
-                        <X>179</X>
-                        <Y>237</Y>
-                        <Z>255</Z>
-                        <R>179</R>
-                        <G>237</G>
-                        <B>255</B>
-                        <A>255</A>
-                      </ScriptForegroundColor>
-                      <Sprites>
-                        <Length>0</Length>
-                      </Sprites>
-                    </MySerializedTextPanelData>
-                  </TextPanelsContents>
-                </Component>
-              </ComponentData>
-              <ComponentData>
-                <TypeId>MyInventoryBase</TypeId>
-                <Component xsi:type="MyObjectBuilder_InventoryAggregate">
-                  <InventoryId>Inventory</InventoryId>
-                  <CanPutItems>true</CanPutItems>
-                  <Inventories>
-                    <MyObjectBuilder_InventoryBase xsi:type="MyObjectBuilder_Inventory">
-                      <CanPutItems>true</CanPutItems>
-                      <Items />
-                      <nextItemId>0</nextItemId>
-                      <Volume>2</Volume>
-                      <Mass>9223372036854.775807</Mass>
-                      <MaxItemCount>2147483647</MaxItemCount>
-                      <Size xsi:nil="true" />
-                      <InventoryFlags>CanReceive</InventoryFlags>
-                      <RemoveEntityOnEmpty>false</RemoveEntityOnEmpty>
-                    </MyObjectBuilder_InventoryBase>
-                    <MyObjectBuilder_InventoryBase xsi:type="MyObjectBuilder_Inventory">
-                      <CanPutItems>true</CanPutItems>
-                      <Items />
-                      <nextItemId>0</nextItemId>
-                      <Volume>2</Volume>
-                      <Mass>9223372036854.775807</Mass>
-                      <MaxItemCount>2147483647</MaxItemCount>
-                      <Size xsi:nil="true" />
-                      <InventoryFlags>CanSend</InventoryFlags>
-                      <RemoveEntityOnEmpty>false</RemoveEntityOnEmpty>
-                    </MyObjectBuilder_InventoryBase>
-                  </Inventories>
-                </Component>
-              </ComponentData>
-              <ComponentData>
-                <TypeId>MyTimerComponent</TypeId>
-                <Component xsi:type="MyObjectBuilder_TimerComponent">
-                  <Repeat>true</Repeat>
-                  <TimeToEvent>0</TimeToEvent>
-                  <SetTimeMinutes>0</SetTimeMinutes>
-                  <TimerEnabled>true</TimerEnabled>
-                  <RemoveEntityOnTimer>false</RemoveEntityOnTimer>
-                  <TimerType>Frame10</TimerType>
-                  <FramesFromLastTrigger>0</FramesFromLastTrigger>
-                  <TimerTickInFrames>60</TimerTickInFrames>
-                  <IsSessionUpdateEnabled>false</IsSessionUpdateEnabled>
-                </Component>
-              </ComponentData>
-            </Components>
-          </ComponentContainer>
-          <ShowOnHUD>false</ShowOnHUD>
-          <ShowInTerminal>true</ShowInTerminal>
-          <ShowInToolbarConfig>true</ShowInToolbarConfig>
-          <ShowInInventory>true</ShowInInventory>
-          <NumberInGrid>2</NumberInGrid>
-          <Enabled>true</Enabled>
-          <CurrentProgress>0</CurrentProgress>
-          <DisassembleEnabled>false</DisassembleEnabled>
-          <RepeatAssembleEnabled>false</RepeatAssembleEnabled>
-          <RepeatDisassembleEnabled>false</RepeatDisassembleEnabled>
-          <SlaveEnabled>false</SlaveEnabled>
-          <SpawnName />
-        </MyObjectBuilder_CubeBlock>
       </CubeBlocks>
-      <IsStatic>true</IsStatic>
-      <DisplayName>Static Grid 1503</DisplayName>
+      <Skeleton>
+        <BoneInfo>
+          <BonePosition x="3" y="47" z="-2" />
+          <BoneOffset x="127" y="127" z="108" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="45" z="-2" />
+          <BoneOffset x="152" y="127" z="127" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="46" z="-2" />
+          <BoneOffset x="127" y="127" z="122" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="47" z="0" />
+          <BoneOffset x="127" y="127" z="125" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="44" z="0" />
+          <BoneOffset x="132" y="144" z="107" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="44" z="1" />
+          <BoneOffset x="127" y="140" z="131" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="47" z="1" />
+          <BoneOffset x="110" y="126" z="158" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="47" z="0" />
+          <BoneOffset x="110" y="121" z="106" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="45" z="0" />
+          <BoneOffset x="127" y="127" z="123" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="46" z="0" />
+          <BoneOffset x="146" y="108" z="108" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="45" z="-4" />
+          <BoneOffset x="108" y="128" z="106" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="46" z="-4" />
+          <BoneOffset x="159" y="95" z="159" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="46" z="-3" />
+          <BoneOffset x="159" y="95" z="127" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="46" z="-2" />
+          <BoneOffset x="146" y="108" z="128" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="46" z="-1" />
+          <BoneOffset x="159" y="95" z="127" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="45" z="-5" />
+          <BoneOffset x="115" y="126" z="99" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="45" z="-2" />
+          <BoneOffset x="127" y="127" z="118" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="47" z="-1" />
+          <BoneOffset x="105" y="126" z="104" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="47" z="-2" />
+          <BoneOffset x="104" y="120" z="134" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="47" z="-3" />
+          <BoneOffset x="108" y="122" z="108" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="44" z="-2" />
+          <BoneOffset x="145" y="151" z="119" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="47" z="-4" />
+          <BoneOffset x="121" y="127" z="114" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="44" z="-1" />
+          <BoneOffset x="129" y="153" z="153" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="47" z="-5" />
+          <BoneOffset x="114" y="126" z="122" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="44" z="-3" />
+          <BoneOffset x="119" y="159" z="154" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="47" z="-2" />
+          <BoneOffset x="127" y="127" z="119" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="44" z="-5" />
+          <BoneOffset x="126" y="135" z="101" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="46" z="0" />
+          <BoneOffset x="127" y="127" z="104" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="3" y="47" z="0" />
+          <BoneOffset x="127" y="127" z="106" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="45" z="0" />
+          <BoneOffset x="127" y="127" z="106" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="3" y="46" z="-4" />
+          <BoneOffset x="127" y="95" z="159" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="3" y="46" z="-2" />
+          <BoneOffset x="127" y="101" z="112" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="43" z="-2" />
+          <BoneOffset x="127" y="127" z="96" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="44" z="1" />
+          <BoneOffset x="128" y="131" z="125" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="44" z="0" />
+          <BoneOffset x="130" y="135" z="142" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="47" z="0" />
+          <BoneOffset x="127" y="127" z="122" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="43" z="-2" />
+          <BoneOffset x="127" y="127" z="109" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="3" y="44" z="-5" />
+          <BoneOffset x="125" y="144" z="148" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="43" z="0" />
+          <BoneOffset x="127" y="127" z="119" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="46" z="-5" />
+          <BoneOffset x="113" y="128" z="101" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="46" z="-2" />
+          <BoneOffset x="111" y="103" z="151" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="46" z="-4" />
+          <BoneOffset x="107" y="107" z="147" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="4" y="46" z="-3" />
+          <BoneOffset x="109" y="125" z="109" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="47" z="-2" />
+          <BoneOffset x="127" y="127" z="126" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="44" z="-3" />
+          <BoneOffset x="130" y="145" z="146" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="44" z="-4" />
+          <BoneOffset x="127" y="135" z="127" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="44" z="-1" />
+          <BoneOffset x="124" y="151" z="102" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="1" y="44" z="-2" />
+          <BoneOffset x="127" y="154" z="97" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="2" y="43" z="0" />
+          <BoneOffset x="127" y="127" z="129" />
+        </BoneInfo>
+        <BoneInfo>
+          <BonePosition x="3" y="46" z="0" />
+          <BoneOffset x="127" y="127" z="99" />
+        </BoneInfo>
+      </Skeleton>
+      <ConveyorLines>
+        <MyObjectBuilder_ConveyorLine>
+          <StartPosition x="-1" y="22" z="-1" />
+          <StartDirection>Up</StartDirection>
+          <EndPosition x="-1" y="23" z="-1" />
+          <EndDirection>Down</EndDirection>
+          <Sections />
+          <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+        </MyObjectBuilder_ConveyorLine>
+        <MyObjectBuilder_ConveyorLine>
+          <StartPosition x="-1" y="22" z="0" />
+          <StartDirection>Backward</StartDirection>
+          <EndPosition x="-1" y="22" z="1" />
+          <EndDirection>Forward</EndDirection>
+          <Sections />
+          <ConveyorLineType>SMALL_LINE</ConveyorLineType>
+        </MyObjectBuilder_ConveyorLine>
+        <MyObjectBuilder_ConveyorLine>
+          <StartPosition x="-2" y="22" z="-1" />
+          <StartDirection>Left</StartDirection>
+          <EndPosition x="-3" y="22" z="-1" />
+          <EndDirection>Right</EndDirection>
+          <Sections />
+          <ConveyorLineType>SMALL_LINE</ConveyorLineType>
+        </MyObjectBuilder_ConveyorLine>
+        <MyObjectBuilder_ConveyorLine>
+          <StartPosition x="-1" y="23" z="-5" />
+          <StartDirection>Forward</StartDirection>
+          <EndPosition x="-1" y="23" z="-6" />
+          <EndDirection>Backward</EndDirection>
+          <Sections />
+          <ConveyorLineType>SMALL_LINE</ConveyorLineType>
+        </MyObjectBuilder_ConveyorLine>
+        <MyObjectBuilder_ConveyorLine>
+          <StartPosition x="1" y="23" z="-6" />
+          <StartDirection>Left</StartDirection>
+          <EndPosition x="0" y="23" z="-6" />
+          <EndDirection>Right</EndDirection>
+          <Sections />
+          <ConveyorLineType>SMALL_LINE</ConveyorLineType>
+        </MyObjectBuilder_ConveyorLine>
+        <MyObjectBuilder_ConveyorLine>
+          <StartPosition x="1" y="23" z="-6" />
+          <StartDirection>Down</StartDirection>
+          <EndPosition x="1" y="22" z="-6" />
+          <EndDirection>Up</EndDirection>
+          <Sections />
+          <ConveyorLineType>SMALL_LINE</ConveyorLineType>
+        </MyObjectBuilder_ConveyorLine>
+        <MyObjectBuilder_ConveyorLine>
+          <StartPosition x="1" y="22" z="-6" />
+          <StartDirection>Backward</StartDirection>
+          <EndPosition x="1" y="22" z="-5" />
+          <EndDirection>Forward</EndDirection>
+          <Sections />
+          <ConveyorLineType>SMALL_LINE</ConveyorLineType>
+        </MyObjectBuilder_ConveyorLine>
+        <MyObjectBuilder_ConveyorLine>
+          <StartPosition x="1" y="22" z="-5" />
+          <StartDirection>Backward</StartDirection>
+          <EndPosition x="1" y="22" z="-4" />
+          <EndDirection>Forward</EndDirection>
+          <Sections />
+          <ConveyorLineType>SMALL_LINE</ConveyorLineType>
+        </MyObjectBuilder_ConveyorLine>
+        <MyObjectBuilder_ConveyorLine>
+          <StartPosition x="1" y="22" z="-3" />
+          <StartDirection>Forward</StartDirection>
+          <EndPosition x="1" y="22" z="-4" />
+          <EndDirection>Backward</EndDirection>
+          <Sections />
+          <ConveyorLineType>SMALL_LINE</ConveyorLineType>
+        </MyObjectBuilder_ConveyorLine>
+      </ConveyorLines>
+      <DisplayName>taburet2</DisplayName>
       <DestructibleBlocks>true</DestructibleBlocks>
       <IsRespawnGrid>false</IsRespawnGrid>
-      <LocalCoordSys>2</LocalCoordSys>
+      <LocalCoordSys>0</LocalCoordSys>
       <TargetingTargets />
       <NPCGridClaimElapsed xsi:nil="true" />
     </CubeGrid>

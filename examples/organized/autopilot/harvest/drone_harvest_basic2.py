@@ -61,14 +61,14 @@ def pick_first_target(drill: NanobotDrillSystemDevice) -> None:
     ore_name = first_target[3] if len(first_target) > 3 else "<unknown>"
     volume = first_target[4] if len(first_target) > 4 else 0.0
 
-    if drill.has_action("PickDrillTarget_1"):
-        drill.run_action("PickDrillTarget_1")
-        print(f"Пикаем первую цель: {ore_name} (объём: {volume})")
-    else:
-        print(
-            "Действие 'PickDrillTarget_1' не найдено у Nanobot Drill. "
-            "Возможно, мод использует другой идентификатор — пропускаю пикинг."
-        )
+    # if drill.has_action("PickDrillTarget_1"):
+    #     drill.run_action("PickDrillTarget_1")
+    #     print(f"Пикаем первую цель: {ore_name} (объём: {volume})")
+    # else:
+    #     print(
+    #         "Действие 'PickDrillTarget_1' не найдено у Nanobot Drill. "
+    #         "Возможно, мод использует другой идентификатор — пропускаю пикинг."
+    #     )
 
 
 def configure_drill(drill: NanobotDrillSystemDevice) -> None:
@@ -158,6 +158,9 @@ def main() -> None:
         # Первый снимок видимых руд
         drill.update()
         drill.wait_for_telemetry(timeout=5)
+
+
+        exit(0)
         visible = parse_visible_ores(drill.telemetry or {})
         print("=== ВИДИМЫЕ РУДЫ (по PossibleDrillTargets) ===")
         for ore in visible:

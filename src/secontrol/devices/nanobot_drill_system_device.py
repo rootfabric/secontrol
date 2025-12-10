@@ -611,7 +611,8 @@ class NanobotDrillSystemDevice(BaseDevice):
           1 = Collect
           2 = Drill
         """
-        mode_map = {"drill": 2, "collect": 1, "fill": 0}
+        # mode_map = {"drill": 2, "collect": 1, "fill": 0}
+        mode_map = {"drill": 1, "collect": 2, "fill": 0}
         mode_lower = mode.lower().strip()
         if mode_lower not in mode_map:
             raise ValueError(f"Invalid mode '{mode}'. Use: drill, collect, fill")
