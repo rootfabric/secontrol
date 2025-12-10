@@ -89,8 +89,8 @@ class App:
         self.map_ctrl = SharedMapController(owner_id=self.grid.owner_id)
 
         # Проверить общее количество данных
-        data_all = self.map_ctrl.load()
-        print(f"Всего сохранено: {len(data_all.voxels)} вокселей, {len(data_all.ores)} руд, {len(data_all.visited)} посещенных")
+        # data_all = self.map_ctrl.load()
+        # print(f"Всего сохранено: {len(data_all.voxels)} вокселей, {len(data_all.ores)} руд, {len(data_all.visited)} посещенных")
 
         # Размер данных
         # redis_size = self.map_ctrl.get_storage_usage()

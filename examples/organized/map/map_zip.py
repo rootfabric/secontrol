@@ -5,8 +5,8 @@ grid = prepare_grid("taburet")
 mc = SharedMapController(owner_id=grid.owner_id)
 
 # 3) Для справки размер в Redis
-redis_size = mc.get_redis_memory_usage()
-print(f"\nПримерный размер карты в Redis: {redis_size} байт ({redis_size / 1024:.1f} KB)")
+# redis_size = mc. get_redis_memory_usage()
+# print(f"\nПримерный размер карты в Redis: {redis_size} байт ({redis_size / 1024:.1f} KB)")
 
 stats = mc.thin_voxel_density(
     resolution=5.0,          # шаг "куба" для объединения точек, можно 5–10 м
@@ -21,8 +21,6 @@ print("Thinning stats:", stats)
 # mc.load()  # или load_region(...) для нужного района
 
 
-
-
-redis_size = mc.get_redis_memory_usage()
-print(f"\nПримерный размер карты в Redis: {redis_size} байт ({redis_size / 1024:.1f} KB)")
+# redis_size = mc.get_redis_memory_usage()
+# print(f"\nПримерный размер карты в Redis: {redis_size} байт ({redis_size / 1024:.1f} KB)")
 

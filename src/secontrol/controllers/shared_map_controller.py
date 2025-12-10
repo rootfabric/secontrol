@@ -417,7 +417,7 @@ class SharedMapController:
         if max_points <= 0:
             raise ValueError("max_points must be positive")
 
-        idx = self._load_index()
+        idx = self.load_index()
         voxel_chunk_ids = list(idx.get("voxels", []))
 
         total_points = 0
@@ -515,6 +515,21 @@ class SharedMapController:
             "kinds_processed": list(kinds),
         }
 
+    def thin_voxel_density(
+        self,
+        *,
+        resolution: float = 5.0,
+        min_points_to_thin: int = 1000,
+        max_points_per_cell: int = 1,
+        verbose: bool = True,
+    ) -> Dict[str, Any]:
+        return self.storage.thin_voxel_density(
+            resolution=resolution,
+            min_points_to_thin=min_points_to_thin,
+            max_points_per_cell=max_points_per_cell,
+            verbose=verbose,
+        )
+
 
 class SharedMapStorage:
     def __init__(self, *, chunk_size: float) -> None:
@@ -556,6 +571,154 @@ class SharedMapStorage:
     def get_storage_usage(self) -> int:
         """Вернуть примерный размер сохраненных данных в байтах."""
         raise NotImplementedError
+
+    def thin_voxel_density(
+        self,
+        *,
+        resolution: float = 5.0,
+        min_points_to_thin: int = 1000,
+        max_points_per_cell: int = 1,
+        verbose: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Проредить (разредить) облака вокселей в Redis-хранилище.
+        Проредить (разредить) облака вокселей в активном хранилище.
+
+        Логика:
+        - Для каждого чанка с вокселями строится 3D-сетка с шагом `resolution`.
+        - В каждую ячейку сетки допускается не более `max_points_per_cell` точек.
+        - Остальные точки в этой ячейке считаются "лишними" и удаляются.
+        - Операция выполняется ПРЯМО по Redis-чанкам (хранилище реально очищается).
+        - Операция выполняется ПРЯМО по чанкам (хранилище реально очищается).
+
+        Параметры:
+            resolution:
+                Пространственный шаг (в метрах) для объединения близких точек.
+                Например, 5.0 означает, что все точки в кубе 5x5x5 м
+                будут сжаты до не более чем `max_points_per_cell` точек.
+            min_points_to_thin:
+                Минимальное количество точек в чанке, при котором мы вообще
+                будем что-то прореживать. Мелкие чанки не трогаем.
+            max_points_per_cell:
+                Максимальное количество точек на одну "ячейку" сетки.
+                Обычно достаточно 1.
+            verbose:
+                Если True — печатает подробную статистику.
+
+        Возвращает:
+            dict со статистикой:
+            {
+                "chunks_total": int,
+                "chunks_thinned": int,
+                "total_before": int,
+                "total_after": int,
+                "total_removed": int,
+                "resolution": float,
+                "max_points_per_cell": int,
+            }
+
+        ВАЖНО:
+        - Метод изменяет данные в Redis. Если у контроллера уже загружена
+        - Метод изменяет данные в хранилище. Если у контроллера уже загружена
+          self.data.voxels, она может не совпасть с хранилищем — после
+          прорядки имеет смысл вызвать load() / load_region() заново.
+        """
+        if resolution <= 0.0:
+            raise ValueError(f"resolution must be > 0, got {resolution}")
+        if max_points_per_cell <= 0:
+            raise ValueError(f"max_points_per_cell must be > 0, got {max_points_per_cell}")
+
+        idx = self._load_index()
+        voxel_chunk_ids = list(idx.get("voxels", []))
+
+        chunks_total = len(voxel_chunk_ids)
+        chunks_thinned = 0
+        total_before = 0
+        total_after = 0
+
+        for cid in voxel_chunk_ids:
+            points = self.load_chunk_points("voxels", cid)
+            n_before = len(points)
+            if n_before == 0:
+                continue
+
+            total_before += n_before
+
+            # Не трогаем мелкие чанки
+            if n_before < min_points_to_thin:
+                if verbose:
+                    print(
+                        f"[thin_voxel_density] chunk {cid}: {n_before} points "
+                        f"(<{min_points_to_thin}), skip thinning."
+                    )
+                total_after += n_before
+                continue
+
+            # Квантование в мировых координатах с шагом `resolution`
+            # ВАЖНО: ключи ячеек используются только внутри одного чанка,
+            # поэтому нас не волнует граница между чанками.
+            cell_buckets: Dict[Tuple[int, int, int], List[Point3D]] = {}
+
+            for p in points:
+                x, y, z = p
+                cx = int(math.floor(x / resolution))
+                cy = int(math.floor(y / resolution))
+                cz = int(math.floor(z / resolution))
+                key = (cx, cy, cz)
+
+                bucket = cell_buckets.setdefault(key, [])
+                if len(bucket) < max_points_per_cell:
+                    bucket.append(p)
+                # Если уже достигли max_points_per_cell — остальные точки
+                # в этом кубе считаем "лишними" и не добавляем.
+
+            # Собираем новые точки
+            new_points: List[Point3D] = []
+            for bucket in cell_buckets.values():
+                # Обычно в bucket 1 точка, но теоретически может быть до max_points_per_cell.
+                # Можно было бы усреднять, но для навигации вполне достаточно любой из них.
+                new_points.extend(bucket)
+
+            n_after = len(new_points)
+            total_after += n_after
+            chunks_thinned += 1
+
+            if verbose:
+                removed = n_before - n_after
+                ratio = (n_after / n_before) if n_before > 0 else 1.0
+                print(
+                    f"[thin_voxel_density] chunk {cid}: "
+                    f"{n_before} → {n_after} points "
+                    f"(removed {removed}, kept {ratio * 100:.1f}%)"
+                )
+
+            # Перезаписываем чанк в Redis
+            self.save_chunk_points("voxels", cid, new_points)
+
+        total_removed = total_before - total_after
+
+        if verbose:
+            print(
+                "[thin_voxel_density] done: "
+                f"chunks_total={chunks_total}, "
+                f"chunks_thinned={chunks_thinned}, "
+                f"total_before={total_before}, "
+                f"total_after={total_after}, "
+                f"total_removed={total_removed}, "
+                f"resolution={resolution}, "
+                f"max_points_per_cell={max_points_per_cell}"
+            )
+
+        return {
+            "chunks_total": chunks_total,
+            "chunks_thinned": chunks_thinned,
+            "total_before": total_before,
+            "total_after": total_after,
+            "total_removed": total_removed,
+            "resolution": float(resolution),
+            "max_points_per_cell": int(max_points_per_cell),
+        }
+
 
 
 class RedisSharedMapStorage(SharedMapStorage):
@@ -931,621 +1094,3 @@ class SQLiteSharedMapStorage(SharedMapStorage):
             except FileNotFoundError:
                 continue
         return total_size
-
-    # ------------------------------------------------------------------
-    # Загрузка/сохранение
-    # ------------------------------------------------------------------
-    def load(
-        self,
-        *,
-        chunk_ids: Optional[Iterable[str]] = None,
-        kinds: Sequence[str] = ("voxels", "visited", "ores"),
-        include_paths: bool = True,
-        include_metadata: bool = True,
-    ) -> SharedMapData:
-        """Загрузить выбранные чанки карты.
-
-        ``chunk_ids=None`` означает загрузку всех чанков, перечисленных в индексе.
-        Для ускорения можно передать ограниченный набор чанков.
-        """
-
-        idx = self._load_index()
-
-        # Поддержка старого формата: если индекс пустой, пробуем прочитать весь
-        # словарь из ``memory_prefix`` и разложить его по чанкам.
-        if (
-            not (idx["voxels"] or idx["visited"] or idx["ores"])
-            and isinstance(self.storage, RedisSharedMapStorage)
-        ):
-            legacy_payload = self.storage.client.get_json(self.storage.memory_prefix)
-            if isinstance(legacy_payload, dict) and any(
-                legacy_payload.get(k) for k in ("voxels", "visited", "ores")
-            ):
-                legacy = SharedMapData.from_payload(legacy_payload)
-                if legacy.voxels:
-                    self.add_voxel_points(legacy.voxels, save=True)
-                if legacy.visited:
-                    self.add_flight_points(legacy.visited, save=True)
-                if legacy.ores:
-                    self.add_ore_cells(
-                        [
-                            {"material": ore.material, "position": ore.position, "content": ore.content}
-                            for ore in legacy.ores
-                        ],
-                        save=True,
-                    )
-                if legacy.paths:
-                    self.data.paths = legacy.paths
-                    self._save_paths()
-                if legacy.metadata:
-                    self.data.metadata = legacy.metadata
-                    self._save_metadata()
-                idx = self._load_index()
-
-        self.data = SharedMapData()
-
-        load_chunk_ids = set(chunk_ids) if chunk_ids is not None else None
-
-        def _should_load(cid: str) -> bool:
-            return load_chunk_ids is None or cid in load_chunk_ids
-
-        if "voxels" in kinds:
-            for cid in idx["voxels"]:
-                if _should_load(cid):
-                    self.data.merge_voxels(self._load_chunk_points("voxels", cid))
-
-        if "visited" in kinds:
-            for cid in idx["visited"]:
-                if _should_load(cid):
-                    self.data.merge_visited(self._load_chunk_points("visited", cid))
-
-        if "ores" in kinds:
-            for cid in idx["ores"]:
-                if _should_load(cid):
-                    self.data.merge_ores(self._load_chunk_ores(cid))
-
-        if include_paths:
-            self.data.paths = self._load_paths()
-
-        if include_metadata:
-            self.data.metadata = self._load_metadata()
-
-        return self.data
-
-    def load_region(
-        self,
-        center: Point3D,
-        radius: float,
-        *,
-        kinds: Sequence[str] = ("voxels", "visited", "ores"),
-        include_paths: bool = True,
-        include_metadata: bool = True,
-    ) -> SharedMapData:
-        """Загрузить только чанки, которые пересекают сферу радиуса ``radius``."""
-
-        # Сначала подгружаем индекс, чтобы актуализировать chunk_size
-        idx = self._load_index()
-        chunk_size = float(self.chunk_size)
-
-        cx, cy, cz = center
-        cr = float(radius)
-        min_x, max_x = cx - cr, cx + cr
-        min_y, max_y = cy - cr, cy + cr
-        min_z, max_z = cz - cr, cz + cr
-
-        def _chunk_range(vmin: float, vmax: float) -> range:
-            start = math.floor(vmin / chunk_size)
-            end = math.floor(vmax / chunk_size)
-            return range(int(start), int(end) + 1)
-
-        chunk_ids = {
-            f"{ix}:{iy}:{iz}"
-            for ix in _chunk_range(min_x, max_x)
-            for iy in _chunk_range(min_y, max_y)
-            for iz in _chunk_range(min_z, max_z)
-        }
-
-        # idx мы уже считали, но load() сам подтянет его заново — это не страшно
-        return self.load(
-            chunk_ids=chunk_ids,
-            kinds=kinds,
-            include_paths=include_paths,
-            include_metadata=include_metadata,
-        )
-
-
-    def save(self) -> None:
-        # Сохраняем только метаданные и индекс/пути — чанки пишутся по мере обновления
-        self._save_metadata()
-        self._save_paths()
-        self._save_index(self._load_index())
-
-    # ------------------------------------------------------------------
-    # Сбор данных
-    # ------------------------------------------------------------------
-    def add_voxel_points(self, points: Iterable[Sequence[float]], *, save: bool = True) -> None:
-        idx = self._load_index()
-        buckets: Dict[str, List[Point3D]] = {}
-        for point in points:
-            normalized = _normalize_point(point)
-            cid = self._chunk_id(normalized)
-            buckets.setdefault(cid, []).append(normalized)
-
-        for cid, pts in buckets.items():
-            existing = self._load_chunk_points("voxels", cid)
-            merged = list({*existing, *pts})
-            self._save_chunk_points("voxels", cid, merged)
-            idx["voxels"].add(cid)
-            self.data.merge_voxels(pts)
-
-        if save:
-            self._save_index(idx)
-            self._save_metadata()
-
-    def add_flight_points(self, points: Iterable[Sequence[float]], *, save: bool = True) -> None:
-        idx = self._load_index()
-        buckets: Dict[str, List[Point3D]] = {}
-        for point in points:
-            normalized = _normalize_point(point)
-            cid = self._chunk_id(normalized)
-            buckets.setdefault(cid, []).append(normalized)
-
-        for cid, pts in buckets.items():
-            existing = self._load_chunk_points("visited", cid)
-            merged = list({*existing, *pts})
-            self._save_chunk_points("visited", cid, merged)
-            idx["visited"].add(cid)
-            self.data.merge_visited(pts)
-
-        if save:
-            self._save_index(idx)
-            self._save_metadata()
-
-    def add_ore_cells(self, cells: Iterable[dict], *, save: bool = True) -> None:
-        idx = self._load_index()
-        buckets: Dict[str, List[OreHit]] = {}
-        for cell in cells:
-            if not isinstance(cell, dict):
-                continue
-            if cell.get("position") is None:
-                continue
-            ore = OreHit(
-                material=str(cell.get("material") or cell.get("ore") or "unknown"),
-                position=_normalize_point(cell.get("position")),
-                content=cell.get("content"),
-            )
-            cid = self._chunk_id(ore.position)
-            buckets.setdefault(cid, []).append(ore)
-
-        for cid, ores in buckets.items():
-            existing = self._load_chunk_ores(cid)
-            merged = list({(o.material, o.position): o for o in [*existing, *ores]}.values())
-            self._save_chunk_ores(cid, merged)
-            idx["ores"].add(cid)
-            self.data.merge_ores(ores)
-
-        if save:
-            self._save_index(idx)
-            self._save_metadata()
-
-    def add_remote_position(self, remote: RemoteControlDevice, *, save: bool = True) -> Optional[Point3D]:
-        remote.update()
-        pos = get_world_position(remote)
-        if pos:
-            self.add_flight_points([pos], save=save)
-        return pos
-
-    def ingest_radar_scan(
-        self,
-        radar_controller: RadarController,
-        *,
-        persist_metadata: bool = True,
-        save: bool = True,
-    ) -> tuple[list[list[float]] | None, dict | None, list | None, list | None]:
-        solid, metadata, contacts, ore_cells = radar_controller.scan_voxels()
-
-        # сохраняем чанки + обновляем индекс
-        if solid:
-            self.add_voxel_points(solid, save=save)
-        if ore_cells:
-            self.add_ore_cells(ore_cells, save=save)
-
-        if persist_metadata and metadata:
-            self.data.metadata["last_radar"] = metadata
-            if save:
-                self._save_metadata()
-
-        return solid, metadata, contacts, ore_cells
-
-
-    def get_known_ores(
-        self,
-        material: Optional[str] = None,
-        *,
-        chunk_ids: Optional[Iterable[str]] = None,
-    ) -> List[OreHit]:
-        """Вернуть список найденных руд, с возможностью фильтрации по материалу."""
-
-        idx = self._load_index()
-        ids = set(chunk_ids) if chunk_ids is not None else set(idx["ores"])
-
-        ore_map: Dict[tuple[str, Point3D], OreHit] = {}
-        material_filter = material.lower() if material else None
-
-        for cid in ids:
-            ores = self._load_chunk_ores(cid)
-            for ore in ores:
-                if material_filter and ore.material.lower() != material_filter:
-                    continue
-                ore_map[(ore.material, ore.position)] = ore
-
-        return list(ore_map.values())
-
-    # ------------------------------------------------------------------
-    # Работа с путями
-    # ------------------------------------------------------------------
-    def store_named_path(self, name: str, points: Iterable[Sequence[float]], *, save: bool = True) -> List[Point3D]:
-        path = [_normalize_point(p) for p in points]
-        self.data.paths[name] = path
-        if save:
-            self._save_paths()
-        return path
-
-    def build_known_path(self, start: Point3D, target: Optional[Point3D] = None, max_hops: int = 500) -> List[Point3D]:
-        """Построить путь через уже известные точки.
-
-        Простая эвристика: начинаем от ``start`` и идем через ближайшие известные
-        точки (visited + voxels), пока не дойдем до ``target`` или не исчерпаем
-        ``max_hops``. Возвращает список точек, включая старт и цель (если она
-        была задана и найдена).
-        """
-
-        known_points = list({*self.data.visited, *self.data.voxels})
-        if target:
-            known_points.append(target)
-
-        if not known_points:
-            return [start] + ([target] if target else [])
-
-        path: List[Point3D] = [start]
-        current = start
-        hops = 0
-        remaining = set(known_points)
-        if start in remaining:
-            remaining.remove(start)
-
-        def _dist(a: Point3D, b: Point3D) -> float:
-            dx, dy, dz = a[0] - b[0], a[1] - b[1], a[2] - b[2]
-            return (dx * dx + dy * dy + dz * dz) ** 0.5
-
-        while remaining and hops < max_hops:
-            closest = min(remaining, key=lambda p: _dist(current, p))
-            path.append(closest)
-            remaining.remove(closest)
-            current = closest
-            hops += 1
-            if target and current == target:
-                break
-
-        if target and path[-1] != target:
-            path.append(target)
-
-        return path
-
-    # ------------------------------------------------------------------
-    # Вспомогательные сценарии
-    # ------------------------------------------------------------------
-    def build_and_store_return_path(
-        self,
-        remote: RemoteControlDevice,
-        *,
-        path_name: str = "return",
-        home: Optional[Point3D] = None,
-        max_hops: int = 200,
-        save: bool = True,
-    ) -> List[Point3D]:
-        pos = self.add_remote_position(remote, save=False)
-        if not pos:
-            raise RuntimeError("Не удалось получить позицию RemoteControl")
-
-        target = home or self.data.visited[0] if self.data.visited else pos
-        path = self.build_known_path(pos, target, max_hops=max_hops)
-        self.data.paths[path_name] = path
-        if save:
-            self._save_paths()
-        return path
-
-    # ------------------------------------------------------------------
-    # Размер сохраненных данных
-    # ------------------------------------------------------------------
-    def get_redis_memory_usage(self) -> int:
-        """Старое название метода, теперь делегирует на общий подсчет размера."""
-
-        return self.get_storage_usage()
-
-    def get_storage_usage(self) -> int:
-        """Вернуть примерный размер карты в текущем бэкенде хранения."""
-
-        return self.storage.get_storage_usage()
-
-    # ------------------------------------------------------------------
-    # Работа с разными гридами
-    # ------------------------------------------------------------------
-    @classmethod
-    def from_grid_devices(
-        cls,
-        grid_name: str,
-        *,
-        redis_client: Optional[RedisEventClient] = None,
-        radar_radius: float = 100.0,
-    ) -> tuple["SharedMapController", RadarController, RemoteControlDevice]:
-        """Упрощенный помощник: получить контроллер карты и устройства грида."""
-        from secontrol.common import prepare_grid
-
-        grid = prepare_grid(grid_name)
-        radar_device = grid.find_devices_by_type(OreDetectorDevice)[0]
-        remote = grid.find_devices_by_type(RemoteControlDevice)[0]
-        map_controller = cls(owner_id=grid.owner_id, redis_client=redis_client)
-        radar_ctrl = RadarController(radar_device, radius=radar_radius)
-        return map_controller, radar_ctrl, remote
-
-    def thin_voxel_density(
-        self,
-        *,
-        resolution: float = 5.0,
-        min_points_to_thin: int = 1000,
-        max_points_per_cell: int = 1,
-        verbose: bool = True,
-    ) -> Dict[str, Any]:
-        """
-        Проредить (разредить) облака вокселей в активном хранилище.
-
-        Логика:
-        - Для каждого чанка с вокселями строится 3D-сетка с шагом `resolution`.
-        - В каждую ячейку сетки допускается не более `max_points_per_cell` точек.
-        - Остальные точки в этой ячейке считаются "лишними" и удаляются.
-        - Операция выполняется ПРЯМО по чанкам (хранилище реально очищается).
-
-        Параметры:
-            resolution:
-                Пространственный шаг (в метрах) для объединения близких точек.
-                Например, 5.0 означает, что все точки в кубе 5x5x5 м
-                будут сжаты до не более чем `max_points_per_cell` точек.
-            min_points_to_thin:
-                Минимальное количество точек в чанке, при котором мы вообще
-                будем что-то прореживать. Мелкие чанки не трогаем.
-            max_points_per_cell:
-                Максимальное количество точек на одну "ячейку" сетки.
-                Обычно достаточно 1.
-            verbose:
-                Если True — печатает подробную статистику.
-
-        Возвращает:
-            dict со статистикой:
-            {
-                "chunks_total": int,
-                "chunks_thinned": int,
-                "total_before": int,
-                "total_after": int,
-                "total_removed": int,
-                "resolution": float,
-                "max_points_per_cell": int,
-            }
-
-        ВАЖНО:
-        - Метод изменяет данные в хранилище. Если у контроллера уже загружена
-          self.data.voxels, она может не совпасть с хранилищем — после
-          прорядки имеет смысл вызвать load() / load_region() заново.
-        """
-        if resolution <= 0.0:
-            raise ValueError(f"resolution must be > 0, got {resolution}")
-        if max_points_per_cell <= 0:
-            raise ValueError(f"max_points_per_cell must be > 0, got {max_points_per_cell}")
-
-        idx = self._load_index()
-        voxel_chunk_ids = list(idx.get("voxels", []))
-
-        chunks_total = len(voxel_chunk_ids)
-        chunks_thinned = 0
-        total_before = 0
-        total_after = 0
-
-        for cid in voxel_chunk_ids:
-            points = self._load_chunk_points("voxels", cid)
-            n_before = len(points)
-            if n_before == 0:
-                continue
-
-            total_before += n_before
-
-            # Не трогаем мелкие чанки
-            if n_before < min_points_to_thin:
-                if verbose:
-                    print(
-                        f"[thin_voxel_density] chunk {cid}: {n_before} points "
-                        f"(<{min_points_to_thin}), skip thinning."
-                    )
-                total_after += n_before
-                continue
-
-            # Квантование в мировых координатах с шагом `resolution`
-            # ВАЖНО: ключи ячеек используются только внутри одного чанка,
-            # поэтому нас не волнует граница между чанками.
-            cell_buckets: Dict[Tuple[int, int, int], List[Point3D]] = {}
-
-            for p in points:
-                x, y, z = p
-                cx = int(math.floor(x / resolution))
-                cy = int(math.floor(y / resolution))
-                cz = int(math.floor(z / resolution))
-                key = (cx, cy, cz)
-
-                bucket = cell_buckets.setdefault(key, [])
-                if len(bucket) < max_points_per_cell:
-                    bucket.append(p)
-                # Если уже достигли max_points_per_cell — остальные точки
-                # в этом кубе считаем "лишними" и не добавляем.
-
-            # Собираем новые точки
-            new_points: List[Point3D] = []
-            for bucket in cell_buckets.values():
-                # Обычно в bucket 1 точка, но теоретически может быть до max_points_per_cell.
-                # Можно было бы усреднять, но для навигации вполне достаточно любой из них.
-                new_points.extend(bucket)
-
-            n_after = len(new_points)
-            total_after += n_after
-            chunks_thinned += 1
-
-            if verbose:
-                removed = n_before - n_after
-                ratio = (n_after / n_before) if n_before > 0 else 1.0
-                print(
-                    f"[thin_voxel_density] chunk {cid}: "
-                    f"{n_before} → {n_after} points "
-                    f"(removed {removed}, kept {ratio * 100:.1f}%)"
-                )
-
-            # Перезаписываем чанк в Redis
-            self._save_chunk_points("voxels", cid, new_points)
-
-        total_removed = total_before - total_after
-
-        if verbose:
-            print(
-                "[thin_voxel_density] done: "
-                f"chunks_total={chunks_total}, "
-                f"chunks_thinned={chunks_thinned}, "
-                f"total_before={total_before}, "
-                f"total_after={total_after}, "
-                f"total_removed={total_removed}, "
-                f"resolution={resolution}, "
-                f"max_points_per_cell={max_points_per_cell}"
-            )
-
-        return {
-            "chunks_total": chunks_total,
-            "chunks_thinned": chunks_thinned,
-            "total_before": total_before,
-            "total_after": total_after,
-            "total_removed": total_removed,
-            "resolution": float(resolution),
-            "max_points_per_cell": int(max_points_per_cell),
-        }
-
-    def remove_points_in_radius(
-        self,
-        center: Point3D,
-        radius: float,
-        kinds: Sequence[str] = ("voxels", "visited", "ores"),
-        save: bool = True,
-    ) -> Dict[str, Any]:
-        """
-        Удалить все точки в заданном радиусе от центра для указанных типов данных.
-
-        Логика:
-        - Находит чанки, которые могут содержать точки в сфере радиуса `radius`.
-        - Для каждого типа (`kinds`) загружает точки из этих чанков.
-        - Удаляет точки, находящиеся внутри радиуса (евклидово расстояние <= radius).
-        - Сохраняет отфильтрованные точки обратно в Redis.
-        - Обновляет индекс: пустые чанки удаляются из индекса и из Redis.
-
-        Параметры:
-            center: Центр сферы удаления (Point3D).
-            radius: Радиус сферы (float, в метрах).
-            kinds: Типы точек для обработки ("voxels", "visited", "ores").
-            save: Если True, сохраняет изменения в Redis.
-
-        Возвращает:
-            dict со статистикой:
-            {
-                "total_removed": int,  # Общее количество удаленных точек
-                "chunks_affected": int,  # Количество затронутых чанков
-                "kinds_processed": list[str],  # Обработанные типы
-            }
-
-        ВАЖНО:
-        - Изменяет данные в активном хранилище. После удаления имеет смысл вызвать load() / load_region() заново,
-          если self.data уже загружена.
-        - Для ores удаляет по позиции OreHit.
-        """
-        if radius <= 0.0:
-            raise ValueError(f"radius must be > 0, got {radius}")
-
-        cx, cy, cz = center
-        cr = float(radius)
-
-        # Загружаем индекс
-        idx = self._load_index()
-
-        # Находим все чанки, которые могут пересекать сферу
-        chunk_size = float(self.chunk_size)
-        min_x, max_x = cx - cr, cx + cr
-        min_y, max_y = cy - cr, cy + cr
-        min_z, max_z = cz - cr, cz + cr
-
-        def _chunk_range(vmin: float, vmax: float) -> range:
-            start = math.floor(vmin / chunk_size)
-            end = math.floor(vmax / chunk_size)
-            return range(int(start), int(end) + 1)
-
-        relevant_chunk_ids = {
-            f"{ix}:{iy}:{iz}"
-            for ix in _chunk_range(min_x, max_x)
-            for iy in _chunk_range(min_y, max_y)
-            for iz in _chunk_range(min_z, max_z)
-        }
-
-        # Функция расстояния
-        def _dist(a: Point3D, b: Point3D) -> float:
-            dx, dy, dz = a[0] - b[0], a[1] - b[1], a[2] - b[2]
-            return (dx * dx + dy * dy + dz * dz) ** 0.5
-
-        total_removed = 0
-        chunks_affected = 0
-
-        # Обрабатываем каждый тип
-        for kind in kinds:
-            if kind not in ("voxels", "visited", "ores"):
-                continue
-
-            chunk_ids = idx.get(kind, set())
-            chunks_to_process = relevant_chunk_ids & chunk_ids
-
-            for cid in chunks_to_process:
-                if kind == "ores":
-                    ores = self._load_chunk_ores(cid)
-                    filtered_ores = [ore for ore in ores if _dist(ore.position, center) > radius]
-                    removed_count = len(ores) - len(filtered_ores)
-                    if removed_count > 0:
-                        if filtered_ores:
-                            self._save_chunk_ores(cid, filtered_ores)
-                        else:
-                            # Чанк пуст, удаляем
-                            self.storage.delete_chunk("ores", cid)
-                            idx["ores"].discard(cid)
-                        chunks_affected += 1
-                        total_removed += removed_count
-                else:
-                    # voxels или visited
-                    points = self._load_chunk_points(kind, cid)
-                    filtered_points = [p for p in points if _dist(p, center) > radius]
-                    removed_count = len(points) - len(filtered_points)
-                    if removed_count > 0:
-                        if filtered_points:
-                            self._save_chunk_points(kind, cid, filtered_points)
-                        else:
-                            # Чанк пуст, удаляем
-                            self.storage.delete_chunk(kind, cid)
-                            idx[kind].discard(cid)
-                        chunks_affected += 1
-                        total_removed += removed_count
-
-        if save:
-            self._save_index(idx)
-
-        return {
-            "total_removed": total_removed,
-            "chunks_affected": chunks_affected,
-            "kinds_processed": list(kinds),
-        }
