@@ -1456,7 +1456,7 @@ class SurfaceFlightController:
     def find_nearest_resources(
             self,
             search_radius: float = 1500.0,
-            max_results: int = 5,
+            max_results: int = 500,
             center: Optional[Tuple[float, float, float]] = None,
     ) -> List[Dict[str, Any]]:
         """

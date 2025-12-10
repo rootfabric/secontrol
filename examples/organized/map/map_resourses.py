@@ -7,7 +7,7 @@ def main():
     controller.load_map_region(radius=1500.0)
 
     # 2) Ищем ближайшие ресурсы БЕЗ повторного скана
-    nearest = controller.find_nearest_resources(search_radius=1500.0, max_results=50)
+    nearest = controller.find_nearest_resources(search_radius=1500.0, max_results=100)
 
     print("Result list:", nearest)
 

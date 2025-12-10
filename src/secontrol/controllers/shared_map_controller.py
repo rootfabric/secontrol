@@ -585,8 +585,10 @@ class SharedMapStorage:
         Проредить (разредить) облака вокселей в активном хранилище.
 
         Логика:
+        - Собираются позиции всех ресурсов (ore_cells).
         - Для каждого чанка с вокселями строится 3D-сетка с шагом `resolution`.
-        - В каждую ячейку сетки допускается не более `max_points_per_cell` точек.
+        - Ячейки сетки, содержащие ресурсы, не прореживаются.
+        - В остальных ячейках допускается не более `max_points_per_cell` точек.
         - Остальные точки в этой ячейке считаются "лишними" и удаляются.
         - Операция выполняется ПРЯМО по Redis-чанкам (хранилище реально очищается).
         - Операция выполняется ПРЯМО по чанкам (хранилище реально очищается).
@@ -630,6 +632,18 @@ class SharedMapStorage:
 
         idx = self.load_index()
         voxel_chunk_ids = list(idx.get("voxels", []))
+        ore_chunk_ids = list(idx.get("ores", []))
+
+        # Собираем все позиции ресурсов
+        ore_bucket_keys: set[Tuple[int, int, int]] = set()
+        for cid in ore_chunk_ids:
+            ores = self.load_chunk_ores(cid)
+            for ore in ores:
+                x, y, z = ore.position
+                cx = int(math.floor(x / resolution))
+                cy = int(math.floor(y / resolution))
+                cz = int(math.floor(z / resolution))
+                ore_bucket_keys.add((cx, cy, cz))
 
         chunks_total = len(voxel_chunk_ids)
         chunks_thinned = 0
@@ -666,6 +680,12 @@ class SharedMapStorage:
                 cz = int(math.floor(z / resolution))
                 key = (cx, cy, cz)
 
+                # Не прореживаем ячейки с ресурсами
+                if key in ore_bucket_keys:
+                    # Сохраняем все точки в этой ячейке
+                    cell_buckets.setdefault(key, []).append(p)
+                    continue
+
                 bucket = cell_buckets.setdefault(key, [])
                 if len(bucket) < max_points_per_cell:
                     bucket.append(p)
@@ -675,8 +695,7 @@ class SharedMapStorage:
             # Собираем новые точки
             new_points: List[Point3D] = []
             for bucket in cell_buckets.values():
-                # Обычно в bucket 1 точка, но теоретически может быть до max_points_per_cell.
-                # Можно было бы усреднять, но для навигации вполне достаточно любой из них.
+                # Для ячеек с ресурсами сохраняем все точки
                 new_points.extend(bucket)
 
             n_after = len(new_points)
