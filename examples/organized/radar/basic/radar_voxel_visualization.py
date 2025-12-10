@@ -93,10 +93,10 @@ def main() -> None:
                                      voxel_step=1,
                                      cell_size=10.0,
 
-                                     # boundingBoxX=20,
-                                     # boundingBoxZ=20,
+                                     boundingBoxX=50,
+                                     boundingBoxZ=50,
 
-                                     boundingBoxY=100,
+                                     boundingBoxY=200,
                                      # fullSolidScan=False
                                      )
 

@@ -23,12 +23,25 @@ def main() -> None:
         print("No resources found")
         return
 
-    go_to_point = nearest[0]['position']
-    print("Go to point:", go_to_point)
+    resource_point = nearest[0]['position']
 
-    # Перемещаемся к точке ресурса на высоте 20м над поверхностью
-    print(f"Moving to resource at {go_to_point} at altitude 20.0m above surface")
-    controller.lift_drone_to_point_altitude(go_to_point, 50.0)
+    print("Go to point:", resource_point)
+
+    # Перемещаемся к точке ресурса на высоте 50м над поверхностью
+    print(f"Moving to resource at {resource_point} at altitude 50.0m above surface")
+    controller.lift_drone_to_point_altitude(resource_point, 50.0)
+
+    # Распечатываем текущую позицию грида после перемещения
+    current_pos = controller.rc.telemetry
+    if current_pos:
+        pos = current_pos.get("worldPosition") or current_pos.get("position")
+        if pos:
+            current_coords = (pos.get("x", 0.0), pos.get("y", 0.0), pos.get("z", 0.0))
+            print(f"Current grid position after movement: {current_coords}")
+        else:
+            print("Unable to retrieve current position")
+    else:
+        print("No telemetry available")
 
     print("Вышли на точку ресурса")
 
