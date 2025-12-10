@@ -24,7 +24,16 @@ class App:
         self.remote = remotes[0]
 
         # Контроллер радара (сканирование вокселей)
-        self.radar_ctrl = RadarController(self.radar_device, radius=200.0)
+        self.radar_ctrl = RadarController(self.radar_device,
+                                          radius=200,
+                                          voxel_step=1,
+                                          cell_size=10.0,
+
+                                          boundingBoxX=50,
+                                          boundingBoxZ=50,
+
+                                          boundingBoxY=200,
+                                          )
 
         # Контроллер общей карты (Redis)
         # owner_id берём из грида, чтобы карта была привязана к игроку

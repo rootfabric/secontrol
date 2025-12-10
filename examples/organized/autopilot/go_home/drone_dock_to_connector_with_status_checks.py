@@ -329,6 +329,9 @@ def _fly_to(
     print(f"    Target GPS: {gps}")
 
     remote.set_mode("oneway")
+
+    remote.gyro_control_off()
+
     remote.set_collision_avoidance(False)
     remote.goto(gps, speed=speed, gps_name=name, dock=False)
 

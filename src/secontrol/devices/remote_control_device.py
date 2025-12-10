@@ -39,6 +39,106 @@ class RemoteControlDevice(BaseDevice):
             "targetName": self.name or "Remote Control",
         })
 
+    def gyro_control_on(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "gyro_control_on",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    def gyro_control_off(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "gyro_control_off",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    # ------------------------------------------------------------------
+    # Команды управления дополнительными параметрами
+    # ------------------------------------------------------------------
+
+    def handbrake_on(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "handbrake_on",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    def handbrake_off(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "handbrake_off",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    def dampeners_on(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "dampeners_on",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    def dampeners_off(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "dampeners_off",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    def thrusters_on(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "thrusters_on",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    def thrusters_off(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "thrusters_off",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    def wheels_on(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "wheels_on",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    def wheels_off(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "wheels_off",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    def planetary_autopilot_on(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "planetary_autopilot_on",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
+    def planetary_autopilot_off(self) -> int:
+        return self.send_command({
+            "cmd": "remote_control",
+            "state": "planetary_autopilot_off",
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+
     def goto(
         self,
         gps: str,
