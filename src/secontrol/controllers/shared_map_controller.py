@@ -628,7 +628,7 @@ class SharedMapStorage:
         if max_points_per_cell <= 0:
             raise ValueError(f"max_points_per_cell must be > 0, got {max_points_per_cell}")
 
-        idx = self._load_index()
+        idx = self.load_index()
         voxel_chunk_ids = list(idx.get("voxels", []))
 
         chunks_total = len(voxel_chunk_ids)

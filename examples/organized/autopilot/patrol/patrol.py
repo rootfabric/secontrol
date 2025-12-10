@@ -87,7 +87,7 @@ def main() -> None:
         f"вокруг позиции {base_pos} (radius={DEFAULT_SCAN_RADIUS * 2:.1f}м)"
     )
     try:
-        controller.load_map_region_from_redis(center=base_pos, radius=DEFAULT_SCAN_RADIUS * 2.0)
+        controller.load_map_region(center=base_pos, radius=DEFAULT_SCAN_RADIUS * 2.0)
     except AttributeError:
         print("ВНИМАНИЕ: у SurfaceFlightController нет метода load_map_region_from_redis.")
     except Exception as e:

@@ -16,7 +16,7 @@ def main():
     # Сканируем поверхность для получения данных
     print("Выполняю скан поверхности...")
     # controller.scan_voxels()
-    controller.load_map_region_from_redis( radius=500.0)
+    controller.load_map_region(radius=500.0)
 
     # Поднимаем дрон на 50 метров над поверхностью
     print("Поднимаю дрон на 50 метров над поверхностью...")

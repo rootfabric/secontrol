@@ -120,7 +120,7 @@ class SurfaceFlightController:
                     "SurfaceFlightController: initial map load from Redis "
                     f"around position ({start_pos[0]:.2f}, {start_pos[1]:.2f}, {start_pos[2]:.2f})"
                 )
-                self.load_map_region_from_redis(
+                self.load_map_region(
                     center=start_pos,
                     radius=self.default_scan_radius * 2.0,
                 )
@@ -473,7 +473,7 @@ class SurfaceFlightController:
 
         # 1) Сначала пробуем расширить карту за счёт Redis (общая карта)
         try:
-            self.load_map_region_from_redis(
+            self.load_map_region(
                 center=position,
                 radius=min_scan_radius * 2.0,
             )
@@ -670,7 +670,7 @@ class SurfaceFlightController:
                 "trying to load map from Redis around position..."
             )
             try:
-                self.load_map_region_from_redis(
+                self.load_map_region(
                     center=pos,
                     radius=self.default_scan_radius * 2.0,
                 )
@@ -1242,7 +1242,7 @@ class SurfaceFlightController:
     def get_visited_points(self) -> List[Tuple[float, float, float]]:
         return self.visited_points.copy()
 
-    def load_map_region_from_redis(
+    def load_map_region(
         self,
         center: Optional[Tuple[float, float, float]] = None,
         radius: float = 1500.0,
@@ -1260,7 +1260,7 @@ class SurfaceFlightController:
             f"center=({cx:.2f}, {cy:.2f}, {cz:.2f}), radius={radius:.1f}m"
         )
 
-        data = self.shared_map_controller.load()
+        data = self.shared_map_controller.load_region(center=center, radius=radius)
 
         solid = data.voxels
         ore_cells = [
