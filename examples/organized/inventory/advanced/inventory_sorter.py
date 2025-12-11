@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Set
 from secontrol.devices.container_device import ContainerDevice, Item
 from secontrol.item_types import ORE, INGOT, COMPONENT, TOOL, AMMO, is_ore, is_ingot, is_component, is_tool, is_ammo
 from secontrol.common import close, prepare_grid
-from secontrol.base_device import Grid
+from secontrol import Grid
 
 
 

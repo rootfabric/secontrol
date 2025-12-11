@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from secontrol.common import close, prepare_grid
 from secontrol.devices.lamp_device import LampDevice
-from secontrol.base_device import Grid
+from secontrol import Grid
 
 import secontrol
 

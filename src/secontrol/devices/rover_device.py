@@ -12,7 +12,7 @@ import time
 
 from typing import List, Optional
 
-from ..base_device import Grid
+from ..grids import Grid
 from .ore_detector_device import OreDetectorDevice
 from .wheel_device import WheelDevice
 from .cockpit_device import CockpitDevice

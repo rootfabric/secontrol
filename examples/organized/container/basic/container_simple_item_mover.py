@@ -5,7 +5,7 @@ import threading
 import time
 from typing import Dict, Tuple, Any, List, Set, Optional
 
-from secontrol.base_device import Grid
+from secontrol import Grid
 from secontrol.devices.container_device import ContainerDevice, Item
 from secontrol.common import resolve_owner_id, resolve_player_id, _is_subgrid
 from secontrol.redis_client import RedisEventClient

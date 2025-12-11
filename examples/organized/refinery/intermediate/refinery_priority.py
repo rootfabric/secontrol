@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 from typing import Dict, List, Optional
 
-from secontrol.base_device import Grid
+from secontrol import Grid
 from secontrol.common import close, resolve_owner_id, resolve_player_id
 from secontrol.redis_client import RedisEventClient
 from secontrol.devices.refinery_device import RefineryDevice
