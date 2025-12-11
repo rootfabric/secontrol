@@ -13,7 +13,7 @@ from secontrol.devices.cockpit_device import CockpitDevice
 from secontrol.devices.ship_drill_device import ShipDrillDevice
 from secontrol.common import resolve_owner_id
 from secontrol.redis_client import RedisEventClient
-from secontrol.base_device import Grid
+from secontrol import Grid
 
 
 def main() -> None:

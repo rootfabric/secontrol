@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Dict, Any, List
 
-from secontrol.base_device import Grid
+from secontrol import Grid
 from secontrol.devices.connector_device import ConnectorDevice
 from secontrol.common import resolve_owner_id, resolve_player_id
 from secontrol.redis_client import RedisEventClient

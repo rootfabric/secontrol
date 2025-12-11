@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import time
 
-from secontrol.base_device import Grid
+from secontrol import Grid
 from secontrol.devices.display_device import DisplayDevice
 from secontrol.common import prepare_grid
 

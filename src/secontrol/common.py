@@ -6,7 +6,7 @@ import os
 
 from dotenv import find_dotenv, load_dotenv
 
-from .base_device import Grid
+from .grids import Grid
 from .redis_client import RedisEventClient
 
 load_dotenv(find_dotenv(usecwd=True), override=False)
