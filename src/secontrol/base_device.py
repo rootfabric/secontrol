@@ -565,6 +565,60 @@ class Grid:
         # Aggregate devices from subgrids
         self._aggregate_devices_from_subgrids()
 
+    @classmethod
+    def prepare(cls, existing_client: 'RedisEventClient | str | None' = None, grid_id: 'str | None' = None) -> 'Grid':
+        """Создаёт и возвращает :class:`Grid` с готовыми подписками.
+
+        Метод поддерживает несколько стилей вызова:
+
+        - ``Grid.prepare()`` — автоматический выбор грида.
+        - ``Grid.prepare("<grid_id>")`` — передача идентификатора грида первой позицией.
+        - ``Grid.prepare("<grid_name>")`` — передача имени грида первой позицией (поиск по имени).
+        - ``Grid.prepare(existing_client)`` — повторное использование готового :class:`RedisEventClient`.
+        - ``Grid.prepare(existing_client, grid_id)`` — явное указание грида при повторном использовании клиента.
+
+        Возвращаемый объект ``Grid`` хранит ссылку на использованный ``RedisEventClient`` в поле
+        :attr:`Grid.redis`. Если клиент был создан внутри ``Grid.prepare``, вызов :func:`close`
+        также закроет и Redis-подключение. При переданном внешнем клиенте ответственность за его
+        закрытие остаётся на вызывающем коде.
+        """
+
+        from .redis_client import RedisEventClient
+
+        if isinstance(existing_client, str) and grid_id is None:
+            grid_id = existing_client
+            existing_client = None
+
+        owns_client = False
+        if isinstance(existing_client, RedisEventClient):
+            client = existing_client
+        else:
+            client = RedisEventClient()
+            owns_client = True
+
+        try:
+            owner_id = resolve_owner_id()
+            if grid_id is not None:
+                resolved_grid_id = _resolve_grid_identifier(client, owner_id, grid_id)
+                # Get the name for display
+                all_grids = get_all_grids(client, exclude_subgrids=True)
+                grid_name = next((name for gid, name in all_grids if gid == resolved_grid_id), f"Grid_{resolved_grid_id}")
+                print(f"Resolved grid '{grid_id}' to: {resolved_grid_id} ({grid_name})")
+            else:
+                resolved_grid_id = resolve_grid_id(client, owner_id)
+            player_id = resolve_player_id(owner_id)
+
+            grid = cls(client, owner_id, resolved_grid_id, player_id)
+            setattr(grid, "_owns_redis_client", owns_client)
+            return grid
+        except Exception:
+            if owns_client:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+            raise
+
     # ------------------------------------------------------------------
     def on(
         self,

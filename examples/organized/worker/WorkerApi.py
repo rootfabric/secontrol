@@ -4,18 +4,20 @@ from typing import Any, Dict, List, Optional
 import requests
 from requests import Response, Session, RequestException
 
+from dotenv import find_dotenv, load_dotenv
+load_dotenv(find_dotenv(usecwd=True), override=False)
+
 
 class WorkerApiClient:
     """
     Клиент для работы с API se-worker-controller.
 
-    Базовый URL и UUID инстанса берутся из окружения, но могут быть
-    переопределены через аргументы конструктора.
+    Базовый URL и UUID инстанса берутся из окружения, но могут быть переопределены через аргументы конструктора.
 
     Переменные окружения:
-        SE_WORKER_BASE_URL       - базовый адрес контроллера, например:                                   
-                                   (по умолчанию https://www.outenemy.ru/se/worker-controller)
-        SE_WORKER_INSTANCE_UUID  - UUID инстанса воркера
+      SE_WORKER_BASE_URL - базовый адрес контроллера, например:
+        (по умолчанию https://www.outenemy.ru/se/worker-controller)
+      SE_WORKER_INSTANCE_UUID - UUID инстанса воркера
     """
 
     def __init__(
@@ -51,10 +53,8 @@ class WorkerApiClient:
         base_url = base_url.strip()
         if not base_url:
             raise ValueError("base_url is empty")
-
         if not base_url.startswith(("http://", "https://")):
             base_url = f"http://{base_url}"
-
         return base_url.rstrip("/")
 
     def _request(
@@ -67,14 +67,11 @@ class WorkerApiClient:
     ) -> Optional[Response]:
         """
         Внутренний helper для запросов.
-
         path передаётся относительно /api, например:
-            "/programs"
-            f"/programs/{uuid}/files"
+          "/programs"
+          f"/programs/{uuid}/files"
 
-        expected_status:
-            -1  -> принимать любой 2xx как успех;
-            n   -> ожидать конкретный код n.
+        expected_status: -1 -> принимать любой 2xx как успех; n -> ожидать конкретный код n.
         """
         if not path.startswith("/"):
             path = "/" + path
@@ -129,6 +126,21 @@ class WorkerApiClient:
             print(f"Raw response: {response.text}")
             return None
 
+    def get_programs(self) -> Optional[Dict[str, Any]]:
+        """
+        GET /api/programs
+        """
+        response = self._request("GET", "/programs")
+        if response is None:
+            return None
+
+        try:
+            return response.json()
+        except ValueError as e:
+            print(f"[get_running_programs] JSON parse error: {e}")
+            print(f"Raw response: {response.text}")
+            return None
+
     def create_program(self, name: str) -> Optional[Dict[str, Any]]:
         """
         POST /api/programs
@@ -150,6 +162,7 @@ class WorkerApiClient:
     def upload_files(self, program_uuid: str, file_paths: List[str]) -> bool:
         """
         POST /api/programs/{program_uuid}/files
+
         multipart/form-data, поле "files"
         """
         if not file_paths:
@@ -185,8 +198,8 @@ class WorkerApiClient:
         GET /api/programs/{program_uuid}/files
 
         Формат зависит от backend-а:
-        - список файлов;
-        - или { "items": [...] }.
+          - список файлов;
+          - или { "items": [...] }.
         """
         path = f"/programs/{program_uuid}/files"
         response = self._request("GET", path)
@@ -202,7 +215,6 @@ class WorkerApiClient:
 
         if isinstance(data, dict) and "items" in data:
             return data["items"]
-
         return data
 
     def run_program(
@@ -210,13 +222,17 @@ class WorkerApiClient:
         program_uuid: str,
         filename: str,
         grid_id: str,
+        params: Optional[dict] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         POST /api/programs/{program_uuid}/run
 
-        Body: { "filename": "...", "grid_id": "..." }
+        Body: { "filename": "...", "grid_id": "...", "params": "..." }
         """
         payload = {"filename": filename, "grid_id": grid_id}
+        if params is not None:
+            payload["params"] = params
+            
         path = f"/programs/{program_uuid}/run"
         response = self._request("POST", path, json=payload)
         if response is None:
@@ -270,8 +286,8 @@ def example_usage() -> None:
     Пример использования клиента.
 
     Перед запуском выстави переменные окружения:
-        SE_WORKER_BASE_URL="https://www.outenemy.ru/se/worker-controller"
-        SE_WORKER_INSTANCE_UUID="28f8784e-dbe4-5f5e-b294-c1c87df4b712"
+      SE_WORKER_BASE_URL="https://www.outenemy.ru/se/worker-controller"
+      SE_WORKER_INSTANCE_UUID="28f8784e-dbe4-5f5e-b294-c1c87df4b712"
     """
     client = WorkerApiClient()
 
