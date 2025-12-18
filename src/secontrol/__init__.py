@@ -5,22 +5,18 @@ from __future__ import annotations
 # Import device module to register all device classes
 from . import devices
 
-from .base_device import (
-    BaseDevice,
-    BlockInfo,
-    DamageDetails,
+from .base_device import BaseDevice, BlockInfo, DamageDetails, DamageSource, DeviceMetadata, get_device_class
+from .common import close, get_all_grids, prepare_grid, resolve_grid_id, resolve_owner_id, resolve_player_id
+from .grids import (
     DamageEvent,
-    DamageSource,
-    DeviceMetadata,
+    Grid,
     GridDevicesEvent,
     GridIntegrityChange,
-    Grid,
+    GridState,
+    Grids,
     RemovedDeviceInfo,
-    get_device_class,
 )
-from .common import close, get_all_grids, prepare_grid, resolve_grid_id, resolve_owner_id, resolve_player_id
 from .redis_client import RedisEventClient
-from .grids import GridState, Grids
 from ._version import __version__
 
 __all__ = [

@@ -4,7 +4,7 @@ import json
 
 from secontrol.redis_client import RedisEventClient
 from secontrol.common import resolve_owner_id
-from secontrol.base_device import Grid
+from secontrol import Grid
 
 
 def main() -> None:

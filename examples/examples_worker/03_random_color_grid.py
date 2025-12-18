@@ -56,7 +56,7 @@ def _generate_random_rgb() -> str:
     return f"{r},{g},{b}"
 
 
-def main() -> None:
+def main(grid) -> None:
     """Paint all blocks in the selected grid with random colors."""
 
     chunk_size = os.getenv("GRID_BLOCK_BATCH")
@@ -65,7 +65,7 @@ def main() -> None:
     except ValueError:
         batch_size = 50
 
-    grid = prepare_grid()
+
     try:
         block_ids = _collect_block_ids(grid.iter_blocks())
         if not block_ids:
@@ -103,7 +103,7 @@ class App:
 
     def start(self):
         print("Started!")
-        main()
+        main(self.grid)
 
     def step(self):
         pass
@@ -111,8 +111,8 @@ class App:
 
 
 if __name__ == "__main__":
-    grid = prepare_grid("Rover")
-    app = App(grid)
+
+    app = App("Rover")
 
     app.start()
     while True:
