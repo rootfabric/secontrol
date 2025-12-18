@@ -10,7 +10,8 @@ import math
 import time
 from typing import Callable, Iterable, Optional, Sequence, Tuple
 
-from secontrol.base_device import BaseDevice, Grid
+from secontrol.base_device import BaseDevice
+from secontrol import Grid
 from secontrol.devices.connector_device import ConnectorDevice
 from secontrol.devices.gyro_device import GyroDevice
 from secontrol.devices.remote_control_device import RemoteControlDevice

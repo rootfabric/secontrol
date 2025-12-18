@@ -1,6 +1,4 @@
-р#!/usr/bin/env python3
-from __future__ import annotations
-
+#!/usr/bin/env python3
 import math
 import time
 from typing import Dict, Any, List, Tuple, Optional

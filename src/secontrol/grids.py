@@ -232,6 +232,8 @@ class Grid:
         if not results:
             raise ValueError(f"Grid with name '{name}' not found")
         grid_id = results[0].grid_id
+        grid_name = results[0].name or f"Grid_{grid_id}"
+        print(f"Resolved grid '{name}' to: {grid_id} ({grid_name})")
         return Grid(redis_client, owner_id, grid_id, player_id, name)
 
     # ------------------------------------------------------------------
