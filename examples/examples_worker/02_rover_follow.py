@@ -123,9 +123,7 @@ class App:
 
 def main() -> None:
     # Локальный запуск по имени грида
-    grid = prepare_grid("Respawn Rover")
-
-    app = App(grid)
+    app = App("Respawn Rover")
     try:
         app.start()
         while True:

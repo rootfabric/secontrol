@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional
 
-from secontrol.base_device import DEVICE_TYPE_MAP
+from secontrol.base_device import DEVICE_TYPE_MAP, DeviceMetadata
 from secontrol.devices.container_device import ContainerDevice
 from secontrol.inventory import InventorySnapshot
-from secontrol import DeviceMetadata, Grid
+from secontrol.grids import Grid
 from secontrol.item_types import Item
 
 def _normalize_queue_item(item: Any, amount: Optional[float] = None) -> Dict[str, Any]:

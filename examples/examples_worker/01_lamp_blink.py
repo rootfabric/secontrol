@@ -7,13 +7,14 @@ from typing import List, Optional
 from secontrol.common import close, prepare_grid
 from secontrol.devices.lamp_device import LampDevice
 from secontrol import Grid
+# from secontrol.grids import Grid
 
 import secontrol
 
 
 class App:
     def __init__(self, grid_id):
-        self.grid = prepare_grid(grid_id)
+        self.grid = Grid.from_name(grid_id)
 
         self.counter: int = 0
         # self._grid, self._owns_grid = _resolve_grid(grid, grid_id)
@@ -42,8 +43,8 @@ class App:
 if __name__ == "__main__":
     # Локальный запуск для отладки
 
-    grid = prepare_grid("Rover")
-    app = App(grid)
+
+    app = App("Rover")
 
     app.start()
     while True:

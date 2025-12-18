@@ -13,8 +13,9 @@ import json
 import re
 import threading
 import time
+import colorsys
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Type
 
 from .base_device import (
     BaseDevice,
@@ -30,6 +31,8 @@ from .base_device import (
     _coerce_bool,
     _safe_float,
     _safe_int,
+    _prepare_color_payload,
+    DEVICE_REGISTRY
 )
 from .redis_client import RedisEventClient
 
@@ -213,6 +216,23 @@ class Grid:
 
         # Aggregate devices from subgrids
         self._aggregate_devices_from_subgrids()
+
+    @staticmethod
+    def from_name(name: str, redis_client: Optional[RedisEventClient] = None, owner_id: Optional[str] = None, player_id: Optional[str] = None) -> 'Grid':
+        """Создать объект Grid по имени, используя поиск через Grids."""
+        from .common import resolve_owner_id, resolve_player_id
+        if redis_client is None:
+            redis_client = RedisEventClient()
+        if owner_id is None:
+            owner_id = resolve_owner_id()
+        if player_id is None:
+            player_id = resolve_player_id(owner_id)
+        grids = Grids(redis_client, owner_id, player_id)
+        results = grids.search(name)
+        if not results:
+            raise ValueError(f"Grid with name '{name}' not found")
+        grid_id = results[0].grid_id
+        return Grid(redis_client, owner_id, grid_id, player_id, name)
 
     # ------------------------------------------------------------------
     def on(
@@ -1937,4 +1957,3 @@ class Grids:
 
 
 __all__ = ["Grids", "GridState"]
-
