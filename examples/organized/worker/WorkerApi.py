@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 from requests import Response, Session, RequestException
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 
 from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv(usecwd=True), override=False)
@@ -24,7 +25,9 @@ class WorkerApiClient:
         self,
         base_url: Optional[str] = None,
         instance_uuid: Optional[str] = None,
-        timeout: float = 15.0,
+        timeout: float = 5.0,
+        max_retries: int = 10,
+        retry_delay: float = 3.0,
         session: Optional[Session] = None,
     ) -> None:
         env_base = os.getenv("SE_WORKER_BASE_URL", "https://www.outenemy.ru/se/worker-controller")
@@ -46,6 +49,8 @@ class WorkerApiClient:
         self.root_url = f"{self.base_url}/instance/{self.instance_uuid}"
         self.api_url = f"{self.root_url}/api"
         self.timeout = timeout
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
         self.session = session or requests.Session()
 
     @staticmethod
@@ -78,15 +83,24 @@ class WorkerApiClient:
 
         url = f"{self.api_url}{path}"
 
-        try:
-            response = self.session.request(
+        @retry(
+            stop=stop_after_attempt(self.max_retries),
+            wait=wait_fixed(self.retry_delay),
+            retry=retry_if_exception_type(RequestException),
+            before_sleep=lambda retry_state: print(f"[WorkerApiClient] Retrying {method} {url} after {retry_state.outcome.exception()} (attempt {retry_state.attempt_number})"),
+        )
+        def do_request():
+            return self.session.request(
                 method=method.upper(),
                 url=url,
                 timeout=self.timeout,
                 **kwargs,
             )
+
+        try:
+            response = do_request()
         except RequestException as e:
-            print(f"[WorkerApiClient] Request error {method} {url}: {e}")
+            print(f"[WorkerApiClient] Request failed after {self.max_retries} attempts: {method} {url}: {e}")
             return None
 
         if expected_status == -1:

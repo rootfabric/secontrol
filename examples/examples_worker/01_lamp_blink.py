@@ -7,14 +7,13 @@ from typing import List, Optional
 from secontrol.common import close, prepare_grid
 from secontrol.devices.lamp_device import LampDevice
 from secontrol import Grid
-# from secontrol.grids import Grid
 
 import secontrol
 
 
 class App:
-    def __init__(self, grid_id):
-        self.grid = Grid.from_name(grid_id)
+    def __init__(self, params):
+        self.grid = prepare_grid(params['grid_id'])
 
         self.counter: int = 0
         # self._grid, self._owns_grid = _resolve_grid(grid, grid_id)
@@ -24,7 +23,7 @@ class App:
 
     def start(self):
 
-        lamps = list(self.grid.find_devices_by_type(LampDevice))
+        lamps = self.grid.find_devices_by_type(LampDevice)
 
         self.lamps = lamps
         print(f"Lamps found: {len(self.lamps)}")
@@ -33,7 +32,7 @@ class App:
         self.counter += 1
         self._on = not self._on
 
-        # Переключаем все лампы; 
+        # Переключаем все лампы;
         for lamp in self.lamps:
             lamp.set_enabled(self._on)
 
@@ -44,7 +43,7 @@ if __name__ == "__main__":
     # Локальный запуск для отладки
 
 
-    app = App("Rover")
+    app = App({"grid_id":"Rover"})
 
     app.start()
     while True:

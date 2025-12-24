@@ -363,7 +363,7 @@ def _fly_to(
             continue
 
         d = _dist(p, target)
-        if check_callback and d < 1.0 and check_callback():
+        if check_callback and d < 2.0 and check_callback():
             print("   [Interrupting] Callback condition met, stopping flight.")
             remote.disable()
             break
