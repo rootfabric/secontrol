@@ -100,11 +100,7 @@ class OreDetectorDevice(BaseDevice):
                 self._ore_cells_truncated = int(truncated)
             except (TypeError, ValueError):
                 self._ore_cells_truncated = 0
-        else:
-            self._radar = None
-            self._contacts = []
-            self._ore_cells = []
-            self._ore_cells_truncated = 0
+        # Do not reset radar data if radar is not present in telemetry
 
     # ------------------------------------------------------------------
     # Telemetry helpers
@@ -160,6 +156,18 @@ class OreDetectorDevice(BaseDevice):
                 return True
             time.sleep(0.1)
         return False
+
+    def scan_and_wait(
+        self,
+        timeout: float = 10.0,
+        **scan_kwargs,
+    ) -> Dict[str, Any]:
+        """Send scan command and wait for radar update, return radar snapshot."""
+        seq = self.scan(**scan_kwargs)
+        if self.wait_for_new_radar(timeout):
+            return self.radar_snapshot()
+        else:
+            return {}
 
     # ------------------------------------------------------------------
     # Commands
