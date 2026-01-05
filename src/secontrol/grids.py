@@ -1354,7 +1354,7 @@ class Grid:
                 except ValueError:
                     pass
 
-            print(f"Keys found: {keys_found}")
+            pass
 
         except Exception:
             # Ignore errors during discovery to avoid breaking initialization

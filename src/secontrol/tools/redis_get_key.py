@@ -9,11 +9,11 @@ load_dotenv(find_dotenv(usecwd=True), override=False)
 
 # === Настройка подключения ===
 resolved_url = os.getenv("REDIS_URL", "redis://api.outenemy.ru:6379/0")
-resolved_username = os.getenv("REDIS_USERNAME")
-resolved_password = os.getenv("REDIS_PASSWORD")
+# resolved_username = os.getenv("REDIS_USERNAME")
+# resolved_password = os.getenv("REDIS_PASSWORD")
 
-# resolved_username=os.getenv("REDIS_ADMIN_USERNAME")
-# resolved_password = os.getenv("REDIS_ADMIN_PASSWORD")
+resolved_username=os.getenv("REDIS_ADMIN_USERNAME")
+resolved_password = os.getenv("REDIS_ADMIN_PASSWORD")
 
 print(resolved_username)
 print(resolved_password)

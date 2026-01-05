@@ -205,10 +205,21 @@ class RedisEventClient:
     def publish(self, channel: str, payload: Any) -> int:
         if not isinstance(payload, (str, bytes)):
             payload = json.dumps(payload, ensure_ascii=False)
-        try:
-            return self._client.publish(channel, payload)  # type: ignore[return-value]
-        except redis.RedisError as exc:  # pragma: no cover - defensive logging
-            raise RuntimeError(f"Failed to publish to {channel!r}: {exc}") from exc
+        max_retries = 3
+        for attempt in range(max_retries + 1):
+            try:
+                return self._client.publish(channel, payload)  # type: ignore[return-value]
+            except redis.ConnectionError as e:
+                if attempt < max_retries:
+                    try:
+                        self._client.connection_pool.reset()
+                        time.sleep(0.1 * (attempt + 1))
+                    except Exception:
+                        pass
+                else:
+                    raise RuntimeError(f"Failed to publish to {channel!r} after {max_retries} reconnection attempts: {e}") from e
+            except redis.RedisError as exc:
+                raise RuntimeError(f"Failed to publish to {channel!r}: {exc}") from exc
 
     def set_json(self, key: str, value: Any, expire: Optional[int] = None) -> None:
         payload = json.dumps(value, ensure_ascii=False)
