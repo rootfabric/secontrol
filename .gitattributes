@@ -1,0 +1,44 @@
+# Автоматическая обработка текстовых файлов с нормализацией окончаний строк
+* text=auto
+
+# Python файлы - LF
+*.py text eol=lf
+
+# Текстовые файлы - LF
+*.txt text eol=lf
+*.md text eol=lf
+*.rst text eol=lf
+
+# Конфигурационные файлы - LF
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf
+
+# Скрипты shell - LF
+*.sh text eol=lf
+
+# Git файлы
+*.gitattributes text eol=lf
+.gitattributes text eol=lf
+
+# XML файлы
+*.xml text eol=lf
+
+# Лицензии и changelog
+LICENSE text eol=lf
+CHANGELOG* text eol=lf
+
+# Исключения - бинарные файлы
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pyc binary
+*.pyo binary
+*.so binary
+*.dll binary
