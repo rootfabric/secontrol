@@ -183,6 +183,7 @@ class Grid:
         grid_id: str,
         player_id: str,
         name: str = None,
+        auto_wake: bool = True,
     ) -> None:
         self.redis = redis_client
         self.owner_id = owner_id
@@ -213,6 +214,9 @@ class Grid:
 
         # Aggregate devices from subgrids
         self._aggregate_devices_from_subgrids()
+
+        if auto_wake:
+            self.wake()
 
     def wake(self, timeout: float = 3.0, poll_interval: float = 0.1) -> bool:
         """Send a no-op activation command and wait briefly for richer telemetry."""
@@ -271,7 +275,7 @@ class Grid:
         grid_id = results[0].grid_id
         grid_name = results[0].name or f"Grid_{grid_id}"
         print(f"Resolved grid '{name}' to: {grid_id} ({grid_name})")
-        grid = Grid(redis_client, owner_id, grid_id, player_id, name)
+        grid = Grid(redis_client, owner_id, grid_id, player_id, name, auto_wake=False)
         if auto_wake:
             grid.wake(timeout=wake_timeout)
         return grid
