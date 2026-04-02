@@ -211,14 +211,51 @@ class Grid:
         if initial is not None:
             self._on_grid_change(self.grid_key, initial, "initial")
 
-        # Discover devices from telemetry keys if not already known
-        self._discover_devices_from_telemetry_keys()
-
         # Aggregate devices from subgrids
         self._aggregate_devices_from_subgrids()
 
+    def wake(self, timeout: float = 3.0, poll_interval: float = 0.1) -> bool:
+        """Send a no-op activation command and wait briefly for richer telemetry."""
+
+        self.send_grid_command("wake")
+        return self.wait_until_ready(timeout=timeout, poll_interval=poll_interval)
+
+    def wait_until_ready(self, timeout: float = 3.0, poll_interval: float = 0.1) -> bool:
+        """Wait until grid metadata switches from summary to a fuller payload."""
+
+        deadline = time.time() + max(0.0, float(timeout))
+        interval = max(0.01, float(poll_interval))
+
+        while time.time() <= deadline:
+            metadata = self.metadata if isinstance(self.metadata, dict) else {}
+            detail_level = str(metadata.get("detailLevel", "")).strip().lower()
+            comp = metadata.get("comp")
+            devices = comp.get("devices", []) if isinstance(comp, dict) else []
+            blocks = metadata.get("blocks", [])
+
+            if detail_level and detail_level != "summary":
+                return True
+            if self.devices:
+                return True
+            if isinstance(devices, list) and devices:
+                return True
+            if isinstance(blocks, list) and blocks:
+                return True
+
+            time.sleep(interval)
+
+        return False
+
     @staticmethod
-    def from_name(name: str, redis_client: Optional[RedisEventClient] = None, owner_id: Optional[str] = None, player_id: Optional[str] = None) -> 'Grid':
+    def from_name(
+        name: str,
+        redis_client: Optional[RedisEventClient] = None,
+        owner_id: Optional[str] = None,
+        player_id: Optional[str] = None,
+        *,
+        auto_wake: bool = True,
+        wake_timeout: float = 3.0,
+    ) -> 'Grid':
         """Создать объект Grid по имени, используя поиск через Grids."""
         from .common import resolve_owner_id, resolve_player_id
         if redis_client is None:
@@ -234,7 +271,10 @@ class Grid:
         grid_id = results[0].grid_id
         grid_name = results[0].name or f"Grid_{grid_id}"
         print(f"Resolved grid '{name}' to: {grid_id} ({grid_name})")
-        return Grid(redis_client, owner_id, grid_id, player_id, name)
+        grid = Grid(redis_client, owner_id, grid_id, player_id, name)
+        if auto_wake:
+            grid.wake(timeout=wake_timeout)
+        return grid
 
     # ------------------------------------------------------------------
     def on(
