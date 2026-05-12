@@ -220,6 +220,9 @@ def resolve_grid_id(client: RedisEventClient, owner_id: str) -> str:
 def prepare_grid(
     existing_client: RedisEventClient | str | None = None,
     grid_id: str | None = None,
+    *,
+    auto_wake: bool = True,
+    wake_timeout: float = 3.0,
 ) -> Grid:
     """Создаёт и возвращает :class:`Grid` с готовыми подписками.
 
@@ -262,7 +265,9 @@ def prepare_grid(
             resolved_grid_id = resolve_grid_id(client, owner_id)
         player_id = resolve_player_id(owner_id)
 
-        grid = Grid(client, owner_id, resolved_grid_id, player_id)
+        grid = Grid(client, owner_id, resolved_grid_id, player_id, auto_wake=False)
+        if auto_wake:
+            grid.wake(timeout=wake_timeout)
         setattr(grid, "_owns_redis_client", owns_client)
         return grid
     except Exception:

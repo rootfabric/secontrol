@@ -42,7 +42,7 @@ class App:
 if __name__ == "__main__":
     # Локальный запуск для отладки
 
-    grid = prepare_grid()
+    grid = prepare_grid("Rover")
     app = App(grid)
 
     app.start()

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l /c/secontrol/src/secontrol/*.py /c/secontrol/src/secontrol/*/*.py)",
+      "Bash(grep -r \"class.*Device\" /c/secontrol/src/secontrol/devices/*.py)"
+    ]
+  }
+}
