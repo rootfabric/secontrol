@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SE Grid Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="sidebar">
+        <h2>Гриды</h2>
+        <div id="grid-list"></div>
+        <div id="status">Загрузка...</div>
+    </div>
+    <div id="divider"></div>
+    <div id="main">
+        <div id="toolbar">
+            <span id="grid-title">Выберите грид</span>
+            <span id="zoom-level">Orbit: ЛКМ | Pan: ПКМ | Zoom: колесо</span>
+        </div>
+        <div id="viewport"></div>
+    </div>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module" src="/static/app.js"></script>
+</body>
+</html>

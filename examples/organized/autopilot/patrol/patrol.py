@@ -66,7 +66,7 @@ def _distance(a: Point3D, b: Point3D) -> float:
 
 
 def main() -> None:
-    grid_name = "taburet"
+    grid_name = "taburet2"
 
     controller = SurfaceFlightController(
         grid_name,

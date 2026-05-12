@@ -43,6 +43,10 @@ dev = [
   "build>=1.2",
   "twine>=4.0"
 ]
+dashboard = [
+  "fastapi>=0.100",
+  "uvicorn[standard]>=0.20"
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+"""Скрипт быстрого возврата дрона на базу.
+
+Использование:
+    python3 return_home.py [имя_корабля]
+
+Пример:
+    python3 return_home.py taburet2
+"""
+import sys
+import math
+import time
+from typing import Callable, Dict, Optional, Sequence, Tuple
+
+from secontrol.base_device import BaseDevice
+from secontrol.common import close, prepare_grid
+from secontrol.devices.connector_device import ConnectorDevice
+from secontrol.devices.remote_control_device import RemoteControlDevice
+
+
+# ---- Settings ------------------------------------------------------------
+SHIP_GRID = sys.argv[1] if len(sys.argv) > 1 else "taburet2"
+BASE_GRID = "DroneBase"
+
+ARRIVAL_DISTANCE = 0.20
+RC_STOP_TOLERANCE = 0.7
+CHECK_INTERVAL = 0.2
+MAX_FLIGHT_TIME = 240.0
+SPEED_DISTANCE_THRESHOLD = 15.0
+DOCK_FORWARD_FUDGE = 0.5
+MAX_DOCK_STEPS = 10
+DOCK_SUCCESS_TOLERANCE = 0.6
+
+STATUS_UNCONNECTED = "Unconnected"
+STATUS_READY_TO_LOCK = "Connectable"
+STATUS_CONNECTED = "Connected"
+
+
+# ---- Math helpers --------------------------------------------------------
+def _vec(value: Sequence[float]) -> Tuple[float, float, float]:
+    return float(value[0]), float(value[1]), float(value[2])
+
+def _parse_vector(value: object) -> Optional[Tuple[float, float, float]]:
+    if isinstance(value, str):
+        parts = value.split(':')
+        if len(parts) >= 5 and parts[0] == 'GPS':
+            return float(parts[2]), float(parts[3]), float(parts[4])
+    if isinstance(value, dict) and all(k in value for k in ("x", "y", "z")):
+        return _vec((value["x"], value["y"], value["z"]))
+    if isinstance(value, (list, tuple)) and len(value) == 3:
+        return _vec(value)
+    return None
+
+def _normalize(v: Tuple[float, float, float]) -> Tuple[float, float, float]:
+    length = math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2)
+    if length < 1e-6:
+        return 0.0, 0.0, 1.0
+    return v[0] / length, v[1] / length, v[2] / length
+
+def _cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+def _add(a, b): return a[0] + b[0], a[1] + b[1], a[2] + b[2]
+def _sub(a, b): return a[0] - b[0], a[1] - b[1], a[2] - b[2]
+def _scale(v, s): return v[0] * s, v[1] * s, v[2] * s
+def _dist(a, b): return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
+
+
+class Basis:
+    def __init__(self, forward, up):
+        self.forward = _normalize(forward)
+        raw_up = _normalize(up)
+        right = _cross(self.forward, raw_up)
+        self.right = _normalize(right)
+        self.up = _normalize(_cross(self.right, self.forward))
+
+
+def _ensure_telemetry(device: BaseDevice):
+    device.update()
+
+
+def _get_pos(dev: BaseDevice) -> Optional[Tuple[float, float, float]]:
+    tel = dev.telemetry or {}
+    p = tel.get("worldPosition") or tel.get("position")
+    return _parse_vector(p) if p else None
+
+
+def get_connector_status(connector: ConnectorDevice) -> str:
+    tel = connector.telemetry or {}
+    return tel.get("connectorStatus") or "unknown"
+
+
+def is_already_docked(connector: ConnectorDevice) -> bool:
+    return get_connector_status(connector) == STATUS_CONNECTED
+
+
+def _get_orientation(device: BaseDevice) -> Basis:
+    tel: Dict = device.telemetry or {}
+    ori = tel.get("orientation") or tel.get("Orientation")
+    if ori:
+        fwd = _parse_vector(ori.get("forward"))
+        up = _parse_vector(ori.get("up"))
+        if fwd and up:
+            return Basis(fwd, up)
+    if device.device_type != "RemoteControl":
+        rcs = device.grid.find_devices_by_type(RemoteControlDevice)
+        if rcs:
+            rc = rcs[0]
+            _ensure_telemetry(rc)
+            rc_ori = (rc.telemetry or {}).get("orientation") or (rc.telemetry or {}).get("Orientation")
+            if rc_ori:
+                fwd = _parse_vector(rc_ori.get("forward"))
+                up = _parse_vector(rc_ori.get("up"))
+                if fwd and up:
+                    return Basis(fwd, up)
+    raise RuntimeError(f"Cannot get world orientation for block {device.name}")
+
+
+def _get_block_info(grid, device: BaseDevice):
+    try:
+        b = grid.get_block(int(device.device_id))
+        if b:
+            return b
+    except Exception:
+        pass
+    target_id = int(device.device_id)
+    for b in grid.blocks.values():
+        if b.id == target_id:
+            return b
+    raise RuntimeError(f"Block {device.name} not found in gridinfo!")
+
+
+def _get_connector_world_pos(base_conn: ConnectorDevice, base_grid):
+    tel = base_conn.telemetry or {}
+    p = tel.get("worldPosition") or tel.get("position")
+    if p:
+        base_pos = _parse_vector(p)
+        return base_pos, "Using connector telemetry position."
+    anchor_list = base_grid.find_devices_by_type(RemoteControlDevice)
+    if not anchor_list:
+        raise RuntimeError("No Anchor RC found on base grid.")
+    anchor = anchor_list[0]
+    _ensure_telemetry(anchor)
+    anchor_pos = _get_pos(anchor)
+    anchor_basis = _get_orientation(anchor)
+    a_blk = _get_block_info(base_grid, anchor)
+    t_blk = _get_block_info(base_grid, base_conn)
+    d = _sub(_vec(t_blk.relative_to_grid_center), _vec(a_blk.relative_to_grid_center))
+    world_diff = _add(_add(_scale(anchor_basis.right, d[0]), _scale(anchor_basis.up, d[1])), _scale(anchor_basis.forward, d[2]))
+    base_pos = _add(anchor_pos, world_diff)
+    return base_pos, "Computed connector position via Anchor RC."
+
+
+def _calculate_docking_point(ship_rc, ship_conn, base_conn, base_grid):
+    base_basis = _get_orientation(base_conn)
+    base_pos, pos_info = _get_connector_world_pos(base_conn, base_grid)
+    print(pos_info)
+    _ensure_telemetry(ship_rc)
+    _ensure_telemetry(ship_conn)
+    rc_pos = _get_pos(ship_rc)
+    if not rc_pos:
+        raise RuntimeError("Cannot get RC world position.")
+    ship_conn_pos = _get_pos(ship_conn)
+    if not ship_conn_pos:
+        raise RuntimeError("Cannot get ship connector world position.")
+    start_dist = _dist(rc_pos, base_pos)
+    print(f"RC distance to base connector: {start_dist:.2f}m")
+    rc_to_ship_conn = _sub(ship_conn_pos, rc_pos)
+    dir_vec = _sub(base_pos, ship_conn_pos)
+    dir_len = math.sqrt(dir_vec[0] ** 2 + dir_vec[1] ** 2 + dir_vec[2] ** 2)
+    if dir_len < 1e-6:
+        approach_dir = base_basis.forward
+    else:
+        approach_dir = (dir_vec[0] / dir_len, dir_vec[1] / dir_len, dir_vec[2] / dir_len)
+    if DOCK_FORWARD_FUDGE != 0.0:
+        fudge_vec = _scale(approach_dir, DOCK_FORWARD_FUDGE)
+        ship_conn_target = _add(base_pos, fudge_vec)
+    else:
+        ship_conn_target = base_pos
+    final_rc_pos = _sub(ship_conn_target, rc_to_ship_conn)
+    base_forward = base_basis.forward
+    base_up = base_basis.up
+    return final_rc_pos, base_forward, base_pos, base_up, ship_conn_target
+
+
+def _fly_to(remote, target, name, speed_far, speed_near, check_callback=None, ship_conn=None, ship_conn_target=None, fixed_base_pos=None):
+    curr_pos = _get_pos(remote)
+    if not curr_pos:
+        remote.update()
+        curr_pos = _get_pos(remote)
+    if not curr_pos:
+        raise RuntimeError("Cannot get current RC position.")
+    dist = _dist(curr_pos, target)
+    speed = speed_far if dist > SPEED_DISTANCE_THRESHOLD else speed_near
+    gps = f"GPS:{name}:{target[0]:.2f}:{target[1]:.2f}:{target[2]:.2f}:"
+    print(f"Flying to {name} (Dist: {dist:.1f}m)")
+    remote.set_mode("oneway")
+    remote.set_collision_avoidance(False)
+    remote.goto(gps, speed=speed, gps_name=name, dock=False)
+    if ship_conn:
+        _ensure_telemetry(ship_conn)
+    engaged = False
+    for _ in range(15):
+        time.sleep(0.2)
+        remote.update()
+        if remote.telemetry.get("autopilotEnabled"):
+            engaged = True
+            break
+    if not engaged:
+        print("Autopilot did not start!")
+        return None
+    start_t = time.time()
+    last_print = 0.0
+    stop_pos = curr_pos
+    while True:
+        remote.update()
+        if ship_conn:
+            ship_conn.update()
+        p = _get_pos(remote)
+        if not p:
+            time.sleep(CHECK_INTERVAL)
+            continue
+        d = _dist(p, target)
+        if check_callback and d < 1.0 and check_callback():
+            print("Callback condition met, stopping flight.")
+            remote.disable()
+            break
+        stop_pos = p
+        now = time.time()
+        if now - last_print > 1.0 or d < 3.0:
+            print(f"Flying... Dist: {d:.2f}m")
+            last_print = now
+        if d < ARRIVAL_DISTANCE:
+            print("Arrived.")
+            break
+        if not remote.telemetry.get("autopilotEnabled"):
+            if d < RC_STOP_TOLERANCE:
+                print("Stopped near target.")
+                break
+            else:
+                print("Manual interrupt!")
+                return stop_pos
+        if time.time() - start_t > MAX_FLIGHT_TIME:
+            print("Max flight time exceeded.")
+            remote.disable()
+            break
+        time.sleep(CHECK_INTERVAL)
+    return stop_pos
+
+
+def _dock_by_connector_vector(rc, ship_conn, base_conn):
+    base_target_pos = _get_pos(base_conn)
+    if base_target_pos is None:
+        print("Cannot determine base target position.")
+        return None
+    best_dist = None
+    last_improve_time = time.time()
+    stop_pos = None
+    for step_idx in range(1, MAX_DOCK_STEPS + 1):
+        _ensure_telemetry(ship_conn)
+        _ensure_telemetry(rc)
+        ship_pos = _get_pos(ship_conn)
+        rc_pos = _get_pos(rc)
+        if not ship_pos or not rc_pos:
+            print("Cannot get positions.")
+            break
+        dist_cb = _dist(ship_pos, base_target_pos)
+        print(f"Step {step_idx}: ShipConn->BaseTarget: {dist_cb:.3f}m")
+        if dist_cb <= DOCK_SUCCESS_TOLERANCE:
+            print("Connector within tolerance.")
+            stop_pos = rc_pos
+            break
+        if best_dist is None or dist_cb < best_dist - 0.05:
+            best_dist = dist_cb
+            last_improve_time = time.time()
+        elif time.time() - last_improve_time > 8.0:
+            print("No improvement.")
+            stop_pos = rc_pos
+            break
+        dir_vec = _sub(base_target_pos, ship_pos)
+        dir_len = math.sqrt(dir_vec[0] ** 2 + dir_vec[1] ** 2 + dir_vec[2] ** 2)
+        if dir_len < 1e-3:
+            print("Direction too small.")
+            stop_pos = rc_pos
+            break
+        dir_norm = (dir_vec[0] / dir_len, dir_vec[1] / dir_len, dir_vec[2] / dir_len)
+        step_len = max(0.8, min(3.0, dist_cb * 0.6))
+        move_vec = _scale(dir_norm, step_len)
+        target_rc = _add(rc_pos, move_vec)
+        stop_pos = _fly_to(rc, target_rc, f"DockStep#{step_idx}", 1.5, 0.6, check_callback=lambda: get_connector_status(ship_conn) == STATUS_READY_TO_LOCK, ship_conn=ship_conn, ship_conn_target=base_target_pos, fixed_base_pos=base_target_pos)
+        if stop_pos is None:
+            print("Autopilot did not start.")
+            break
+    return stop_pos
+
+
+def dock_procedure(base_grid_id: str, ship_grid_id: str):
+    print(f"=== Возврат {ship_grid_id} на базу {base_grid_id} ===")
+    ship_grid = prepare_grid(ship_grid_id)
+    base_grid = prepare_grid(base_grid_id)
+    try:
+        rc_list = ship_grid.find_devices_by_type(RemoteControlDevice)
+        ship_conn_list = ship_grid.find_devices_by_type(ConnectorDevice)
+        base_conn_list = base_grid.find_devices_by_type(ConnectorDevice)
+        if not rc_list:
+            raise RuntimeError("No RemoteControl on ship.")
+        if not ship_conn_list:
+            raise RuntimeError("No Connector on ship.")
+        if not base_conn_list:
+            raise RuntimeError("No Connector on base.")
+        rc = rc_list[0]
+        ship_conn = ship_conn_list[0]
+        base_conn = base_conn_list[0]
+        _ensure_telemetry(rc)
+        _ensure_telemetry(ship_conn)
+        _ensure_telemetry(base_conn)
+        print(f"Ship connector status: {get_connector_status(ship_conn)}")
+        if is_already_docked(ship_conn):
+            print("Already docked, undocking...")
+            ship_conn.disconnect()
+            time.sleep(1)
+            ship_conn.update()
+            print(f"After undock: {get_connector_status(ship_conn)}")
+        if get_connector_status(ship_conn) == STATUS_READY_TO_LOCK:
+            ship_conn.connect()
+        final_rc_pos, base_fwd, base_conn_pos, base_up, ship_conn_target = _calculate_docking_point(rc, ship_conn, base_conn, base_grid)
+        ship_conn.disconnect()
+        approach_rc_pos = _add(final_rc_pos, _scale(base_fwd, 5.0))
+        _fly_to(rc, approach_rc_pos, "Approach", 15.0, 5.0)
+        stop_pos_docking = _dock_by_connector_vector(rc, ship_conn, base_conn)
+        print("Waiting for connector to lock...")
+        locked = False
+        last_status = ""
+        while not locked:
+            ship_conn.update()
+            status = get_connector_status(ship_conn)
+            if status != last_status:
+                print(f"Ship connector status: {status}")
+                last_status = status
+            if status == STATUS_READY_TO_LOCK:
+                print("Ready to lock, connecting...")
+                ship_conn.connect()
+                time.sleep(0.5)
+                ship_conn.update()
+                final_status = get_connector_status(ship_conn)
+                if final_status == STATUS_CONNECTED:
+                    print("Successfully connected!")
+                    locked = True
+                else:
+                    print(f"Connect failed: {final_status}")
+                    locked = True
+            time.sleep(CHECK_INTERVAL)
+        print(f"Final Connector Status: {get_connector_status(ship_conn)}")
+        rc.disable()
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        try:
+            rc.disable()
+        except Exception:
+            pass
+        close(ship_grid)
+        close(base_grid)
+
+
+if __name__ == "__main__":
+    dock_procedure(BASE_GRID, SHIP_GRID)
