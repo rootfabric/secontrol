@@ -18,11 +18,13 @@ class RadarController:
         voxel_step: int = 1,
         cell_size: float = 10.0,
         fast_scan: bool = False,
+        ore_only: bool = False,
         boundingBoxX: int = 500,
         boundingBoxY: int = 500,
         boundingBoxZ: int = 500,
         radius: float = 50.0,
         fullSolidScan = True,
+        budget_ms_per_tick: Optional[float] = None,
         filter_no_stone: bool = True,
         telemetry_retries: int = 5,
         telemetry_retry_delay: float = 0.5
@@ -34,12 +36,15 @@ class RadarController:
             "voxel_step": voxel_step,
             "cell_size": cell_size,
             "fast_scan": fast_scan,
+            "ore_only": ore_only,
             "boundingBoxX": boundingBoxX,
             "boundingBoxY": boundingBoxY,
             "boundingBoxZ": boundingBoxZ,
             "radius": radius,
             "fullSolidScan":fullSolidScan
         }
+        if budget_ms_per_tick is not None:
+            self.scan_params["budget_ms_per_tick"] = budget_ms_per_tick
 
         # Map data
         self.occupancy_grid: Optional[np.ndarray] = None
@@ -53,12 +58,87 @@ class RadarController:
         self.telemetry_retries = telemetry_retries
         self.telemetry_retry_delay = telemetry_retry_delay
 
+    @staticmethod
+    def _radar_marker(radar: Optional[Dict[str, Any]]) -> tuple[Any, Any, Any]:
+        if not isinstance(radar, dict):
+            return None, None, None
+        raw = radar.get("raw")
+        if not isinstance(raw, dict):
+            raw = {}
+        return raw.get("rev"), raw.get("tsMs"), radar.get("revision")
+
+    def _latest_radar_snapshot(self) -> Optional[Dict[str, Any]]:
+        tel = self.radar.telemetry or {}
+        radar = tel.get("radar")
+        if isinstance(radar, dict):
+            return radar
+        snapshot = self.radar.radar_snapshot()
+        return snapshot if snapshot else None
+
+    @staticmethod
+    def _solid_points_from_raw(raw: Dict[str, Any]) -> List[List[float]]:
+        solid_points = raw.get("solidPoints")
+        if isinstance(solid_points, list):
+            return solid_points
+
+        solid = raw.get("solid")
+        if not isinstance(solid, list) or not solid:
+            return []
+
+        size = raw.get("size")
+        origin = raw.get("origin")
+        cell_size = raw.get("cellSize")
+        if not (
+            isinstance(size, list)
+            and len(size) >= 3
+            and isinstance(origin, list)
+            and len(origin) >= 3
+            and cell_size is not None
+        ):
+            return []
+
+        try:
+            size_x, size_y, size_z = (int(size[0]), int(size[1]), int(size[2]))
+            ox, oy, oz = (float(origin[0]), float(origin[1]), float(origin[2]))
+            cell = float(cell_size)
+        except (TypeError, ValueError):
+            return []
+
+        if size_x <= 0 or size_y <= 0 or size_z <= 0 or cell <= 0:
+            return []
+
+        points: List[List[float]] = []
+        plane = size_y * size_z
+        for value in solid:
+            try:
+                idx = int(value)
+            except (TypeError, ValueError):
+                continue
+            if idx < 0:
+                continue
+            x = idx // plane
+            yz = idx % plane
+            y = yz // size_z
+            z = yz % size_z
+            if 0 <= x < size_x and 0 <= y < size_y and 0 <= z < size_z:
+                points.append([
+                    ox + (x + 0.5) * cell,
+                    oy + (y + 0.5) * cell,
+                    oz + (z + 0.5) * cell,
+                ])
+        return points
+
     def extract_solid(self, radar: Dict[str, Any]) -> tuple[List[List[float]], Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Extract solid points, metadata, contacts, and ore cells from radar data."""
         raw = radar.get("raw", {})
-        solid = raw.get("solidPoints", [])
-        if not isinstance(solid, list):
-            solid = []
+        if not isinstance(raw, dict):
+            raw = {}
+        if not raw:
+            raw = radar
+
+        solid = self._solid_points_from_raw(raw)
+        if not solid and raw is not radar:
+            solid = self._solid_points_from_raw(radar)
 
         metadata = {
             "size": raw.get("size", [100, 100, 100]),
@@ -152,10 +232,18 @@ class RadarController:
 
         return contacts
 
-    def scan_voxels(self, filter_no_stone = None, **scan_kwargs):
-        """Scan voxels, process result and return solid, metadata, contacts."""
+    def scan_voxels(self, filter_no_stone = None, max_wait_sec: float = 120.0, **scan_kwargs):
+        """Scan voxels, process result and return solid, metadata, contacts.
+
+        Args:
+            max_wait_sec: Maximum seconds to wait for a complete scan (100%).
+                          The scan may be interrupted by telemetry resets; this
+                          timeout prevents an infinite wait.
+        """
         print(f"Scanning voxels...")
         start_time = time.time()
+        initial_radar = self._latest_radar_snapshot()
+        initial_marker = self._radar_marker(initial_radar)
 
         # Send scan command
         seq = self.radar.scan(
@@ -169,11 +257,16 @@ class RadarController:
         # Wait for scan completion
         last_progress = -1
         radar_data = None
-        # time.sleep(0.3)
+        saw_scan_start = False
+        last_active_scan = None
         while True:
-            # time.sleep(0.1)
-            # self.radar.update()
-            self.radar.wait_for_telemetry(need_update=False)
+            elapsed_total = time.time() - start_time
+            if elapsed_total > max_wait_sec:
+                print(f"[scan] Max wait time ({max_wait_sec:.0f}s) exceeded. Using best available data.")
+                break
+            if not self.radar.wait_for_telemetry(need_update=False):
+                print("[scan] Timed out waiting for telemetry update.")
+                break
 
             tel = self.radar.telemetry or {}
             scan = tel.get("scan", {})
@@ -186,32 +279,97 @@ class RadarController:
                 elapsed = scan.get("elapsedSeconds", 0)
 
                 if in_progress and progress != last_progress:
+                    saw_scan_start = True
+                    last_active_scan = scan
                     print(f"[scan progress] {progress:.1f}% ({processed}/{total} tiles, {elapsed:.1f}s)")
                     last_progress = progress
-                elif not in_progress:
-                    print(f"[scan] Completed: {progress:.1f}% ({processed}/{total} tiles, {elapsed:.1f}s)")
+                elif in_progress:
+                    saw_scan_start = True
+                    last_active_scan = scan
+                elif saw_scan_start:
+                    progress_val = float(progress or 0)
+                    if total == 0 and isinstance(last_active_scan, dict):
+                        progress_val = float(last_active_scan.get("progressPercent", progress) or 0)
+                        processed = last_active_scan.get("processedTiles", processed)
+                        total = last_active_scan.get("totalTiles", total)
+                        elapsed = last_active_scan.get("elapsedSeconds", elapsed)
+
+                    if progress_val >= 99.9:
+                        print(f"[scan] Completed: {progress_val:.1f}% ({processed}/{total} tiles, {elapsed:.1f}s)")
+                        break
+                    else:
+                        print(
+                            f"[scan] Scan reset at {progress_val:.1f}% ({processed}/{total} tiles); "
+                            "waiting for next scan cycle..."
+                        )
+                        saw_scan_start = False
+                        last_active_scan = None
+                        last_progress = -1
+                        continue
+                elif time.time() - start_time > 5.0:
+                    print("[scan] Scan did not enter progress state within 5.0s.")
                     break
 
         end_time = time.time()
         scan_duration = end_time - start_time
         print(f"Total scan time: {scan_duration:.2f}s")
 
-        # Retry to get radar data after scan completion
+        # Retry to get radar data after scan completion. Telemetry can publish an
+        # idle scan state before the new radar payload is visible, so avoid
+        # returning a stale cached radar snapshot from before this scan.
         radar_data = None
+        last_seen_radar = None
         for attempt in range(self.telemetry_retries):
-            self.radar.update()
-            tel = self.radar.telemetry or {}
-            radar_data = tel.get("radar")
-            if radar_data:
+            self.radar.wait_for_telemetry(
+                timeout=self.telemetry_retry_delay,
+                need_update=False,
+            )
+            candidate = self._latest_radar_snapshot()
+            if isinstance(candidate, dict):
+                last_seen_radar = candidate
+            marker = self._radar_marker(candidate)
+            if candidate and (initial_marker == (None, None, None) or marker != initial_marker):
+                radar_data = candidate
                 break
-            time.sleep(self.telemetry_retry_delay)
+            if attempt == 0 and candidate:
+                print(
+                    "[scan] Radar payload has not advanced yet "
+                    f"(marker={marker}); waiting for fresh result..."
+                )
+            if attempt >= 1:
+                self.radar.update()
 
         if not radar_data:
-            print("No radar data received after retries.")
-            return None, None, None, None
+            if last_seen_radar:
+                radar_data = last_seen_radar
+                print("[scan] Fresh radar payload was not observed; using latest available radar snapshot.")
+            else:
+                print("No radar data received after retries.")
+                return None, None, None, None
+
+        if (
+            isinstance(last_active_scan, dict)
+            and last_active_scan.get("totalTiles")
+            and float(last_active_scan.get("progressPercent", 0) or 0) < 99.9
+            and not radar_data.get("done")
+        ):
+            print(
+                "[scan] Warning: scan stopped before reaching 100% "
+                f"({last_active_scan.get('processedTiles', 0)}/"
+                f"{last_active_scan.get('totalTiles', 0)} tiles)."
+            )
 
         solid, metadata, contacts, ore_cells = self.extract_solid(radar_data)
         print(f"Received solid: {len(solid)} points, rev={metadata['rev']}, truncated={metadata['oreCellsTruncated']}")
+        if not solid:
+            raw = radar_data.get("raw", {}) if isinstance(radar_data, dict) else {}
+            if not isinstance(raw, dict):
+                raw = {}
+            print(
+                "[scan] Radar returned no solid voxels "
+                f"(solidCellCount={radar_data.get('solidCellCount')}, "
+                f"raw keys={sorted(raw.keys())})."
+            )
 
         # Determine filter setting
         if filter_no_stone is None:

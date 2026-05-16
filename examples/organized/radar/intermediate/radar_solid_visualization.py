@@ -86,6 +86,8 @@ def extract_solid(radar: Dict[str, Any]) -> tuple[List[List[float]], Dict[str, A
         "oreCellsTruncated": radar.get("oreCellsTruncated", 0),
         "rev": raw.get("rev", 0),
         "tsMs": raw.get("tsMs", 0),
+        "radius": radar.get("radius"),
+        "policy": radar.get("policy", {}),
     }
 
     contacts = radar.get("contacts", [])
@@ -99,6 +101,7 @@ def extract_solid(radar: Dict[str, Any]) -> tuple[List[List[float]], Dict[str, A
 last_scan_state = {}
 last_solid_data = None
 cancel_requested = False
+scan_started_at: Optional[float] = None
 
 def input_thread():
     global cancel_requested
@@ -112,7 +115,12 @@ def input_thread():
         except EOFError:
             break
 
-def visualize_solid(solid: List[List[float]], metadata: Dict[str, Any], contacts: List[Dict[str, Any]]) -> None:
+def visualize_solid(
+    solid: List[List[float]],
+    metadata: Dict[str, Any],
+    contacts: List[Dict[str, Any]],
+    scan_duration: Optional[float] = None,
+) -> None:
     """Визуализирует solid как 3D облако точек с pyvista."""
     global last_solid_data
     if not solid:
@@ -140,33 +148,46 @@ def visualize_solid(solid: List[List[float]], metadata: Dict[str, Any], contacts
     # print(voxels)
 
     # Добавить точки устройств
-    device_points = []
+    grid_points = []
+    player_points = []
     for contact in contacts:
-        if contact.get("type") == "grid":
-            pos = contact.get("position")
-            print(contact)
-            if pos:
-                device_points.append(pos)
+        contact_type = contact.get("type")
+        pos = contact.get("position")
+        if not pos:
+            continue
 
-    device_cloud = None
-    if device_points:
-        device_cloud = pv.PolyData(device_points)
+        if contact_type == "grid":
+            print(contact)
+            grid_points.append(pos)
+        elif contact_type == "player":
+            print(contact)
+            player_points.append(pos)
+
+    grid_cloud = pv.PolyData(grid_points) if grid_points else None
+    player_cloud = pv.PolyData(player_points) if player_points else None
+    print(f"Contacts: {len(contacts)}, grids: {len(grid_points)}, players: {len(player_points)}")
+    if scan_duration is not None:
+        print(f"[scan] Total scan time before plot: {scan_duration:.2f}s")
 
     # Использовать глобальный plotter для обновления
     global plotter
     if 'plotter' not in globals():
         plotter = pv.Plotter(off_screen=False)
         plotter.add_mesh(cloud, color='blue')
-        if device_cloud:
-            plotter.add_mesh(device_cloud, color='red')
+        if grid_cloud:
+            plotter.add_mesh(grid_cloud, color='red', point_size=20, render_points_as_spheres=True, label='Grids')
+        if player_cloud:
+            plotter.add_mesh(player_cloud, color='green', point_size=14, render_points_as_spheres=True, label='Players')
         plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
         plotter.show(auto_close=False, interactive=True)
     else:
         # Обновить поверхность
         plotter.clear()
         plotter.add_mesh(cloud, color='blue')
-        if device_cloud:
-            plotter.add_mesh(device_cloud, color='red')
+        if grid_cloud:
+            plotter.add_mesh(grid_cloud, color='red', point_size=20, render_points_as_spheres=True, label='Grids')
+        if player_cloud:
+            plotter.add_mesh(player_cloud, color='green', point_size=14, render_points_as_spheres=True, label='Players')
         plotter.add_text(f'Solid Visualization (rev={metadata["rev"]}, points={len(points)})', position='upper_left')
         plotter.render()
 
@@ -185,12 +206,12 @@ def visualize_solid(solid: List[List[float]], metadata: Dict[str, Any], contacts
     #
 
 def main() -> None:
-    global cancel_requested
+    global cancel_requested, scan_started_at
     # Запустить поток для ввода команд
     input_t = threading.Thread(target=input_thread, daemon=True)
     input_t.start()
 
-    grid = prepare_grid("taburet")
+    grid = prepare_grid("skynet-baza0")
     try:
         # Найти ore_detector
         # detectors = grid.find_devices_by_type("ore_detector")
@@ -218,10 +239,24 @@ def main() -> None:
                 return
 
             solid, metadata, contacts = extract_solid(radar)
+            print(
+                f"Scan meta: radius={metadata.get('radius')}, "
+                f"cellSize={metadata.get('cellSize')}, size={metadata.get('size')}, "
+                f"policy={metadata.get('policy')}"
+            )
             print(f"Получен solid: {len(solid)} точек, rev={metadata['rev']}, truncated={metadata['oreCellsTruncated']}")
 
             if solid:
-                visualize_solid(solid, metadata, contacts)
+                xs = [float(p[0]) for p in solid if isinstance(p, list) and len(p) >= 3]
+                ys = [float(p[1]) for p in solid if isinstance(p, list) and len(p) >= 3]
+                zs = [float(p[2]) for p in solid if isinstance(p, list) and len(p) >= 3]
+                if xs and ys and zs:
+                    print(
+                        f"Solid extents: "
+                        f"x={max(xs)-min(xs):.1f}m, y={max(ys)-min(ys):.1f}m, z={max(zs)-min(zs):.1f}m"
+                    )
+                scan_duration = time.time() - scan_started_at if scan_started_at is not None else None
+                visualize_solid(solid, metadata, contacts, scan_duration)
 
         device.on("telemetry", on_telemetry_update)
 
@@ -235,28 +270,37 @@ def main() -> None:
         # center = get_forward_point(grid, 40.0)
         # centerX, centerY, centerZ = center
         # print(f"Центр сканирования: {center}")
+        
+        scan_radius = 5000
+        
         seq = device.scan(
-            # include_players=False,
+            include_players=True,
             include_grids=True,
-            budget_ms_per_tick=100,
+            # budget_ms_per_tick=100,
 
             # полный скан
             include_voxels=True,
-            fullSolidScan = True,
+            # include_voxels=False,
+            # fullSolidScan = True,
             voxel_step=1,
-            cell_size=20,
-            fast_scan=False,
+
+            # fast_scan=False,
+            # fast_scan=True,
+            
+            # gridStep=200,      # 25-50 для грубой карты
+            # cell_size=200,
 
             # Быстрый скан
             # include_voxels=True,
-            # fast_scan=True,
+            
             # gridStep=10,
 
-            boundingBoxX=500,
-            boundingBoxY=500,
-            boundingBoxZ=500,
+            boundingBoxX=100,
+            boundingBoxY=100,
+            boundingBoxZ=5000,
 
-            radius = 100,
+            radius=scan_radius,
+            fastScanMaxRadius=scan_radius,
 
             # centerX=centerX,
             # centerY=centerY,
@@ -270,6 +314,7 @@ def main() -> None:
 
 
         # Цикл отслеживания прогресса и ожидания
+        scan_started_at = time.time()
         last_progress = -1
         try:
             while True:

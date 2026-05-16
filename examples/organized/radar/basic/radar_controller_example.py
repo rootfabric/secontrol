@@ -8,7 +8,7 @@ from secontrol.controllers.radar_controller import RadarController
 
 
 def main() -> None:
-    grid = prepare_grid("taburet")  # Replace with actual grid name
+    grid = prepare_grid("skynet-baza0")  # Replace with actual grid name
 
     try:
         # Find radar
@@ -21,23 +21,32 @@ def main() -> None:
 
         print(f"Found radar: {radar.name} (id={radar.device_id})")
 
-        # Create controller
-        controller = RadarController(radar, radius = 150)
+        # Create controller (ore_only=True: scans all voxels for ore only, ignores stone, orientation-independent)
+        
+        controller = RadarController(radar, radius=300, cell_size=2, ore_only=True)
+        # controller = RadarController(radar, radius=300, cell_size=2, ore_only=False)
 
         # Scan voxels
-        print("Starting voxel scan...")
+        print("Starting voxel scan (ore_only=True)...")
         solid, metadata, contacts, ore_cells = controller.scan_voxels()
 
         # Check results
         if solid is not None and metadata is not None and contacts is not None and ore_cells is not None:
             print(f"Scan completed successfully!")
+            print(f"Ore-only mode: {radar.ore_only()}")
             print(f"Grid size: {metadata['size']}")
             print(f"Origin: {metadata['origin']}")
             print(f"Cell size: {metadata['cellSize']}")
             print(f"Total solid voxels: {len(solid)}")
             print(f"Total ore cells: {len(ore_cells)}")
-            if len(ore_cells)>0:
-                print(f"Total ore cells: {ore_cells}")
+            if ore_cells:
+                print("--- Ores ---")
+                for i, cell in enumerate(ore_cells, 1):
+                    material = cell.get("material") or cell.get("ore") or "?"
+                    content = cell.get("content", "N/A")
+                    position = cell.get("position", "N/A")
+                    print(f"  [{i}] {material} — content={content}, position={position}")
+                print("------------")
 
 
             # Check occupancy_grid for compatibility

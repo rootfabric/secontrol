@@ -110,17 +110,26 @@ class RadarVisualizer:
             player_cloud = pv.PolyData(player_points)
             self.plotter.add_mesh(player_cloud, color="red", point_size=10, label="Players")
 
-        # Ore cells (yellow)
+        # Ore cells (green voxels)
         if ore_cells:
-            ore_points = []
+            ore_occ = np.zeros((size_x, size_y, size_z), dtype=bool)
             for ore in ore_cells:
                 pos = ore.get("position")
-                if pos:
-                    ore_points.append(pos)
+                if pos and len(pos) == 3:
+                    rel = (np.array(pos, dtype=float) - origin) / cell_size
+                    idx = np.floor(rel).astype(np.int64)
+                    if (0 <= idx[0] < size_x) and (0 <= idx[1] < size_y) and (0 <= idx[2] < size_z):
+                        ore_occ[idx[0], idx[1], idx[2]] = True
 
-            if ore_points:
-                ore_cloud = pv.PolyData(ore_points)
-                self.plotter.add_mesh(ore_cloud, color="yellow", point_size=5, label="Ores")
+            if np.any(ore_occ):
+                ore_img = pv.ImageData()
+                ore_img.dimensions = np.array([size_x + 1, size_y + 1, size_z + 1])
+                ore_img.spacing = (cell_size, cell_size, cell_size)
+                ore_img.origin = origin
+                ore_img.cell_data["ore"] = ore_occ.ravel(order="F")
+                ore_grid = ore_img.threshold(0.5, scalars="ore")
+                print(f"Ore grid cells: {ore_grid.n_cells}")
+                self.plotter.add_mesh(ore_grid, style="surface", color="green", opacity=0.85, label="Ores")
 
         self.plotter.add_text(f"Radar Data (points={len(solid)})", position="upper_left")
         if own_position:

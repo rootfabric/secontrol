@@ -145,6 +145,11 @@ class OreDetectorDevice(BaseDevice):
         except (TypeError, ValueError):
             return None
 
+    def ore_only(self) -> bool:
+        """Check if the scanner is in ore-only mode."""
+        scan = (self.telemetry or {}).get("scan") or {}
+        return bool(scan.get("oreOnly", False))
+
     def wait_for_new_radar(self, timeout: float = 10.0) -> bool:
         """Ждет новой порции телеметрии радара с таймаутом."""
         import time
@@ -178,6 +183,7 @@ class OreDetectorDevice(BaseDevice):
         include_players: bool = True,
         include_grids: bool = True,
         include_voxels: bool = False,
+        ore_only: bool = False,
         radius: Optional[float] = None,
         cell_size: Optional[float] = None,
         voxel_scan_hz: Optional[float] = None,
@@ -200,6 +206,7 @@ class OreDetectorDevice(BaseDevice):
         centerY: Optional[float] = None,
         centerZ: Optional[float] = None,
         fastScanBudgetMs: Optional[float] = None,
+        fastScanMaxRadius: Optional[float] = None,
         fastScanTileEdgeMax: Optional[float] = None,
 
     ) -> int:
@@ -209,6 +216,7 @@ class OreDetectorDevice(BaseDevice):
             "includePlayers": bool(include_players),
             "includeGrids": bool(include_grids),
             "includeVoxels": bool(include_voxels),
+            "oreOnly": bool(ore_only),
         }
         if radius is not None:
             state["radius"] = float(radius)
@@ -248,11 +256,16 @@ class OreDetectorDevice(BaseDevice):
             state["noDetectorCapMax"] = float(no_detector_cap_max)
 
         if fast_scan is not None:
+            # The server-side bridge has used both spellings in examples and
+            # plugin revisions. Send both for compatibility.
+            state["fastScan"] = bool(fast_scan)
             state["fast_scan"] = bool(fast_scan)
         if gridStep is not None:
             state["gridStep"] = float(gridStep)
         if fastScanBudgetMs is not None:
             state["fastScanBudgetMs"] = float(fastScanBudgetMs)
+        if fastScanMaxRadius is not None:
+            state["fastScanMaxRadius"] = float(fastScanMaxRadius)
         if fastScanTileEdgeMax is not None:
             state["fastScanTileEdgeMax"] = float(fastScanTileEdgeMax)
 
