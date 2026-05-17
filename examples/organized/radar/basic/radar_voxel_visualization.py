@@ -89,14 +89,14 @@ def main() -> None:
 
         # Create controller
         controller = RadarController(radar,
-                                    radius=200,
+                                    radius=5000,
                                     # voxel_step=1,
-                                    cell_size=5.0,
-                                    # ore_only=False,
-                                    ore_only=True,
-                                    # boundingBoxX=100,
-                                    # boundingBoxY=100,
-                                    # boundingBoxZ=5000,
+                                    cell_size=10.0,
+                                    ore_only=False,
+                                    # ore_only=True,
+                                    boundingBoxX=10,
+                                    boundingBoxY=10,
+                                    boundingBoxZ=5000,
 
                                     )
 

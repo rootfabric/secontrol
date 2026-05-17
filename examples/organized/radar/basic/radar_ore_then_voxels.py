@@ -6,7 +6,7 @@ Pass 1: ore_only=True  — finds all ore deposits across overlapping voxels
 Pass 2: ore_only=False — gets full solid geometry (stone + ore)
 """
 
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pyvista as pv
@@ -33,6 +33,10 @@ ORE_COLORS = {
 }
 DEFAULT_ORE_COLOR = (200, 80, 200)  # magenta for unknown ores
 
+GRID_NAME = "skynet-baza1"
+SCAN_RADIUS = 1000
+CELL_SIZE = 10
+
 
 def ore_color(name: str) -> Tuple[int, int, int]:
     """Return RGB tuple for an ore name."""
@@ -40,6 +44,57 @@ def ore_color(name: str) -> Tuple[int, int, int]:
         if key.lower() in name.lower():
             return rgb
     return DEFAULT_ORE_COLOR
+
+
+def contact_position(contact: Dict[str, Any]) -> Optional[List[float]]:
+    """Return contact position as [x, y, z], accepting list/tuple or dict forms."""
+    pos = contact.get("position")
+    if isinstance(pos, dict):
+        try:
+            return [float(pos["x"]), float(pos["y"]), float(pos["z"])]
+        except (KeyError, TypeError, ValueError):
+            return None
+    if isinstance(pos, (list, tuple)) and len(pos) >= 3:
+        try:
+            return [float(pos[0]), float(pos[1]), float(pos[2])]
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def contact_label(contact: Dict[str, Any], prefix: str) -> str:
+    """Build a compact label for a radar contact."""
+    for key in ("name", "displayName", "playerName", "gridName", "id", "ownerId"):
+        value = contact.get(key)
+        if value not in (None, ""):
+            return f"{prefix}: {value}"
+    return prefix
+
+
+def merge_contacts(*contact_lists: Optional[list]) -> list:
+    """Merge contacts from multiple scans, deduplicating by id or rounded position."""
+    merged = []
+    seen = set()
+
+    for contacts in contact_lists:
+        for contact in contacts or []:
+            if not isinstance(contact, dict):
+                continue
+            pos = contact_position(contact)
+            ctype = contact.get("type", "?")
+            identity = contact.get("id") or contact.get("entityId") or contact.get("ownerId")
+            if identity is not None:
+                key = (ctype, str(identity))
+            elif pos:
+                key = (ctype, tuple(round(v, 1) for v in pos))
+            else:
+                key = (ctype, len(merged))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(contact)
+
+    return merged
 
 
 def get_own_position(grid):
@@ -74,7 +129,12 @@ def scan_with_label(
 
     ore_count = len(ore_cells) if ore_cells else 0
     solid_count = len(solid) if solid else 0
-    print(f"[{label}] solid={solid_count}, ore_cells={ore_count}, contacts={len(contacts) if contacts else 0}")
+    grid_count = sum(1 for c in contacts or [] if isinstance(c, dict) and c.get("type") == "grid")
+    player_count = sum(1 for c in contacts or [] if isinstance(c, dict) and c.get("type") == "player")
+    print(
+        f"[{label}] solid={solid_count}, ore_cells={ore_count}, "
+        f"contacts={len(contacts) if contacts else 0} (grids={grid_count}, players={player_count})"
+    )
 
     if ore_cells:
         # Group by ore type
@@ -87,6 +147,18 @@ def scan_with_label(
             print(f"    {name}: {count}")
 
     return solid, meta, contacts, ore_cells
+
+
+def scan_contacts_with_label(controller: RadarController, label: str) -> list:
+    """Run a contact-only scan and print a labeled summary."""
+    print(f"\n{'='*60}")
+    print(f"  SCAN: {label}")
+    print(f"{'='*60}")
+    contacts = controller.scan_contacts() or []
+    grid_count = sum(1 for c in contacts if isinstance(c, dict) and c.get("type") == "grid")
+    player_count = sum(1 for c in contacts if isinstance(c, dict) and c.get("type") == "player")
+    print(f"[{label}] contacts={len(contacts)} (grids={grid_count}, players={player_count})")
+    return contacts
 
 
 def build_occ_grid(
@@ -232,14 +304,22 @@ def visualize_merged(
     # ── Contacts ──
     grid_points = []
     player_points = []
+    player_labels = []
     for c in (contacts or []):
-        pos = c.get("position")
+        if not isinstance(c, dict):
+            continue
+        pos = contact_position(c)
         if not pos:
             continue
         if c.get("type") == "grid":
             grid_points.append(pos)
         elif c.get("type") == "player":
             player_points.append(pos)
+            label = contact_label(c, "Player")
+            if own_position:
+                distance = float(np.linalg.norm(np.array(pos, dtype=float) - np.array(own_position, dtype=float)))
+                label = f"{label} ({distance:.0f} m)"
+            player_labels.append(label)
 
     if grid_points:
         cloud = pv.PolyData(grid_points)
@@ -247,7 +327,16 @@ def visualize_merged(
 
     if player_points:
         cloud = pv.PolyData(player_points)
-        plotter.add_mesh(cloud, color="red", point_size=10, render_points_as_spheres=True, label="Players")
+        plotter.add_mesh(cloud, color="red", point_size=24, render_points_as_spheres=True, label="Players")
+        plotter.add_point_labels(
+            np.array(player_points, dtype=float),
+            player_labels,
+            point_size=0,
+            font_size=12,
+            text_color="red",
+            shape_opacity=0.35,
+            always_visible=True,
+        )
 
     # ── Own position ──
     if own_position:
@@ -264,6 +353,7 @@ def visualize_merged(
         f"Ore types: {len(ore_grids)}",
         f"Ore cells: {total_ore_cells}",
         f"Contacts: {len(contacts) if contacts else 0}",
+        f"Players: {len(player_points)}",
     ]
     if ore_summary:
         hud_lines.append(f"Ores: {ore_summary}")
@@ -274,7 +364,7 @@ def visualize_merged(
 
 
 def main() -> None:
-    grid = prepare_grid("skynet-baza0")
+    grid = prepare_grid(GRID_NAME)
 
     try:
         radar = grid.get_first_device(OreDetectorDevice)
@@ -283,22 +373,27 @@ def main() -> None:
         own_position = get_own_position(grid)
 
         # ── PASS 1: Ore-only scan ──
-        ore_controller = RadarController(radar, radius=1000, cell_size=2, ore_only=True)
+        ore_controller = RadarController(radar, radius=SCAN_RADIUS, cell_size=CELL_SIZE, ore_only=True)
         ore_solid, ore_meta, ore_contacts, ore_cells = scan_with_label(
             ore_controller, "ORE ONLY (ore_only=True)",
         )
 
         # ── PASS 2: Full voxel scan ──
-        voxel_controller = RadarController(radar, radius=300, cell_size=2, ore_only=False, fullSolidScan=True)
+        voxel_controller = RadarController(radar, radius=SCAN_RADIUS, cell_size=CELL_SIZE, ore_only=False)
         vox_solid, vox_meta, vox_contacts, vox_ore = scan_with_label(
             voxel_controller, "FULL VOXELS (ore_only=False)",
         )
+
+        # Contact-only scan is cheap and avoids losing players when a voxel scan
+        # snapshot returns only voxel/grid data.
+        contact_controller = RadarController(radar, radius=SCAN_RADIUS, cell_size=CELL_SIZE, ore_only=False)
+        contact_scan_contacts = scan_contacts_with_label(contact_controller, "CONTACTS ONLY")
 
         # ── Merge results ──
         # Solid geometry from pass 2 (full scan)
         solid_for_viz = vox_solid if vox_solid else ore_solid
         meta_for_viz = vox_meta if vox_meta else ore_meta
-        contacts_for_viz = vox_contacts if vox_contacts else ore_contacts
+        contacts_for_viz = merge_contacts(ore_contacts, vox_contacts, contact_scan_contacts)
 
         # Ore from pass 1 (ore-only scan has better ore data)
         ore_for_viz = ore_cells if ore_cells else (vox_ore or [])
@@ -313,6 +408,20 @@ def main() -> None:
         print(f"  Solid (from pass 2): {len(solid_for_viz)} points")
         print(f"  Ore cells (from pass 1): {len(ore_for_viz)}")
         print(f"  Contacts: {len(contacts_for_viz) if contacts_for_viz else 0}")
+        players_for_viz = [
+            c for c in contacts_for_viz or []
+            if isinstance(c, dict) and c.get("type") == "player" and contact_position(c)
+        ]
+        if players_for_viz:
+            print("  Players:")
+            for player in players_for_viz:
+                pos = contact_position(player)
+                label = contact_label(player, "Player")
+                if own_position and pos:
+                    distance = float(np.linalg.norm(np.array(pos, dtype=float) - np.array(own_position, dtype=float)))
+                    print(f"    {label}: pos={pos}, distance={distance:.0f} m")
+                else:
+                    print(f"    {label}: pos={pos}")
 
         # Build grids
         solid_occ = build_occ_grid(solid_for_viz, meta_for_viz)

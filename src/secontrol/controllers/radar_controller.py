@@ -19,9 +19,9 @@ class RadarController:
         cell_size: float = 10.0,
         fast_scan: bool = False,
         ore_only: bool = False,
-        boundingBoxX: int = 500,
-        boundingBoxY: int = 500,
-        boundingBoxZ: int = 500,
+        boundingBoxX: int = 5000,
+        boundingBoxY: int = 5000,
+        boundingBoxZ: int = 5000,
         radius: float = 50.0,
         fullSolidScan = True,
         budget_ms_per_tick: Optional[float] = None,
@@ -147,6 +147,8 @@ class RadarController:
             "oreCellsTruncated": radar.get("oreCellsTruncated", 0),
             "rev": raw.get("rev", 0),
             "tsMs": raw.get("tsMs", 0),
+            "radius": radar.get("radius"),
+            "policyMaxRadius": (radar.get("policy") or {}).get("maxRadius") if isinstance(radar.get("policy"), dict) else None,
         }
 
         contacts = radar.get("contacts", [])
@@ -270,6 +272,22 @@ class RadarController:
 
             tel = self.radar.telemetry or {}
             scan = tel.get("scan", {})
+            candidate = self._latest_radar_snapshot()
+            marker = self._radar_marker(candidate)
+            if (
+                isinstance(candidate, dict)
+                and candidate.get("done")
+                and (initial_marker == (None, None, None) or marker != initial_marker)
+            ):
+                radar_data = candidate
+                if isinstance(scan, dict):
+                    progress = float(scan.get("progressPercent", 100.0) or 100.0)
+                    processed = scan.get("processedTiles", 0)
+                    total = scan.get("totalTiles", 0)
+                    elapsed = scan.get("elapsedSeconds", elapsed_total)
+                    print(f"[scan] Completed: {progress:.1f}% ({processed}/{total} tiles, {elapsed:.1f}s)")
+                break
+
             if isinstance(scan, dict):
                 self.last_scan_state = scan
                 in_progress = scan.get("inProgress", False)
@@ -294,7 +312,7 @@ class RadarController:
                         total = last_active_scan.get("totalTiles", total)
                         elapsed = last_active_scan.get("elapsedSeconds", elapsed)
 
-                    if progress_val >= 99.9:
+                    if progress_val >= 99.9 or scan.get("done"):
                         print(f"[scan] Completed: {progress_val:.1f}% ({processed}/{total} tiles, {elapsed:.1f}s)")
                         break
                     else:
@@ -314,30 +332,30 @@ class RadarController:
         scan_duration = end_time - start_time
         print(f"Total scan time: {scan_duration:.2f}s")
 
-        # Retry to get radar data after scan completion. Telemetry can publish an
-        # idle scan state before the new radar payload is visible, so avoid
-        # returning a stale cached radar snapshot from before this scan.
-        radar_data = None
-        last_seen_radar = None
-        for attempt in range(self.telemetry_retries):
-            self.radar.wait_for_telemetry(
-                timeout=self.telemetry_retry_delay,
-                need_update=False,
-            )
-            candidate = self._latest_radar_snapshot()
-            if isinstance(candidate, dict):
-                last_seen_radar = candidate
-            marker = self._radar_marker(candidate)
-            if candidate and (initial_marker == (None, None, None) or marker != initial_marker):
-                radar_data = candidate
-                break
-            if attempt == 0 and candidate:
-                print(
-                    "[scan] Radar payload has not advanced yet "
-                    f"(marker={marker}); waiting for fresh result..."
+        # Retry only if the completion telemetry did not already carry a fresh
+        # radar payload. Newer servers publish scan.done and radar.done in the
+        # same packet, so the common path returns without a post-scan pause.
+        last_seen_radar = radar_data if isinstance(radar_data, dict) else None
+        if radar_data is None:
+            for attempt in range(self.telemetry_retries):
+                self.radar.wait_for_telemetry(
+                    timeout=self.telemetry_retry_delay,
+                    need_update=False,
                 )
-            if attempt >= 1:
-                self.radar.update()
+                candidate = self._latest_radar_snapshot()
+                if isinstance(candidate, dict):
+                    last_seen_radar = candidate
+                marker = self._radar_marker(candidate)
+                if candidate and (initial_marker == (None, None, None) or marker != initial_marker):
+                    radar_data = candidate
+                    break
+                if attempt == 0 and candidate:
+                    print(
+                        "[scan] Radar payload has not advanced yet "
+                        f"(marker={marker}); waiting for fresh result..."
+                    )
+                if attempt >= 1:
+                    self.radar.update()
 
         if not radar_data:
             if last_seen_radar:
@@ -361,6 +379,13 @@ class RadarController:
 
         solid, metadata, contacts, ore_cells = self.extract_solid(radar_data)
         print(f"Received solid: {len(solid)} points, rev={metadata['rev']}, truncated={metadata['oreCellsTruncated']}")
+        print(
+            "[scan] Effective server radius: "
+            f"radius={metadata.get('radius')}, "
+            f"policyMaxRadius={metadata.get('policyMaxRadius')}, "
+            f"gridSize={metadata.get('size')}, "
+            f"cellSize={metadata.get('cellSize')}"
+        )
         if not solid:
             raw = radar_data.get("raw", {}) if isinstance(radar_data, dict) else {}
             if not isinstance(raw, dict):
