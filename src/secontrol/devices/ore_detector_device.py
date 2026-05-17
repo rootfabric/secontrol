@@ -208,6 +208,7 @@ class OreDetectorDevice(BaseDevice):
         fastScanBudgetMs: Optional[float] = None,
         fastScanMaxRadius: Optional[float] = None,
         fastScanTileEdgeMax: Optional[float] = None,
+        reset_active_scan: Optional[bool] = None,
 
     ) -> int:
         """Request a fresh radar scan from the ore detector with full config."""
@@ -268,6 +269,8 @@ class OreDetectorDevice(BaseDevice):
             state["fastScanMaxRadius"] = float(fastScanMaxRadius)
         if fastScanTileEdgeMax is not None:
             state["fastScanTileEdgeMax"] = float(fastScanTileEdgeMax)
+        if reset_active_scan is not None:
+            state["resetActiveScan"] = bool(reset_active_scan)
 
         if boundingBoxX is not None:
             state["boundingBoxX"] = float(boundingBoxX)

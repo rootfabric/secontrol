@@ -14,6 +14,7 @@ import pyvista as pv
 from secontrol.common import close, prepare_grid
 from secontrol.devices.ore_detector_device import OreDetectorDevice
 from secontrol.controllers.radar_controller import RadarController
+from secontrol.tools.navigation_tools import get_world_position
 
 
 # ── Ore color map (distinct colors per ore type) ─────────────────────────
@@ -33,8 +34,9 @@ ORE_COLORS = {
 }
 DEFAULT_ORE_COLOR = (200, 80, 200)  # magenta for unknown ores
 
-GRID_NAME = "skynet-baza1"
-SCAN_RADIUS = 1000
+# GRID_NAME = "skynet-baza0"
+GRID_NAME = "taburet3"
+SCAN_RADIUS = 300
 CELL_SIZE = 10
 
 
@@ -98,17 +100,15 @@ def merge_contacts(*contact_lists: Optional[list]) -> list:
 
 
 def get_own_position(grid):
-    """Get own position from cockpit or remote control."""
+    """Get own world position from cockpit or remote control."""
     for dev_type in ("cockpit", "remote_control"):
         devices = grid.find_devices_by_type(dev_type)
         if devices:
             dev = devices[0]
             dev.update()
-            pos = dev.telemetry.get("planetPosition") or dev.telemetry.get("position")
-            if isinstance(pos, dict):
-                pos = [pos["x"], pos["y"], pos["z"]]
-            if isinstance(pos, list):
-                return pos
+            pos = get_world_position(dev)
+            if pos:
+                return list(pos)
     return None
 
 
@@ -373,13 +373,27 @@ def main() -> None:
         own_position = get_own_position(grid)
 
         # ── PASS 1: Ore-only scan ──
-        ore_controller = RadarController(radar, radius=SCAN_RADIUS, cell_size=CELL_SIZE, ore_only=True)
+        ore_controller = RadarController(radar, 
+                                         radius=SCAN_RADIUS, 
+                                         cell_size=CELL_SIZE,
+                                         ore_only=True, 
+                                         boundingBoxX=3000, 
+                                         boundingBoxZ=3000, 
+                                        #  boundingBoxY=2000, 
+                                         )
         ore_solid, ore_meta, ore_contacts, ore_cells = scan_with_label(
             ore_controller, "ORE ONLY (ore_only=True)",
         )
 
         # ── PASS 2: Full voxel scan ──
-        voxel_controller = RadarController(radar, radius=SCAN_RADIUS, cell_size=CELL_SIZE, ore_only=False)
+        voxel_controller = RadarController(radar,
+                                           radius=SCAN_RADIUS,
+                                           cell_size=CELL_SIZE,
+                                           ore_only=False, 
+                                           boundingBoxX=3000, 
+                                           boundingBoxZ=3000, 
+                                        #    boundingBoxY=2000, 
+                                           )
         vox_solid, vox_meta, vox_contacts, vox_ore = scan_with_label(
             voxel_controller, "FULL VOXELS (ore_only=False)",
         )

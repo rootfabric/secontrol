@@ -9,6 +9,7 @@ from secontrol.common import close, prepare_grid
 from secontrol.devices.ore_detector_device import OreDetectorDevice
 from secontrol.controllers.radar_controller import RadarController
 from secontrol.tools.radar_visualizer import RadarVisualizer
+from secontrol.tools.navigation_tools import get_world_position
 
 # Global variables
 last_solid_data = None
@@ -41,7 +42,7 @@ def extract_solid(radar: Dict[str, Any]) -> tuple[list[list[float]], Dict[str, A
 
 
 def get_own_position(grid):
-    """Get own position from cockpit or remote control."""
+    """Get own world position from cockpit or remote control."""
     cockpit_devices = grid.find_devices_by_type("cockpit")
     remote_devices = grid.find_devices_by_type("remote_control")
     device = None
@@ -53,10 +54,8 @@ def get_own_position(grid):
         return None
 
     device.update()
-    position = device.telemetry.get("planetPosition") or device.telemetry.get("position")
-    if isinstance(position, dict):
-        position = [position["x"], position["y"], position["z"]]
-    return position if isinstance(position, list) else None
+    position = get_world_position(device)
+    return list(position) if position else None
 
 
 def process_and_visualize(solid: list[list[float]], metadata: Dict[str, Any], contacts: list[Dict[str, Any]], grid):
@@ -79,24 +78,30 @@ def process_and_visualize(solid: list[list[float]], metadata: Dict[str, Any], co
 
 
 def main() -> None:
-    grid = prepare_grid("skynet-baza1")
+    # grid = prepare_grid("skynet-baza0")
     # grid = prepare_grid("DroneBase")
+    grid = prepare_grid("taburet3")
 
     try:
         radar = grid.get_first_device(OreDetectorDevice)
 
         print(f"Found radar: {radar.name} (id={radar.device_id})")
+        print("Cancelling any previous voxel scan...")
+        cancel_seq = radar.cancel_scan()
+        print(f"Cancel sent, seq={cancel_seq}")
+        time.sleep(0.2)
 
         # Create controller
         controller = RadarController(radar,
-                                    radius=5000,
+                                    radius=500,
                                     # voxel_step=1,
                                     cell_size=10.0,
-                                    ore_only=False,
                                     # ore_only=True,
-                                    boundingBoxX=10,
-                                    boundingBoxY=10,
-                                    boundingBoxZ=5000,
+                                    # ore_only=False,
+                                    # boundingBoxX=10,
+                                    boundingBoxY=1000,
+                                    # boundingBoxZ=5000,
+                                    # boundingBoxZ=30,
 
                                     )
 

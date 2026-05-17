@@ -40,7 +40,7 @@ from secontrol.tools.navigation_tools import (
 
 
 # ── Config ───────────────────────────────────────────────────────────────
-DEFAULT_GRID = "skynet-baza1"
+DEFAULT_GRID = "skynet-baza0"
 SEARCH_RADIUS = 50_000.0
 RESULT_LIMIT = 320
 INCLUDE_PLANETS = False

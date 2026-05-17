@@ -3,6 +3,20 @@ import pyvista as pv
 from typing import Any, Dict, List, Optional
 
 
+def _as_point(value: Any) -> Optional[List[float]]:
+    if isinstance(value, dict):
+        try:
+            return [float(value["x"]), float(value["y"]), float(value["z"])]
+        except (KeyError, TypeError, ValueError):
+            return None
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        try:
+            return [float(value[0]), float(value[1]), float(value[2])]
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 class RadarVisualizer:
     """
     Visualizer for radar data: voxels, grids, players, and own position.
@@ -35,10 +49,12 @@ class RadarVisualizer:
         # Build occupancy grid
         occ = np.zeros((size_x, size_y, size_z), dtype=bool)
 
+        solid_arr: Optional[np.ndarray] = None
         try:
             arr = np.asarray(solid, dtype=np.float64)
             print(f"Array shape: {arr.shape}")
             if arr.ndim == 2 and arr.shape[1] == 3:
+                solid_arr = arr
                 rel = (arr - origin.reshape(1, 3)) / cell_size
                 idx = np.floor(rel).astype(np.int64)
                 print(f"Rel min/max: {rel.min(axis=0)}, {rel.max(axis=0)}")
@@ -76,9 +92,13 @@ class RadarVisualizer:
         self.plotter.add_mesh(solid_grid, style="wireframe", color="gray", label="Solid Voxels")
 
         # Own position (green)
-        if own_position:
+        own_point = _as_point(own_position)
+        if own_point:
+            if solid_arr is not None and len(solid_arr):
+                nearest = float(np.min(np.linalg.norm(solid_arr - np.array(own_point), axis=1)))
+                print(f"Own position: {own_point}, nearest solid point: {nearest:.2f} m")
             self.plotter.add_points(
-                np.array([own_position]),
+                np.array([own_point]),
                 color="green",
                 render_points_as_spheres=True,
                 point_size=10,
@@ -89,7 +109,7 @@ class RadarVisualizer:
         grid_points = []
         for contact in contacts:
             if contact.get("type") == "grid":
-                pos = contact.get("position")
+                pos = _as_point(contact.get("position"))
                 if pos:
                     grid_points.append(pos)
 
@@ -102,7 +122,7 @@ class RadarVisualizer:
         player_points = []
         for contact in contacts:
             if contact.get("type") == "player":
-                pos = contact.get("position")
+                pos = _as_point(contact.get("position"))
                 if pos:
                     player_points.append(pos)
 
@@ -114,8 +134,8 @@ class RadarVisualizer:
         if ore_cells:
             ore_occ = np.zeros((size_x, size_y, size_z), dtype=bool)
             for ore in ore_cells:
-                pos = ore.get("position")
-                if pos and len(pos) == 3:
+                pos = _as_point(ore.get("position"))
+                if pos:
                     rel = (np.array(pos, dtype=float) - origin) / cell_size
                     idx = np.floor(rel).astype(np.int64)
                     if (0 <= idx[0] < size_x) and (0 <= idx[1] < size_y) and (0 <= idx[2] < size_z):
@@ -132,8 +152,8 @@ class RadarVisualizer:
                 self.plotter.add_mesh(ore_grid, style="surface", color="green", opacity=0.85, label="Ores")
 
         self.plotter.add_text(f"Radar Data (points={len(solid)})", position="upper_left")
-        if own_position:
-            self.plotter.add_text(f"Grid Position: {own_position}", position="upper_right")
+        if own_point:
+            self.plotter.add_text(f"Grid Position: {own_point}", position="upper_right")
         self.plotter.show(title="Radar Visualization")
 
     def close(self):
