@@ -6,13 +6,6 @@ Severity: **High** / **Medium** / **Low**
 
 ## Active debt
 
-### [Medium] CHANGELOG.md incomplete
-`CHANGELOG.md` only documents `0.1.0`. Versions `0.2.x` and `0.3.0` are undocumented.
-
-**Next action:** Reconstruct from git log and add entries for each version bump.
-
----
-
 ### [Medium] No CI/CD pipeline
 There are no GitHub Actions workflows or other CI configuration. Tests run manually only.
 
@@ -45,6 +38,27 @@ CLI/GUI tools (`telemetry_reader_gui.py`, `blueprint_editor.py`, etc.) are impor
 File exists solely to re-export from elsewhere. If nothing imports it externally it can be removed.
 
 **Next action:** Grep for external usage; remove if safe.
+
+---
+
+### [Low] Duplicate `_is_subgrid()` function
+`_is_subgrid()` is defined in both `common.py` and `redis_client.py` with identical logic.
+
+**Next action:** Keep one copy (preferably in `common.py`) and import from the other module.
+
+---
+
+### [Low] CHANGELOG.md now reconstructed but versions 0.2.x lack exact dates
+The changelog has been updated with version history but 0.2.x entries are approximate.
+
+**Next action:** Verify exact dates from git tags if available.
+
+---
+
+### [Low] Examples have hardcoded grid names, stale imports, and inconsistent patterns
+Many examples in `examples/organized/` contain hardcoded owner IDs (e.g., `"144115188075855919"`), grid names (e.g., `"taburet"`, `"DroneBase"`), and stale imports (e.g., `from Demos.mmapfile_demo import offset` in `simple_harvest.py`). Some use `prepare_grid()` while others use `Grid.from_name()`. No `__init__.py` in all subdirectories.
+
+**Next action:** Replace hardcoded IDs with `resolve_owner_id()`, replace hardcoded grid names with argparse `--grid` flag, remove stale imports. Standardize on `Grid.from_name()` as the primary entry point.
 
 ---
 

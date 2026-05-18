@@ -20,6 +20,8 @@ Chronological log of meaningful design decisions made during development.
 
 **Why:** Avoids giant if/elif chains. Allows external plugins to register additional device types via `entry_points` without modifying the library.
 
+**Files:** `base_device.py`, `devices/__init__.py`
+
 ---
 
 ## 2024 — `prepare_grid()` as primary entry point (now soft-deprecated)
@@ -27,6 +29,8 @@ Chronological log of meaningful design decisions made during development.
 **Decision:** `prepare_grid()` was the original one-call entry point. It resolves env vars, connects Redis, finds the grid, and returns a ready `Grid`.
 
 **Status:** Soft-deprecated in favor of `Grid.from_name("MyShip")`, which is more explicit. `prepare_grid()` remains for backward compatibility.
+
+**Files:** `common.py`
 
 ---
 
@@ -49,3 +53,67 @@ Chronological log of meaningful design decisions made during development.
 **Trade-off:** Direct `Grid()` construction now sends a Redis command immediately. Pass `auto_wake=False` to suppress (e.g. in `prepare_grid()` and `Grid.from_name()` which manage the wake timeout themselves).
 
 **Files:** `grids.py` (`Grid.__init__`, `Grid.from_name`), `common.py` (`prepare_grid`)
+
+---
+
+## 2025 — ContainerDevice with tags and transfer helpers
+
+**Decision:** `ContainerDevice` extends `BaseDevice` with inventory management, tag system (from block name `[tag]` and custom data), and cross-device transfer methods (`move_items`, `move_subtype`, `move_all`, `drain_to`).
+
+**Why:** Inventory operations are the most common use case. Centralizing transfer logic in `ContainerDevice` avoids repetitive boilerplate in every script.
+
+**Trade-off:** `ConnectorDevice`, `AssemblerDevice`, and `RefineryDevice` all inherit from `ContainerDevice`, which adds some complexity to the class hierarchy.
+
+**Files:** `devices/container_device.py`, `devices/connector_device.py`, `devices/assembler_device.py`
+
+---
+
+## 2025 — Event system on Grid (`grid.on(event, callback)`)
+
+**Decision:** Added `grid.on()` / `grid.off()` for `"devices"`, `"integrity"`, and `"damage"` events. Events fire `_emit()` which swallows callback exceptions.
+
+**Why:** Scripts need to react to device changes (new blocks appearing, damage events) without polling. The event system decouples monitoring from command logic.
+
+**Trade-off:** Callbacks run in the Redis subscription thread. Long-running callbacks can block telemetry processing.
+
+**Files:** `grids.py`
+
+---
+
+## 2025 — Item type registry (`item_types.py`)
+
+**Decision:** Created `ItemType`, `ItemCategory`, and `Item` registry for typed inventory checks. Access via `Item.SteelPlate`, `Item.PlatinumOre`, etc.
+
+**Why:** String-based item checks (`item.subtype == "SteelPlate"`) are error-prone and scattered across scripts. A typed registry enables IDE autocompletion and centralized validation.
+
+**Files:** `item_types.py`
+
+---
+
+## 2025 — Resilient Redis subscriptions
+
+**Decision:** `subscribe_to_key_resilient()` combines three subscription paths: keyspace notifications, direct channel subscribe, and a lightweight polling loop. A 100ms de-duplication window prevents double-calling.
+
+**Why:** Different SE bridge configurations expose telemetry differently. Some use keyspace notifications, some PUBLISH to channels, some only update key values. The resilient subscription handles all three.
+
+**Files:** `redis_client.py`
+
+---
+
+## 2025 — RadarController with occupancy grid
+
+**Decision:** `RadarController` builds a 3D numpy occupancy grid from radar voxel data. `get_surface_height()` queries the grid for surface altitude at any world coordinate.
+
+**Why:** Flight-over-surface automation needs to know terrain height ahead. The occupancy grid is built once from a scan and queried many times, avoiding repeated full scans.
+
+**Files:** `controllers/radar_controller.py`, `controllers/surface_flight_controller.py`
+
+---
+
+## 2026-05 — Examples documentation: catalog by category + difficulty
+
+**Decision:** Document all 100+ examples in `docs/EXAMPLES.md` as a structured catalog organized by domain (grid, autopilot, radar, etc.) with difficulty levels (basic/intermediate/advanced). Each entry has a one-line description and key patterns demonstrated.
+
+**Why:** Agents and developers need to quickly find relevant examples without browsing 18 directories. A flat catalog with cross-references to API docs reduces onboarding time and prevents duplicate code.
+
+**Files:** `docs/EXAMPLES.md`, `AGENTS.md`

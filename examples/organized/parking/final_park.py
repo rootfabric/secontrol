@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import time
 from secontrol import Grid
 from secontrol.redis_client import RedisEventClient
-from parking import (
+from lib import (
     DockingConfig,
     DockingResult,
     calculate_connector_forward_point_by_name,
@@ -19,7 +19,7 @@ from parking import (
     get_connector_status,
     STATUS_CONNECTED,
 )
-from parking.helpers import (
+from lib.helpers import (
     _dist, _dot, _sub,
 )
 

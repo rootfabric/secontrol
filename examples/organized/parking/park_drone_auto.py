@@ -1,13 +1,17 @@
 """Парковка дрона на DroneBase 2.
 
-Использует модуль parking для автоматической стыковки.
+Использует модуль parking (lib/) для автоматической стыковки.
 """
 
 from __future__ import annotations
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from secontrol import Grid
 from secontrol.redis_client import RedisEventClient
-from parking import (
+from lib import (
     DockingConfig,
     dock_procedure,
     prepare_for_parking,

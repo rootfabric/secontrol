@@ -1,0 +1,386 @@
+{
+  "75654659621768503": {
+    "type": "MyObjectBuilder_SurvivalKit",
+    "subtype": "SurvivalKitLarge",
+    "local_pos_m": [
+      2.5,
+      2.5,
+      -2.5
+    ],
+    "block_pos": [
+      1,
+      1,
+      -1
+    ],
+    "functional": true,
+    "enabled": true
+  },
+  "92546489297132157": {
+    "type": "MyObjectBuilder_Conveyor",
+    "subtype": "LargeBlockConveyor",
+    "local_pos_m": [
+      2.5,
+      10.0,
+      0.0
+    ],
+    "block_pos": [
+      1,
+      4,
+      0
+    ],
+    "functional": true,
+    "enabled": false
+  },
+  "95173150777108151": {
+    "type": "MyObjectBuilder_OxygenGenerator",
+    "subtype": null,
+    "local_pos_m": [
+      2.5,
+      2.5,
+      5.0
+    ],
+    "block_pos": [
+      1,
+      1,
+      2
+    ],
+    "functional": true,
+    "enabled": true
+  },
+  "97632865803535105": {
+    "type": "MyObjectBuilder_BatteryBlock",
+    "subtype": "LargeBlockBatteryBlock",
+    "local_pos_m": [
+      0.0,
+      0.0,
+      -2.5
+    ],
+    "block_pos": [
+      0,
+      0,
+      -1
+    ],
+    "functional": true,
+    "enabled": true
+  },
+  "104223754530197720": {
+    "type": "MyObjectBuilder_Conveyor",
+    "subtype": "LargeBlockConveyor",
+    "local_pos_m": [
+      2.5,
+      2.5,
+      0.0
+    ],
+    "block_pos": [
+      1,
+      1,
+      0
+    ],
+    "functional": true,
+    "enabled": false
+  },
+  "106549836361312707": {
+    "type": "MyObjectBuilder_CargoContainer",
+    "subtype": "LargeBlockLargeContainer",
+    "local_pos_m": [
+      2.5,
+      2.5,
+      -7.5
+    ],
+    "block_pos": [
+      1,
+      1,
+      -3
+    ],
+    "functional": true,
+    "enabled": false
+  },
+  "107353518050268782": {
+    "type": "MyObjectBuilder_Conveyor",
+    "subtype": "LargeBlockConveyor",
+    "local_pos_m": [
+      2.5,
+      12.5,
+      0.0
+    ],
+    "block_pos": [
+      1,
+      5,
+      0
+    ],
+    "functional": true,
+    "enabled": false
+  },
+  "109958258233837670": {
+    "type": "MyObjectBuilder_CargoContainer",
+    "subtype": "LargeBlockSmallContainer",
+    "local_pos_m": [
+      2.5,
+      2.5,
+      2.5
+    ],
+    "block_pos": [
+      1,
+      1,
+      1
+    ],
+    "functional": true,
+    "enabled": false
+  },
+  "113174420043250410": {
+    "type": "MyObjectBuilder_ShipWelder",
+    "subtype": "SELtdLargeNanobotBuildAndRepairSystem",
+    "local_pos_m": [
+      7.5,
+      2.5,
+      -7.5
+    ],
+    "block_pos": [
+      3,
+      1,
+      -3
+    ],
+    "functional": true,
+    "enabled": false
+  },
+  "114510972880047084": {
+    "type": "MyObjectBuilder_SolarPanel",
+    "subtype": "LargeBlockSolarPanel",
+    "local_pos_m": [
+      0.0,
+      7.5,
+      -7.5
+    ],
+    "block_pos": [
+      0,
+      3,
+      -3
+    ],
+    "functional": true,
+    "enabled": true
+  },
+  "119838083534732574": {
+    "type": "MyObjectBuilder_Beacon",
+    "subtype": "LargeBlockBeacon",
+    "local_pos_m": [
+      2.5,
+      5.0,
+      2.5
+    ],
+    "block_pos": [
+      1,
+      2,
+      1
+    ],
+    "functional": true,
+    "enabled": true
+  },
+  "121809280626697658": {
+    "type": "MyObjectBuilder_Conveyor",
+    "subtype": "LargeBlockConveyor",
+    "local_pos_m": [
+      2.5,
+      15.0,
+      0.0
+    ],
+    "block_pos": [
+      1,
+      6,
+      0
+    ],
+    "functional": true,
+    "enabled": false
+  },
+  "129278772648926826": {
+    "type": "MyObjectBuilder_ShipConnector",
+    "subtype": "Connector",
+    "local_pos_m": [
+      2.5,
+      17.5,
+      0.0
+    ],
+    "block_pos": [
+      1,
+      7,
+      0
+    ],
+    "functional": true,
+    "enabled": true
+  },
+  "132957464085036571": {
+    "type": "MyObjectBuilder_Conveyor",
+    "subtype": "LargeBlockConveyor",
+    "local_pos_m": [
+      2.5,
+      7.5,
+      0.0
+    ],
+    "block_pos": [
+      1,
+      3,
+      0
+    ],
+    "functional": true,
+    "enabled": false
+  },
+  "140814007593119535": {
+    "type": "MyObjectBuilder_Conveyor",
+    "subtype": "LargeBlockConveyor",
+    "local_pos_m": [
+      2.5,
+      5.0,
+      0.0
+    ],
+    "block_pos": [
+      1,
+      2,
+      0
+    ],
+    "functional": true,
+    "enabled": false
+  },
+  "144018214373629345": {
+    "type": "MyObjectBuilder_Projector",
+    "subtype": "LargeProjector",
+    "local_pos_m": [
+      0.0,
+      2.5,
+      0.0
+    ],
+    "block_pos": [
+      0,
+      1,
+      0
+    ],
+    "functional": true,
+    "enabled": true
+  },
+  "4293756395139544122": {
+    "type": "MyObjectBuilder_CubeBlock",
+    "subtype": "LargeBlockArmorBlock",
+    "local_pos_m": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "block_pos": [
+      0,
+      0,
+      0
+    ],
+    "functional": false,
+    "enabled": false
+  },
+  "4293757494651172333": {
+    "type": "MyObjectBuilder_CubeBlock",
+    "subtype": "LargeBlockArmorBlock",
+    "local_pos_m": [
+      0.0,
+      0.0,
+      2.5
+    ],
+    "block_pos": [
+      0,
+      0,
+      1
+    ],
+    "functional": false,
+    "enabled": false
+  },
+  "7223763568221663538": {
+    "type": "MyObjectBuilder_CubeBlock",
+    "subtype": "LargeBlockArmorBlock",
+    "local_pos_m": [
+      2.5,
+      0.0,
+      2.5
+    ],
+    "block_pos": [
+      1,
+      0,
+      1
+    ],
+    "functional": false,
+    "enabled": false
+  },
+  "7223764667733291749": {
+    "type": "MyObjectBuilder_CubeBlock",
+    "subtype": "LargeBlockArmorBlock",
+    "local_pos_m": [
+      2.5,
+      0.0,
+      0.0
+    ],
+    "block_pos": [
+      1,
+      0,
+      0
+    ],
+    "functional": false,
+    "enabled": false
+  },
+  "7887333183417305960": {
+    "type": "MyObjectBuilder_CubeBlock",
+    "subtype": "LargeBlockArmorBlock",
+    "local_pos_m": [
+      -2.5,
+      0.0,
+      2.5
+    ],
+    "block_pos": [
+      -1,
+      0,
+      1
+    ],
+    "functional": false,
+    "enabled": false
+  },
+  "7887334282928934171": {
+    "type": "MyObjectBuilder_CubeBlock",
+    "subtype": "LargeBlockArmorBlock",
+    "local_pos_m": [
+      -2.5,
+      0.0,
+      0.0
+    ],
+    "block_pos": [
+      -1,
+      0,
+      0
+    ],
+    "functional": false,
+    "enabled": false
+  },
+  "8198212906395716456": {
+    "type": "MyObjectBuilder_CubeBlock",
+    "subtype": "LargeBlockArmorBlock",
+    "local_pos_m": [
+      2.5,
+      0.0,
+      -2.5
+    ],
+    "block_pos": [
+      1,
+      0,
+      -1
+    ],
+    "functional": false,
+    "enabled": false
+  },
+  "9218726854456946994": {
+    "type": "MyObjectBuilder_CubeBlock",
+    "subtype": "LargeBlockArmorBlock",
+    "local_pos_m": [
+      -2.5,
+      0.0,
+      -2.5
+    ],
+    "block_pos": [
+      -1,
+      0,
+      -1
+    ],
+    "functional": false,
+    "enabled": false
+  }
+}
