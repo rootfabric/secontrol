@@ -93,6 +93,17 @@ class RoverDevice:
         """
         self.drive(speed, 0.0)
 
+    @staticmethod
+    def _is_left_wheel(wheel) -> bool:
+        """Check if wheel is left-mounted via 'mirrored' subtype in metadata.
+
+        Mirrored (left) wheels have their propulsion and steering already
+        inverted by the game engine, so we must NOT invert again.
+        """
+        extra = (wheel.metadata.extra if wheel.metadata else None) or {}
+        subtype = extra.get("subtype", "")
+        return "mirrored" in subtype.lower()
+
     def drive(self, speed: float, steering: float = None) -> None:
         """Drive the rover with specified speed and steering.
 
@@ -100,13 +111,10 @@ class RoverDevice:
             speed: Propulsion speed (-1.0 to 1.0). Positive values drive forward.
             steering: Steering angle (-1.0 to 1.0). Negative values turn left, positive turn right.
         """
-        # if self._current_speed == speed and self._current_steering == steering:
-        #     return  # No change, skip sending commands
         for wheel in self.wheels:
             if steering is not None:
-                wheel.steering_angle = steering
-            wheel.set_steering(steering)
-            if 'Left' in wheel.name:
+                wheel.set_steering(steering)
+            if self._is_left_wheel(wheel):
                 wheel.set_propulsion(speed)
             else:
                 wheel.set_propulsion(-speed)

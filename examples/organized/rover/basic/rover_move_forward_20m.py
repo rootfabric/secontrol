@@ -57,7 +57,7 @@ def main() -> None:
 
     print(f"Target point: {target_point}")
 
-    rover.move_to_point(target_point, max_speed=0.3)
+    rover.move_to_point(target_point, max_speed=0.3, min_distance=1.0)
 
     # Keep scanning so that _on_telemetry can update rover position and drive
     while rover._is_moving:

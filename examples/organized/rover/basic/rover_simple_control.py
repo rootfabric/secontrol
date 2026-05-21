@@ -35,7 +35,7 @@ def main() -> None:
 
     # Drive with custom steering
     print("Driving with slight right turn...")
-    rover.drive(speed, 0.3)
+    rover.drive(speed, 0.1)
     time.sleep(3.5)
 
     # Stop
