@@ -149,14 +149,32 @@ Hermes agent skills для работы с SE — полный набор в [do
 | `se-grid-status-report` | Статус-репорт: блоки, повреждения, контейнеры |
 | `se-projection-builder` | Проекционный цикл: XML → варка → покраска |
 | `se-asteroid-approach` | Полёт к астероиду: скан → навигация → подход |
+| `se-docking` | **Стыковка кораблей** — подход, разворот коннектором, сближение, auto-lock |
 | `game-server-automation` | Redis pub/sub мониторинг, алерты |
 
 Скрипты: `docs/agent-skills/gaming/se-grid-status-report/scripts/grid_report.py`
 
 Подробнее: [docs/agent-skills/README.md](docs/agent-skills/README.md)
 
+## Docking workflow
+
+Автоматическая стыковка корабля к базе через коннекторы.
+
+```bash
+# Полная стыковка (3 фазы: подлёт → разворот → сближение + lock)
+python se-data/scripts/docking/dock.py [ship_id] [target_id] [approach_dist]
+
+# Пример
+python se-data/scripts/docking/dock.py 104571351454649539 84360909276756422 100
+```
+
+Фазы: (1) RC goto к точке 100м перед коннектором → (2) gyro P-controller разворот коннектором → (3) пошаговое сближение по оси коннекторов + auto-lock при `connectorStatus=Connectable`.
+
+Документация: [docs/workflows/docking.md](docs/workflows/docking.md)
+
 ## Further reading
 
+- [docs/workflows/docking.md](docs/workflows/docking.md) — docking system: design decisions, tech debt, validation
 - [ARCHITECTURE.md](ARCHITECTURE.md) — module map and runtime design
 - [docs/API_REFERENCE.md](docs/API_REFERENCE.md) — full public API reference
 - [docs/DEVICE_REFERENCE.md](docs/DEVICE_REFERENCE.md) — all device classes with methods

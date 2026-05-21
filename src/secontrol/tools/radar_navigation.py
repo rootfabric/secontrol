@@ -201,6 +201,7 @@ class PassabilityProfile:
     """Parameters describing how a robot is allowed to move through the grid."""
 
     robot_radius: float = 0.0
+    clearance_voxels: int = 5  # Зазор в вокселях до препятствий (по умолчанию 5)
     max_slope_degrees: float = 45.0
     max_step_cells: int = 1
     allow_vertical_movement: bool = False
@@ -214,6 +215,11 @@ class PathFinder:
     def __init__(self, radar_map: RawRadarMap, profile: Optional[PassabilityProfile] = None) -> None:
         self.radar_map = radar_map
         self.profile = profile or PassabilityProfile()
+        
+        # Если robot_radius не задан явно, вычисляем из clearance_voxels
+        if self.profile.robot_radius <= 1e-6:
+            self.profile.robot_radius = self.profile.clearance_voxels * radar_map.cell_size
+        
         self._occ = radar_map.occupancy(self.profile.robot_radius)
 
         if self.profile.max_step_cells < 0:

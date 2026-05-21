@@ -57,13 +57,11 @@ def main() -> None:
 
     print(f"Target point: {target_point}")
 
-    grid.park_off()
-    # Move to the target point
-    print("Starting move forward 10 meters...")
     rover.move_to_point(target_point, max_speed=0.3)
 
-    # Wait for movement to complete
+    # Keep scanning so that _on_telemetry can update rover position and drive
     while rover._is_moving:
+        rover.detector.scan(include_grids=True, include_voxels=False)
         time.sleep(1)
 
     print("Move completed.")
