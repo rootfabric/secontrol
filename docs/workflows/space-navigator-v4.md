@@ -1,247 +1,159 @@
-# Space Navigator v4 — Инструкция по использованию
+# Space Navigator v4
 
-## Обзор
+## Overview
 
-Скрипт многоуровневой навигации в космосе с обходом препятствий (астероиды + корабли).
+`SpaceNavigatorController` is the reusable base controller for moving ships in
+space with radar-backed obstacle avoidance. The CLI wrapper is
+`scripts/space_navigator_v4.py`.
 
-**Файлы:**
-- Контроллер: `src/secontrol/controllers/space_navigator_controller.py`
-- Скрипт: `scripts/space_navigator_v4.py`
+The controller now uses one scan at a time:
 
-## Быстрый старт
+1. Scan voxels and grid contacts.
+2. Build a `RawRadarMap`.
+3. Inflate obstacles by ship radius plus scan-profile clearance.
+4. Resolve the requested target to the nearest safe reachable cell if needed.
+5. Run A*.
+6. Fly only to a bounded waypoint that remains inside the scanned volume.
+7. Rescan after the profile distance is covered.
 
-```bash
-# Полёт к точке
-python3 scripts/space_navigator_v4.py --grid skynet-baza0 --target "100000,5000,-200000"
+There is no default background scanner and no blind direct-flight fallback.
 
-# Dry-run (только скан + маршрут, без полёта)
-python3 scripts/space_navigator_v4.py --grid skynet-baza0 --target "100000,5000,-200000" --dry-run
-
-# GPS-формат
-python3 scripts/space_navigator_v4.py --grid skynet-baza0 --target "GPS:Base:100000:5000:-200000:"
-```
-
-## Как работает алгоритм
-
-### 1. Выбор масштаба сканирования
-
-| Расстояние до цели | Профиль | Ячейка | Радиус | Покрытие |
-|--------------------|---------|--------|--------|----------|
-| > 5 км | COARSE | 100 м | 5000 м | 10×10 км |
-| 500 м — 5 км | MEDIUM | 20 м | 1000 м | 2×2 км |
-| < 500 м | FINE | 10 м | 300 м | 600×600 м |
-
-### 2. Построение карты
-
-После скана строится 3D occupancy grid. В неё добавляются:
-- **Воксели астероидов** — точки из `solidPoints`
-- **Корабли/гриды** — контакты `type: "grid"` из радара добавляются как AABB-блоки с инфляцией (по умолчанию 30м)
-- Свой корабль фильтруется (не блокирует сам себя)
-
-### 3. A* маршрут
-
-PathFinder ищет путь от корабля до цели через occupancy grid. Препятствия «раздуты» на `ship_radius` (30м по умолчанию), поэтому корабль не протискивается в узких щелях.
-
-### 4. Выбор вейпоинта
-
-Из A* пути выбирается самый дальний вейпоинт, который:
-- Не выходит за границу скана (с запасом 30м)
-- Не дальше 40% радиуса скана от корабля
-
-### 5. Полёт с адаптивной скоростью
-
-Скорость зависит от расстояния до ближайшего препятствия:
-
-```
-Препятствие > 3000м  →  max_speed   (по умолчанию 50 м/с)
-Препятствие > 1000м  →  far_speed   (по умолчанию 30 м/с)
-Препятствие > 300м   →  medium_speed (по умолчанию 15 м/с)
-Препятствие < 300м   →  close_speed  (по умолчанию 3 м/с)
-```
-
-### 6. Фоновый сканер
-
-Во время полёта BackgroundScanner непрерывно сканирует (каждые 0.3с). Если обнаружено препятствие ближе `ship_radius * 3` (90м) — триггерит перепланирование.
-
-### 7. Stuck detection
-
-Если корабль не двигается > 5 шагов подряд (< 5м за шаг), принудительно перепланирует.
-
-## Параметры командной строки
-
-### Обязательные
-
-| Параметр | Описание |
-|----------|----------|
-| `--grid` | Имя грида (по умолчанию `skynet-baza0`) |
-| `--target` | Цель: `x,y,z` или `GPS:Name:X:Y:Z:` |
-
-### Скорость (м/с)
-
-| Параметр | По умолчанию | Описание |
-|----------|-------------|----------|
-| `--max-speed` | 50 | Максимальная скорость в пустоте |
-| `--far-speed` | 30 | Скорость при препятствии > 3км |
-| `--medium-speed` | 15 | Скорость при препятствии > 1км |
-| `--close-speed` | 3 | Скорость при препятствии < 300м |
-
-### Сканирование
-
-| Параметр | По умолчанию | Описание |
-|----------|-------------|----------|
-| `--coarse-cell` | 100 | Размер ячейки грубого скана (м) |
-| `--coarse-radius` | 5000 | Радиус грубого скана (м) |
-| `--fine-cell` | 10 | Размер ячейки точного скана (м) |
-| `--fine-radius` | 300 | Радиус точного скана (м) |
-
-### Безопасность
-
-| Параметр | По умолчанию | Описание |
-|----------|-------------|----------|
-| `--ship-radius` | 30 | Радиус безопасности корабля (м) |
-| `--arrival` | 50 | Дистанция «прибыли» (м) |
-
-### Управление
-
-| Параметр | По умолчанию | Описание |
-|----------|-------------|----------|
-| `--no-scanner` | OFF | Отключить фоновый сканер |
-| `--dry-run` | OFF | Только скан + план, без полёта |
-| `--max-steps` | 200 | Максимум шагов навигации |
-
-## Адаптивная скорость — как настроить
-
-Скорость — главный параметр для тюнинга. Зависит от:
-- Маневренности корабля (масса, тяга)
-- Расстояния до цели
-- Плотности препятствий
-
-### Если корабль врезается
-
-Уменьшить скорости:
-```bash
---max-speed 30 --far-speed 20 --medium-speed 10 --close-speed 2
-```
-
-Увеличить радиус безопасности:
-```bash
---ship-radius 50
-```
-
-### Если слишком медленно летит
-
-Увеличить скорости:
-```bash
---max-speed 80 --far-speed 50 --medium-speed 25 --close-speed 5
-```
-
-Уменьшить `--ship-radius` (если корабль маневренный):
-```bash
---ship-radius 20
-```
-
-### Если маршрут строится слишком долго
-
-Увеличить ячейку грубого скана (меньше вокселей = быстрее A*):
-```bash
---coarse-cell 200 --coarse-radius 10000
-```
-
-### Типовые сценарии
+## Quick Start
 
 ```bash
-# Далёкий перелёт (100км), максимум скорости
-python3 scripts/space_navigator_v4.py --grid skynet-baza0 \
-  --target "100000,5000,-200000" \
-  --max-speed 80 --far-speed 50
+# Fly to a point.
+python scripts/space_navigator_v4.py --grid skynet-baza0 --target "100000,5000,-200000"
 
-# Подлёт к астероиду с препятствиями
-python3 scripts/space_navigator_v4.py --grid skynet-baza0 \
-  --target "GPS:Asteroid:12345:67890:-11111:" \
-  --max-speed 30 --ship-radius 40
+# GPS target.
+python scripts/space_navigator_v4.py --grid skynet-baza0 --target "GPS:Base:100000:5000:-200000:"
 
-# Облёт плотного района (много астероидов)
-python3 scripts/space_navigator_v4.py --grid skynet-baza0 \
-  --target "..." \
-  --max-speed 20 --medium-speed 8 --close-speed 2 --ship-radius 50
+# Plan one bounded segment without moving.
+python scripts/space_navigator_v4.py --grid skynet-baza0 --target "100000,5000,-200000" --dry-run
 
-# Только проверка маршрута
-python3 scripts/space_navigator_v4.py --grid skynet-baza0 \
-  --target "..." --dry-run
+# Fly toward the nearest asteroid center; final point is resolved to safe space.
+python scripts/space_navigator_v4.py --grid skynet-baza0 --nearest-asteroid
+
+# Test the navigator by targeting a point 10 km straight ahead.
+python scripts/test_flight_10km.py --grid skynet-baza0
 ```
 
-## Программное использование (из Python)
+## Scan Profiles
+
+| Profile | Radius | Cell | Rescan | Clearance |
+|---|---:|---:|---:|---:|
+| `COARSE` | 5000 m | 50 m | 1000 m | 10 cells |
+| `FINE` | 1000 m | 10 m | 500 m | 8 cells |
+
+`MEDIUM_SCAN` remains available for compatibility, but the default route uses
+coarse scans for cruise and fine scans for the last kilometer.
+
+The radar bbox is computed as `ceil(2 * radius / cell_size)`, so the default
+coarse scan uses a 200x200x200 grid and the default fine scan also uses a
+200x200x200 grid.
+
+## Safety Model
+
+The controller estimates ship radius from `grid.blocks` world bounding boxes.
+Pass `--ship-radius` to override it. If no block bounds are available, the
+fallback is 50 m.
+
+Obstacle inflation is:
+
+```text
+ship_radius + clearance_voxels * cell_size
+```
+
+With the defaults this means:
+
+- Coarse: ship radius plus 500 m.
+- Fine: ship radius plus 80 m.
+
+If the requested target is inside an asteroid or too close to voxels, the
+controller treats the nearest safe reachable point as the destination. The
+returned `NavigationResult` includes both `requested_target` and
+`resolved_target`.
+
+## Python API
 
 ```python
-from secontrol.controllers.space_navigator_controller import (
-    SpaceNavigatorController,
-    SpeedZone,
-    ScanProfile,
-)
+from secontrol.controllers.space_navigator_controller import SpaceNavigatorController
 
-# Создать контроллер
 controller = SpaceNavigatorController(
     grid_name="skynet-baza0",
-    ship_radius=30.0,
-    speed_zone=SpeedZone(
-        max_speed=50.0,
-        far_speed=30.0,
-        medium_speed=15.0,
-        close_speed=3.0,
-    ),
-    arrival_distance=50.0,
-    enable_background_scanner=True,
+    ship_radius=None,  # auto-estimate from block AABBs
+    dry_run=False,
 )
 
-# Лететь к точке
-target = (100000.0, 5000.0, -200000.0)
-final_pos = controller.navigate_to(target)
-
-# Очистка
-controller.close()
+try:
+    result = controller.navigate_to((100000.0, 5000.0, -200000.0))
+    print(result.status, result.final_position, result.resolved_target)
+finally:
+    controller.close()
 ```
 
-## Архитектура
+`NavigationResult` fields:
 
-```
-SpaceNavigatorController
-├── _do_scan(profile)          # Выполнить скан RadarController
-├── _build_map(scan_result)    # Построить RawRadarMap + корабли
-├── navigate_to(target)        # Главный цикл
-│   ├── _navigate_loop()
-│   │   ├── выбор профиля скана по дистанции
-│   │   ├── _do_scan() → _build_map()
-│   │   ├── find_path_multiscale() → A*
-│   │   ├── pick_waypoint_along_path()
-│   │   └── _fly_to_waypoint()
-│   └── BackgroundScanner (поток)
-│       ├── непрерывный скан каждые 0.3с
-│       ├── отслеживание кораблей
-│       └── сигнал needs_replan
-└── stop() / close()
-```
+- `status`: `arrived`, `safe_target_reached`, `dry_run`, `blocked`,
+  `scan_failed`, `flight_failed`, `cancelled`, or `max_steps`.
+- `final_position`: last known ship position.
+- `requested_target`: original target.
+- `resolved_target`: safe target used for the last plan.
+- `profile`: last scan profile.
+- `scan_count`, `replans`, `nearest_voxel_distance`.
 
-## Логирование
+## CLI Options
 
-Все ключевые события логируются в stdout:
+Common options:
 
-```
-[SCAN] pts=150, ships=3, voxel=1200m, ship=800m    ← фоновый сканер
-[NAV] Using COARSE scan profile                      ← выбор масштаба
-[SCAN] Scanning: radius=5000m, cell=100m...          ← основной скан
-[MAP] Grid 100x100x100, cell=100m, occupied=42/1M    ← карта с кораблями
-[PATH] 8 waypoints in 0.15s                          ← A* результат
-[FLY] → (12345,67890,-11111), dist=800m, speed=50m/s ← полёт
-[REPLAN] Background scanner triggered replan #2       ← перепланирование
-✅ ARRIVED at 45m!                                   ← прибытие
+```bash
+--grid skynet-baza0
+--target "x,y,z"
+--nearest-asteroid
+--dry-run
+--ship-radius 50
+--arrival 50
+--max-steps 200
 ```
 
-## Известные ограничения
+Scan tuning:
 
-1. **Скорость** зависит от `rc.goto()` — SE автопилот сам регулирует тягу. Скрипт задаёт `speed` параметр, но реальная скорость может быть ниже (масса корабля, недостаток тяги).
+```bash
+--coarse-radius 5000 --coarse-cell 50 --coarse-rescan 1000 --coarse-clearance 10
+--fine-radius 1000 --fine-cell 10 --fine-rescan 500 --fine-clearance 8
+```
 
-2. **Границы скана** — если цель дальше радиуса скана, скрипт летит «вслепую» по прямой (с проверкой фонового сканера). Для очень далёких полётов (> 50км) рекомендуется промежуточные вейпоинты.
+Speed tuning:
 
-3. **Корабли** — добавляются как AABB-блоки. Если у контакта нет `aabb`, используется фиксированный размер 50м. Точные размеры кораблей доступны только если радар возвращает `gridsAabb`.
+```bash
+--max-speed 50 --far-speed 30 --medium-speed 15 --close-speed 3
+```
 
-4. **A* на COARSE** — при ячейке 100м мелкие астероиды (< 100м) не видны. При подлёте переключается на FINE (10м) и видит их.
+Fine-profile movement always uses `close-speed`; coarse movement uses the speed
+zone selected from the nearest voxel distance in the latest scan.
+
+## Forward-Vector Test
+
+`scripts/test_flight_10km.py` is a focused real-flight example for testing
+asteroid avoidance. It reads the current RemoteControl position and forward
+vector, builds a target 10 km ahead, then calls `SpaceNavigatorController`.
+
+The target remains straight ahead even if an asteroid cluster is on that line.
+The script does not run a separate line-clear check and does not fall back to
+direct SE autopilot; any deviation around voxels must come from the scanned-map
+route.
+
+```bash
+python scripts/test_flight_10km.py --grid skynet-baza0
+python scripts/test_flight_10km.py --grid skynet-baza0 --dry-run
+python scripts/test_flight_10km.py --grid skynet-baza0 --distance 10000 --ship-radius 60
+```
+
+## Failure Behavior
+
+On scan or path failure the controller disables autopilot, enables dampeners,
+and retries up to `max_replans`. If no safe path is found, it returns a failed
+`NavigationResult` instead of flying directly.
+
+The current map boundary is always enforced during movement. If the ship nears
+the edge of the scanned volume, the active `fly_to_point` call is cancelled and
+the next loop performs a fresh scan.

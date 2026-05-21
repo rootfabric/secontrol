@@ -144,12 +144,8 @@ class NanobotDrillSystemDevice(BaseDevice):
 
         return self.send_command(
             {
-                "cmd": action_id,
                 "command": action_id,
-                "payload": {
-                    "action": action_id,
-                    "command": action_id,
-                },
+                "payload": {},
             }
         )
 
@@ -343,9 +339,10 @@ class NanobotDrillSystemDevice(BaseDevice):
         """
         names = self._normalize_string_list(list(ore_subtypes))
         if not names:
-            # Пустой список — отключаем всё.
-            return self._send_orefilter_indices([])
+            raise ValueError("ore_subtypes must not be empty")
 
+        if not self._get_drill_priority_list():
+            return self.set_property("OreFilter", names)
         indices = self._compute_slot_indices_for_ore_names(names)
         return self._send_orefilter_indices(indices)
 

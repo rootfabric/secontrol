@@ -478,6 +478,8 @@ class BaseDevice:
             self._on_telemetry_change,
         )
         snapshot = self.redis.get_json(self.telemetry_key)
+        if snapshot is not None:
+            self._on_telemetry_change(self.telemetry_key, snapshot, "initial")
 
 
 
@@ -1323,3 +1325,11 @@ def normalize_device_type(raw_type: Optional[str], subtype: Optional[str] = None
 
 class GenericDevice(BaseDevice):
     """Fallback device that simply exposes telemetry."""
+
+
+def __getattr__(name: str):
+    if name == "Grid":
+        from .grids import Grid
+
+        return Grid
+    raise AttributeError(name)

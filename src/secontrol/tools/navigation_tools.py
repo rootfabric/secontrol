@@ -158,9 +158,20 @@ def fly_to_point(
     speed = speed_far if dist > 15.0 else speed_near
     gps = f"GPS:{waypoint_name}:{target[0]:.2f}:{target[1]:.2f}:{target[2]:.2f}:"
 
+    if (remote.telemetry or {}).get("autopilotEnabled"):
+        remote.disable()
+        time.sleep(0.2)
+        remote.update()
+
+    try:
+        remote.handbrake_off()
+    except Exception:
+        pass
+
     remote.set_mode("oneway")
     remote.set_collision_avoidance(False)
     remote.goto(gps, speed=speed, gps_name=waypoint_name, dock=False)
+    remote.enable()
 
     if ship_connector:
         ship_connector.update()
@@ -195,6 +206,7 @@ def fly_to_point(
         distance = _dist(pos, target)
 
         if distance < arrival_distance:
+            remote.disable()
             break
 
         if cancel_check and cancel_check():
