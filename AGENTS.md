@@ -97,7 +97,9 @@ admins/                # Admin-only scripts (require admin Redis credentials)
   tools/
     send_chat_message.py   # Send in-game chat via AdminUtilitiesClient
   ai_factions/
+    AGENTS.md                                # AI factions agent instructions
     admin_create_ai_faction_and_redis_user.py  # Create AI faction + Redis ACL user
+    admin_faction_join_policy.py             # Close/open faction, manage join requests
     admin_spawn_grid_for_faction.py            # Spawn XML grid for a faction
     admin_assign_or_remove_grid.py             # Assign/remove grid from faction
 ```

@@ -96,7 +96,7 @@ def main() -> None:
                                     radius=500,
                                     # voxel_step=1,
                                     cell_size=10.0,
-                                    # ore_only=True,
+                                    ore_only=True,
                                     # ore_only=False,
                                     # boundingBoxX=10,
                                     # boundingBoxY=1000,
