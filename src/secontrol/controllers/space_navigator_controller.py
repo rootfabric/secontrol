@@ -101,7 +101,7 @@ MEDIUM_SCAN = ScanProfile(
 FINE_SCAN = ScanProfile(
     name="FINE",
     radius=300.0,
-    cell_size=10.0,
+    cell_size=5.0,
     rescan_distance=200.0,
     clearance_voxels=20,
 )

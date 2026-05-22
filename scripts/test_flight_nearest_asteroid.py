@@ -100,10 +100,10 @@ Examples:
     parser.add_argument("--max-steps", type=int, default=200, help="Maximum scan/fly iterations")
     parser.add_argument("--max-replans", type=int, default=20, help="Maximum blocked/scan retries")
 
-    parser.add_argument("--max-speed", type=float, default=50.0, help="Open-space coarse speed")
-    parser.add_argument("--far-speed", type=float, default=30.0, help="Coarse speed with obstacles beyond 1km")
-    parser.add_argument("--medium-speed", type=float, default=20.0, help="Coarse speed with nearer obstacles")
-    parser.add_argument("--close-speed", type=float, default=5.0, help="Fine scan precision speed")
+    parser.add_argument("--max-speed", type=float, default=100.0, help="Open-space coarse speed")
+    parser.add_argument("--far-speed", type=float, default=50.0, help="Coarse speed with obstacles beyond 1km")
+    parser.add_argument("--medium-speed", type=float, default=50.0, help="Coarse speed with nearer obstacles")
+    parser.add_argument("--close-speed", type=float, default=10.0, help="Fine scan precision speed")
 
     parser.add_argument("--coarse-radius", type=float, default=COARSE_SCAN.radius)
     parser.add_argument("--coarse-cell", type=float, default=COARSE_SCAN.cell_size)
