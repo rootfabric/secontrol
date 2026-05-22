@@ -85,7 +85,6 @@ src/secontrol/
     radar_navigation.py
     redis_example_sub.py
     redis_get_key.py
-    send_chat_message.py
     telemetry_reader.py
     telemetry_reader_gui.py
     update_telemetry_example.py
@@ -94,6 +93,13 @@ src/secontrol/
     app.py
     redis_reader.py
     static/
+admins/                # Admin-only scripts (require admin Redis credentials)
+  tools/
+    send_chat_message.py   # Send in-game chat via AdminUtilitiesClient
+  ai_factions/
+    admin_create_ai_faction_and_redis_user.py  # Create AI faction + Redis ACL user
+    admin_spawn_grid_for_faction.py            # Spawn XML grid for a faction
+    admin_assign_or_remove_grid.py             # Assign/remove grid from faction
 ```
 
 ## Key entry points
@@ -138,6 +144,25 @@ device = grid.devices_by_num.get(123456)
 # Send command
 device.send_command({"cmd": "enable"})
 ```
+
+## Space movement rule
+
+For normal ship movement in space, agents must use the space navigator workflow
+instead of ad-hoc `RemoteControl.goto()` calls or one-off flight scripts.
+
+Use:
+
+```bash
+python scripts/test_flight_nearest_asteroid.py --grid <grid-name>
+```
+
+or call `SpaceNavigatorController` from
+`src/secontrol/controllers/space_navigator_controller.py` with the same
+coarse/medium/fine scan behavior.
+
+Exception: precise final parking, connector alignment, docking, and other
+sub-meter/connector-specific maneuvers should use the dedicated parking/docking
+workflow instead of the general space navigator.
 
 ## Agent Skills
 

@@ -18,6 +18,7 @@ def publish_admin_command(client: redis.Redis, command: dict[str, Any], timeout:
     payload = {"seq": seq, "system": {"admin": command}}
     pubsub = client.pubsub(ignore_subscribe_messages=True)
     pubsub.subscribe("se.commands.ack")
+    last_ack: dict[str, Any] | None = None
     try:
         client.publish("se.commands", json.dumps(payload, ensure_ascii=False))
         deadline = time.time() + timeout
@@ -33,7 +34,13 @@ def publish_admin_command(client: redis.Redis, command: dict[str, Any], timeout:
             except Exception:
                 continue
             if data.get("seq") == seq:
-                return data
+                if data.get("ok"):
+                    return data
+                last_ack = data
+                if data.get("err") != "unknown_action":
+                    return data
+        if last_ack is not None:
+            return last_ack
         raise TimeoutError(f"No ack for seq={seq}")
     finally:
         pubsub.close()
