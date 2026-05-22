@@ -78,9 +78,9 @@ class ScanProfile:
         return {
             "radius": self.radius,
             "cell_size": self.cell_size,
-            "boundingBoxX": float(self.beam or 0),
-            "boundingBoxY": float(self.beam or 0),
-            "boundingBoxZ": float(self.beam or 0),
+            "boundingBoxX": self.beam_meters,
+            "boundingBoxY": self.beam_meters,
+            "boundingBoxZ": self.beam_meters,
         }
 
 
@@ -88,28 +88,28 @@ COARSE_SCAN = ScanProfile(
     name="COARSE",
     radius=5000.0,
     cell_size=50.0,
-    rescan_distance=1000.0,
-    clearance_voxels=10,
+    rescan_distance=2000.0,
+    clearance_voxels=12,
 )
 MEDIUM_SCAN = ScanProfile(
     name="MEDIUM",
     radius=1000.0,
-    cell_size=20.0,
+    cell_size=10.0,
     rescan_distance=500.0,
-    clearance_voxels=5,
+    clearance_voxels=20,
 )
 FINE_SCAN = ScanProfile(
     name="FINE",
-    radius=1000.0,
+    radius=300.0,
     cell_size=10.0,
-    rescan_distance=500.0,
-    clearance_voxels=8,
+    rescan_distance=200.0,
+    clearance_voxels=20,
 )
 
 
 @dataclass
 class SpeedZone:
-    """Adaptive speed based on nearest obstacle distance."""
+    """Adaptive speed based on nearest obstacle distance and target proximity."""
 
     max_speed: float = 50.0
     far_speed: float = 30.0
@@ -127,6 +127,17 @@ class SpeedZone:
             return self.far_speed
         if nearest_obstacle_m >= self.near_threshold:
             return self.medium_speed
+        return self.close_speed
+
+    def speed_for_target_distance(self, target_distance_m: float) -> float:
+        if target_distance_m >= self.far_threshold:
+            return self.max_speed
+        if target_distance_m >= self.medium_threshold:
+            return self.far_speed
+        if target_distance_m >= self.near_threshold:
+            return self.medium_speed
+        if target_distance_m >= 50.0:
+            return self.near_speed
         return self.close_speed
 
 
@@ -245,9 +256,9 @@ class BackgroundScanner:
             self.radar,
             radius=self.scan_profile.radius,
             cell_size=self.scan_profile.cell_size,
-            boundingBoxX=self.scan_profile.beam,
-            boundingBoxY=self.scan_profile.beam,
-            boundingBoxZ=self.scan_profile.beam,
+            boundingBoxX=self.scan_profile.beam_meters,
+            boundingBoxY=self.scan_profile.beam_meters,
+            boundingBoxZ=self.scan_profile.beam_meters,
             ore_only=False,
         )
         while self._running:
@@ -309,11 +320,15 @@ def build_map_with_ships(
     contacts: Sequence[Dict[str, Any]] | None,
     ship_radius: float = 50.0,
     own_position: Optional[Point3D] = None,
+    scan_center: Optional[Point3D] = None,
+    scan_profile: Optional[ScanProfile] = None,
 ) -> Optional[RawRadarMap]:
     """Build RawRadarMap from scan results, including grid contacts."""
 
     if not metadata:
         return None
+    if scan_center is not None and scan_profile is not None:
+        metadata = normalize_scan_metadata(metadata, scan_profile, scan_center)
 
     try:
         origin = np.array(metadata["origin"], dtype=np.float64)
@@ -398,6 +413,43 @@ def build_map_with_ships(
     )
 
 
+def normalize_scan_metadata(
+    metadata: Dict[str, Any],
+    profile: ScanProfile,
+    scan_center: Point3D,
+) -> Dict[str, Any]:
+    """Expand compact radar metadata to the full requested scan volume."""
+
+    normalized = dict(metadata)
+    try:
+        cell_size = float(normalized.get("cellSize", profile.cell_size))
+    except (TypeError, ValueError):
+        cell_size = profile.cell_size
+    if cell_size <= 0:
+        cell_size = profile.cell_size
+    if abs(cell_size - profile.cell_size) > max(1.0, profile.cell_size * 0.25):
+        cell_size = profile.cell_size
+
+    desired_size = max(int(profile.beam or 0), int(math.ceil((2.0 * profile.radius) / cell_size)), 1)
+    raw_size = normalized.get("size")
+    try:
+        size = tuple(int(raw_size[i]) for i in range(3))  # type: ignore[index]
+    except (TypeError, ValueError, IndexError):
+        size = (0, 0, 0)
+
+    if any(axis < desired_size for axis in size):
+        half_span = 0.5 * desired_size * cell_size
+        normalized["size"] = [desired_size, desired_size, desired_size]
+        normalized["origin"] = [
+            float(scan_center[0] - half_span),
+            float(scan_center[1] - half_span),
+            float(scan_center[2] - half_span),
+        ]
+        normalized["cellSize"] = cell_size
+        normalized["expandedToScanVolume"] = True
+    return normalized
+
+
 def find_path_multiscale(
     radar_map: RawRadarMap,
     start: Point3D,
@@ -411,6 +463,14 @@ def find_path_multiscale(
     if scan_profile is not None:
         robot_radius = effective_clearance_radius(ship_radius, scan_profile)
 
+    path_map = crop_map_for_path(
+        radar_map,
+        start,
+        goal,
+        padding_m=max(robot_radius * 2.0, radar_map.cell_size * 20.0),
+        label="PATH",
+    )
+
     profile = PassabilityProfile(
         robot_radius=robot_radius,
         max_slope_degrees=90.0,
@@ -419,21 +479,77 @@ def find_path_multiscale(
         allow_diagonal=True,
         is_ground_vehicle=False,
     )
-    pathfinder = PathFinder(radar_map, profile)
+    pathfinder = PathFinder(path_map, profile)
     start_time = time.time()
     path = pathfinder.find_path_world(start, goal)
     elapsed = time.time() - start_time
     if path:
-        print(f"[PATH] {len(path)} waypoints in {elapsed:.2f}s")
+        print(
+            f"[PATH] {len(path)} waypoints in {elapsed:.2f}s "
+            f"map={path_map.size[0]}x{path_map.size[1]}x{path_map.size[2]}"
+        )
     else:
-        print(f"[PATH] No path in {elapsed:.2f}s")
+        print(
+            f"[PATH] No path in {elapsed:.2f}s "
+            f"map={path_map.size[0]}x{path_map.size[1]}x{path_map.size[2]}"
+        )
     return path
+
+
+def crop_map_for_path(
+    radar_map: RawRadarMap,
+    start: Point3D,
+    goal: Point3D,
+    padding_m: float,
+    *,
+    label: str = "MAP",
+) -> RawRadarMap:
+    """Crop a large scan map to a bounded A* search volume around one leg."""
+
+    start_idx = radar_map.world_to_index(start)
+    goal_idx = radar_map.world_to_index(goal)
+    if start_idx is None or goal_idx is None:
+        return radar_map
+
+    padding_cells = max(1, int(math.ceil(float(padding_m) / radar_map.cell_size)))
+    mins = [
+        max(0, min(start_idx[axis], goal_idx[axis]) - padding_cells)
+        for axis in range(3)
+    ]
+    maxs = [
+        min(radar_map.size[axis] - 1, max(start_idx[axis], goal_idx[axis]) + padding_cells)
+        for axis in range(3)
+    ]
+    crop_size = tuple(maxs[axis] - mins[axis] + 1 for axis in range(3))
+    if crop_size == radar_map.size:
+        return radar_map
+
+    slices = tuple(slice(mins[axis], maxs[axis] + 1) for axis in range(3))
+    new_origin = radar_map.origin + np.asarray(mins, dtype=np.float64) * radar_map.cell_size
+    print(
+        f"[{label}] Crop map {radar_map.size[0]}x{radar_map.size[1]}x{radar_map.size[2]} -> "
+        f"{crop_size[0]}x{crop_size[1]}x{crop_size[2]}"
+    )
+    return RawRadarMap(
+        occ=radar_map.occ[slices].copy(),
+        origin=new_origin,
+        cell_size=radar_map.cell_size,
+        size=crop_size,  # type: ignore[arg-type]
+        revision=radar_map.revision,
+        timestamp_ms=radar_map.timestamp_ms,
+        contacts=radar_map.contacts,
+        _inflation_cache={},
+    )
 
 
 def resolve_nearest_safe_point(
     radar_map: RawRadarMap,
     target: Point3D,
     safety_radius: float,
+    *,
+    preferred_from: Optional[Point3D] = None,
+    max_distance_from: Optional[Point3D] = None,
+    max_distance: Optional[float] = None,
 ) -> Optional[Point3D]:
     """Resolve target to the nearest free cell in the inflated map."""
 
@@ -443,38 +559,76 @@ def resolve_nearest_safe_point(
 
     occ = radar_map.occupancy(safety_radius)
     if not bool(occ[target_idx]):
-        return radar_map.index_to_world_center(target_idx)
+        world = radar_map.index_to_world_center(target_idx)
+        if _within_distance_limit(world, max_distance_from, max_distance):
+            return world
+        return None
+
+    preferred_dir = _direction_from_target(target, preferred_from)
+
+    def choose_candidate(candidates: Sequence[Index3]) -> Point3D:
+        decorated: List[Tuple[float, float, float, Index3]] = []
+        for idx in candidates:
+            world = radar_map.index_to_world_center(idx)
+            if not _within_distance_limit(world, max_distance_from, max_distance):
+                continue
+            dot = _direction_dot(target, world, preferred_dir)
+            decorated.append((_dist(world, target), -dot, _dist(world, preferred_from) if preferred_from else 0.0, idx))
+        if not decorated:
+            raise ValueError("No candidates inside distance limit")
+        if preferred_dir is not None:
+            same_side = [item for item in decorated if -item[1] > 0.0]
+            if same_side:
+                decorated = same_side
+        _dist_to_target, _neg_dot, _dist_to_preferred, best_idx = min(decorated)
+        return radar_map.index_to_world_center(best_idx)
 
     visited = {target_idx}
     queue: deque[Index3] = deque([target_idx])
-    best_idx: Optional[Index3] = None
-    best_dist = float("inf")
 
     while queue:
-        current = queue.popleft()
-        if not bool(occ[current]):
-            world = radar_map.index_to_world_center(current)
-            dist = _dist(world, target)
-            if dist < best_dist:
-                best_idx = current
-                best_dist = dist
-            # The first free BFS shell is enough; drain no deeper shell.
-            if best_idx is not None:
-                return radar_map.index_to_world_center(best_idx)
+        free_candidates: List[Index3] = []
+        for _ in range(len(queue)):
+            current = queue.popleft()
+            if not bool(occ[current]):
+                free_candidates.append(current)
+                continue
 
-        x, y, z = current
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                for dz in (-1, 0, 1):
-                    if dx == 0 and dy == 0 and dz == 0:
-                        continue
-                    neighbor = (x + dx, y + dy, z + dz)
-                    if neighbor in visited or not radar_map.is_within_bounds(neighbor):
-                        continue
-                    visited.add(neighbor)
-                    queue.append(neighbor)
+            x, y, z = current
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        if dx == 0 and dy == 0 and dz == 0:
+                            continue
+                        neighbor = (x + dx, y + dy, z + dz)
+                        if neighbor in visited or not radar_map.is_within_bounds(neighbor):
+                            continue
+                        visited.add(neighbor)
+                        queue.append(neighbor)
+        if free_candidates:
+            try:
+                return choose_candidate(free_candidates)
+            except ValueError:
+                continue
 
     return None
+
+
+def point_is_safe(radar_map: RawRadarMap, point: Point3D, safety_radius: float) -> bool:
+    idx = radar_map.world_to_index(point)
+    if idx is None:
+        return False
+    return not bool(radar_map.occupancy(safety_radius)[idx])
+
+
+def _within_distance_limit(
+    point: Point3D,
+    origin: Optional[Point3D],
+    max_distance: Optional[float],
+) -> bool:
+    if origin is None or max_distance is None:
+        return True
+    return _dist(point, origin) <= max(0.0, float(max_distance))
 
 
 def pick_waypoint_along_path(
@@ -541,6 +695,7 @@ class SpaceNavigatorController:
         max_flight_time: float = 600.0,
         enable_background_scanner: bool = False,
         dry_run: bool = False,
+        target_is_obstacle: bool = False,
     ):
         from secontrol.common import prepare_grid
 
@@ -555,6 +710,7 @@ class SpaceNavigatorController:
         self.max_flight_time = float(max_flight_time)
         self.enable_background_scanner = bool(enable_background_scanner)
         self.dry_run = bool(dry_run)
+        self.target_is_obstacle = bool(target_is_obstacle)
 
         radars = self.grid.find_devices_by_type(OreDetectorDevice)
         rcs = self.grid.find_devices_by_type(RemoteControlDevice)
@@ -577,6 +733,8 @@ class SpaceNavigatorController:
         self._scan_count = 0
         self._replans = 0
         self._nearest_voxel_distance = float("inf")
+        self._last_valid_position: Optional[Point3D] = None
+        self._fine_seen_voxels = False
 
     def navigate_to(
         self,
@@ -590,6 +748,8 @@ class SpaceNavigatorController:
         self._scan_count = 0
         self._replans = 0
         self._nearest_voxel_distance = float("inf")
+        self._last_valid_position = None
+        self._fine_seen_voxels = False
 
         print("=" * 60)
         print("  Space Navigator - distance-scanned obstacle avoidance")
@@ -600,6 +760,11 @@ class SpaceNavigatorController:
             f"Coarse: radius={self.coarse_scan.radius:.0f}m, "
             f"cell={self.coarse_scan.cell_size:.0f}m, "
             f"rescan={self.coarse_scan.rescan_distance:.0f}m"
+        )
+        print(
+            f"Medium: radius={self.medium_scan.radius:.0f}m, "
+            f"cell={self.medium_scan.cell_size:.0f}m, "
+            f"rescan={self.medium_scan.rescan_distance:.0f}m"
         )
         print(
             f"Fine: radius={self.fine_scan.radius:.0f}m, "
@@ -630,10 +795,14 @@ class SpaceNavigatorController:
         requested_target: Point3D,
         cancel_check: Optional[Callable[[], bool]],
     ) -> NavigationResult:
-        fine_mode = False
+        profile_level = "COARSE"
         last_profile: Optional[ScanProfile] = None
         consecutive_failures = 0
         resolved_target: Optional[Point3D] = None
+        cached_map: Optional[RawRadarMap] = None
+        cached_profile_name: Optional[str] = None
+        cached_scan_center: Optional[Point3D] = None
+        cached_solid: List[List[float]] = []
 
         for step in range(self.max_steps):
             if cancel_check and cancel_check():
@@ -645,16 +814,27 @@ class SpaceNavigatorController:
                     "Cancelled by caller.",
                 )
 
-            ship_pos = _safe_get_position(self.rc)
+            ship_pos, telemetry_invalid = self._read_ship_position()
             if ship_pos is None:
+                if telemetry_invalid:
+                    self._stop_for_retry()
+                    return self._result(
+                        "telemetry_lost",
+                        requested_target,
+                        resolved_target,
+                        last_profile,
+                        "Invalid zero-position telemetry after valid flight position.",
+                    )
                 time.sleep(0.5)
                 continue
 
             dist_to_target = _dist(ship_pos, requested_target)
-            if self._scan_count > 0 and dist_to_target <= self.fine_scan.radius:
-                fine_mode = True
+            profile_level = self._raise_profile_level(
+                profile_level,
+                self._profile_level_for_target_distance(dist_to_target),
+            )
 
-            profile = self.fine_scan if fine_mode else self.coarse_scan
+            profile = self._profile_for_level(profile_level)
             last_profile = profile
             with self.state.lock:
                 self.state.position = ship_pos
@@ -669,48 +849,192 @@ class SpaceNavigatorController:
                 f"target_dist={dist_to_target:.0f}m"
             )
 
-            scan_result = self._do_scan(profile, label=profile.name)
-            if scan_result is None:
-                consecutive_failures += 1
-                self._stop_for_retry()
-                if consecutive_failures > self.max_replans:
-                    return self._result(
-                        "scan_failed",
-                        requested_target,
-                        resolved_target,
-                        profile,
-                        "Scan failed too many times.",
-                    )
-                continue
+            radar_map = None
+            map_scan_center = ship_pos
+            reused_scan = self._can_reuse_scan(
+                profile,
+                ship_pos,
+                requested_target,
+                cached_profile_name,
+                cached_scan_center,
+                cached_map,
+                cached_solid,
+            )
+            if reused_scan:
+                radar_map = cached_map
+                map_scan_center = cached_scan_center or ship_pos
+                solid = cached_solid
+                print(
+                    f"[{profile.name}] reusing scan; "
+                    f"moved={_dist(ship_pos, map_scan_center):.0f}m/"
+                    f"{float(profile.rescan_distance or 0.0):.0f}m"
+                )
+            else:
+                scan_result = self._do_scan(profile, ship_pos=ship_pos, label=profile.name)
+                if scan_result is None:
+                    consecutive_failures += 1
+                    self._stop_for_retry()
+                    if consecutive_failures > self.max_replans:
+                        return self._result(
+                            "scan_failed",
+                            requested_target,
+                            resolved_target,
+                            profile,
+                            "Scan failed too many times.",
+                        )
+                    continue
 
-            solid, metadata, contacts, _ore_cells = scan_result
+                solid, metadata, contacts, _ore_cells = scan_result
+                radar_map = self._build_map(scan_result, profile, ship_pos)
+                if radar_map is None:
+                    consecutive_failures += 1
+                    self._stop_for_retry()
+                    if consecutive_failures > self.max_replans:
+                        return self._result(
+                            "scan_failed",
+                            requested_target,
+                            resolved_target,
+                            profile,
+                            "Failed to build radar map.",
+                        )
+                    continue
+
+                cached_map = radar_map
+                cached_profile_name = profile.name.upper()
+                cached_scan_center = ship_pos
+                cached_solid = solid or []
+                map_scan_center = ship_pos
+
             self._nearest_voxel_distance = nearest_point_distance(solid or [], ship_pos)
             with self.state.lock:
                 self.state.nearest_obstacle = self._nearest_voxel_distance
 
-            radar_map = self._build_map(scan_result)
-            if radar_map is None:
-                consecutive_failures += 1
+            recommended_level = self._recommended_profile_level(dist_to_target, self._nearest_voxel_distance)
+            if self._profile_rank(recommended_level) > self._profile_rank(profile_level):
+                profile_level = recommended_level
+                self._replans += 1
+                print(
+                    f"[NAV] obstacle/target is close enough for {profile_level}; "
+                    "rescanning before movement."
+                )
                 self._stop_for_retry()
-                if consecutive_failures > self.max_replans:
+                continue
+
+            empty_obstacle_target_scan = (
+                self.target_is_obstacle
+                and not solid
+                and dist_to_target <= profile.radius - self._boundary_margin(profile)
+            )
+            if (
+                self.target_is_obstacle
+                and profile.name.upper() == "FINE"
+                and not solid
+                and not empty_obstacle_target_scan
+            ):
+                profile_level = (
+                    "MEDIUM"
+                    if dist_to_target <= self.medium_scan.radius - self._boundary_margin(self.medium_scan)
+                    else "COARSE"
+                )
+                self._replans += 1
+                print(
+                    "[NAV] Fine scan is empty while obstacle target is outside usable fine volume; "
+                    f"returning to {profile_level}."
+                )
+                self._stop_for_retry()
+                continue
+            if profile.name.upper() == "FINE":
+                if solid:
+                    self._fine_seen_voxels = True
+                elif self._fine_seen_voxels:
+                    consecutive_failures += 1
+                    self._replans += 1
+                    print("[NAV] Fine scan lost known voxel data; refusing to fly blind.")
+                    self._stop_for_retry()
+                    if consecutive_failures > self.max_replans:
+                        return self._result(
+                            "scan_failed",
+                            requested_target,
+                            resolved_target,
+                            profile,
+                            "Fine scan lost voxel data near obstacle target.",
+                        )
+                    continue
+            if empty_obstacle_target_scan:
+                if profile.name.upper() != "COARSE":
+                    print(
+                        f"[NAV] {profile.name} scan returned no voxels for obstacle target "
+                        "inside usable scan volume; stopping instead of flying blind."
+                    )
+                    self._stop_for_retry()
                     return self._result(
                         "scan_failed",
                         requested_target,
                         resolved_target,
                         profile,
-                        "Failed to build radar map.",
+                        "Obstacle target is inside the scan volume, but no voxels were returned.",
                     )
-                continue
+                print(
+                    f"[NAV] {profile.name} scan returned no voxels for obstacle target; "
+                    "using conservative center standoff."
+                )
 
             self._current_map = radar_map
             safety_radius = effective_clearance_radius(self.ship_radius, profile)
-            local_goal = self._resolve_local_goal(
-                radar_map,
-                ship_pos,
-                requested_target,
-                profile,
-                safety_radius,
-            )
+            parking_distance = self._parking_distance(profile, safety_radius)
+
+            if empty_obstacle_target_scan:
+                if dist_to_target <= parking_distance and point_is_safe(radar_map, ship_pos, safety_radius):
+                    return self._result(
+                        "safe_target_reached",
+                        requested_target,
+                        ship_pos,
+                        profile,
+                        "Reached conservative obstacle standoff without voxel evidence.",
+                    )
+
+                fallback_goal = _point_from_target_toward_ship(
+                    requested_target,
+                    ship_pos,
+                    parking_distance,
+                )
+                fallback_goal = _clamp_to_map_bounds(fallback_goal, radar_map, profile.cell_size)
+                goal_map = crop_map_for_path(
+                    radar_map,
+                    ship_pos,
+                    fallback_goal,
+                    padding_m=self._goal_resolution_padding(safety_radius, profile),
+                )
+                local_goal = resolve_nearest_safe_point(
+                    goal_map,
+                    fallback_goal,
+                    safety_radius,
+                    preferred_from=ship_pos,
+                    max_distance_from=ship_pos,
+                    max_distance=self._goal_distance_limit(profile),
+                )
+            else:
+                if (
+                    profile.name.upper() == "FINE"
+                    and bool(np.any(radar_map.occ))
+                    and dist_to_target <= parking_distance
+                    and point_is_safe(radar_map, ship_pos, safety_radius)
+                ):
+                    return self._result(
+                        "safe_target_reached",
+                        requested_target,
+                        ship_pos,
+                        profile,
+                        "Reached fine safe parking boundary.",
+                    )
+
+                local_goal = self._resolve_local_goal(
+                    radar_map,
+                    ship_pos,
+                    requested_target,
+                    profile,
+                    safety_radius,
+                )
             resolved_target = local_goal
 
             if local_goal is None:
@@ -738,6 +1062,22 @@ class SpaceNavigatorController:
                 status = "arrived" if dist_to_target <= self.arrival_distance else "safe_target_reached"
                 return self._result(status, requested_target, local_goal, profile, "Target reached.")
 
+            if (
+                dist_local_to_requested > dist_to_target + profile.cell_size
+                and dist_to_local > dist_to_target
+            ):
+                print(
+                    f"[NAV] safe goal is farther from target ({dist_local_to_requested:.0f}m) "
+                    f"than ship ({dist_to_target:.0f}m); stopping at current position"
+                )
+                return self._result(
+                    "safe_target_reached",
+                    requested_target,
+                    ship_pos,
+                    profile,
+                    "Cannot get closer; safe resolution pushes target behind obstacle.",
+                )
+
             path = find_path_multiscale(
                 radar_map,
                 ship_pos,
@@ -749,8 +1089,11 @@ class SpaceNavigatorController:
                 consecutive_failures += 1
                 self._replans += 1
                 self._stop_for_retry()
-                if not fine_mode and self._target_is_in_scan(radar_map, requested_target):
-                    fine_mode = True
+                if (
+                    self._profile_rank(profile_level) < self._profile_rank("FINE")
+                    and self._target_is_in_scan(radar_map, requested_target)
+                ):
+                    profile_level = self._raise_profile_level(profile_level, "MEDIUM")
                 if consecutive_failures > self.max_replans:
                     return self._result(
                         "blocked",
@@ -767,7 +1110,7 @@ class SpaceNavigatorController:
                 ship_pos,
                 scan_radius=profile.radius,
                 boundary_margin=self._boundary_margin(profile),
-                scan_center=ship_pos,
+                scan_center=map_scan_center,
                 rescan_distance=profile.rescan_distance,
                 max_leg_distance=profile.max_leg_distance,
             )
@@ -803,9 +1146,11 @@ class SpaceNavigatorController:
 
             flight_ok = self._fly_to_waypoint(
                 waypoint,
-                ship_pos,
+                map_scan_center,
                 profile,
+                current_pos=ship_pos,
                 nearest_obstacle=self._nearest_voxel_distance,
+                target_distance=dist_to_target,
                 cancel_check=cancel_check,
             )
             if not flight_ok:
@@ -825,12 +1170,24 @@ class SpaceNavigatorController:
             with self.state.lock:
                 self.state.waypoints_flown += 1
 
-            new_pos = _safe_get_position(self.rc) or ship_pos
-            if not fine_mode and (
-                _dist(new_pos, requested_target) <= self.fine_scan.radius
-                or _dist(local_goal, requested_target) <= self.fine_scan.radius
-            ):
-                fine_mode = True
+            new_pos, telemetry_invalid = self._read_ship_position()
+            if telemetry_invalid:
+                self._stop_for_retry()
+                return self._result(
+                    "telemetry_lost",
+                    requested_target,
+                    local_goal,
+                    profile,
+                    "Invalid zero-position telemetry after waypoint flight.",
+            )
+            new_pos = new_pos or ship_pos
+            next_profile_distance = _dist(new_pos, requested_target)
+            if not self.target_is_obstacle:
+                next_profile_distance = min(next_profile_distance, _dist(local_goal, requested_target))
+            profile_level = self._raise_profile_level(
+                profile_level,
+                self._profile_level_for_target_distance(next_profile_distance),
+            )
 
         return self._result(
             "max_steps",
@@ -843,6 +1200,8 @@ class SpaceNavigatorController:
     def _do_scan(
         self,
         profile: ScanProfile,
+        *,
+        ship_pos: Optional[Point3D] = None,
         label: str = "SCAN",
         include_voxels: bool = True,
         include_contacts: bool = True,
@@ -851,15 +1210,16 @@ class SpaceNavigatorController:
             self.radar,
             radius=profile.radius,
             cell_size=profile.cell_size,
-            boundingBoxX=profile.beam,
-            boundingBoxY=profile.beam,
-            boundingBoxZ=profile.beam,
+            boundingBoxX=profile.beam_meters,
+            boundingBoxY=profile.beam_meters,
+            boundingBoxZ=profile.beam_meters,
             ore_only=False,
         )
 
         print(
             f"[{label}] scan radius={profile.radius:.0f}m "
-            f"cell={profile.cell_size:.0f}m bbox={profile.beam} cells"
+            f"cell={profile.cell_size:.0f}m bbox={profile.beam_meters:.0f}m "
+            f"({profile.beam} cells)"
         )
         self._scan_count += 1
         started = time.time()
@@ -868,6 +1228,8 @@ class SpaceNavigatorController:
         if meta is None:
             print(f"[{label}] scan returned no metadata")
             return None
+        if ship_pos is not None:
+            meta = normalize_scan_metadata(meta, profile, ship_pos)
         print(
             f"[{label}] {len(solid or [])} voxels, {len(contacts or [])} contacts "
             f"in {elapsed:.1f}s"
@@ -877,6 +1239,8 @@ class SpaceNavigatorController:
     def _build_map(
         self,
         scan_result: Tuple[List[List[float]], Dict[str, Any], List[Any], List[Any]],
+        profile: ScanProfile,
+        scan_center: Point3D,
     ) -> Optional[RawRadarMap]:
         solid, meta, contacts, _ore_cells = scan_result
         ship_pos = _safe_get_position(self.rc)
@@ -886,6 +1250,8 @@ class SpaceNavigatorController:
             contacts,
             ship_radius=self.ship_radius,
             own_position=ship_pos,
+            scan_center=scan_center,
+            scan_profile=profile,
         )
 
     def _resolve_local_goal(
@@ -907,7 +1273,20 @@ class SpaceNavigatorController:
                 max(0.0, profile.radius - self._boundary_margin(profile)),
             )
         candidate = _clamp_to_map_bounds(candidate, radar_map, profile.cell_size)
-        return resolve_nearest_safe_point(radar_map, candidate, safety_radius)
+        goal_map = crop_map_for_path(
+            radar_map,
+            ship_pos,
+            candidate,
+            padding_m=self._goal_resolution_padding(safety_radius, profile),
+        )
+        return resolve_nearest_safe_point(
+            goal_map,
+            candidate,
+            safety_radius,
+            preferred_from=ship_pos,
+            max_distance_from=ship_pos,
+            max_distance=self._goal_distance_limit(profile),
+        )
 
     def _fly_to_waypoint(
         self,
@@ -915,18 +1294,24 @@ class SpaceNavigatorController:
         scan_center: Point3D,
         profile: ScanProfile,
         *,
+        current_pos: Point3D,
         nearest_obstacle: float,
+        target_distance: float = float("inf"),
         cancel_check: Optional[Callable[[], bool]],
     ) -> bool:
-        distance = _dist(scan_center, waypoint)
-        speed = self._speed_for_profile(profile, nearest_obstacle)
+        distance = _dist(current_pos, waypoint)
+        speed_far = self._speed_for_profile(profile, nearest_obstacle, target_distance=target_distance)
+        speed_near = min(speed_far, self.speed_zone.close_speed)
         with self.state.lock:
-            self.state.current_speed = speed
+            self.state.current_speed = speed_far
 
         def should_cancel() -> bool:
             if cancel_check and cancel_check():
                 return True
-            pos = _safe_get_position(self.rc)
+            pos, telemetry_invalid = self._read_ship_position()
+            if telemetry_invalid:
+                print("[FLY] stopping on invalid zero-position telemetry")
+                return True
             if pos is None:
                 return False
             limit = profile.radius - self._boundary_margin(profile)
@@ -935,16 +1320,18 @@ class SpaceNavigatorController:
                 return True
             return False
 
+        decel_distance = max(50.0, speed_far * 5.0)
         stop_pos = fly_to_point(
             self.rc,
             waypoint,
             waypoint_name=f"{profile.name}_WP",
-            speed_far=speed,
-            speed_near=speed,
+            speed_far=speed_far,
+            speed_near=speed_near,
             arrival_distance=max(10.0, min(self.arrival_distance, profile.cell_size * 2)),
+            decel_distance=decel_distance,
             max_flight_time=min(
                 self.max_flight_time,
-                max(30.0, distance / max(speed, 1.0) + 20.0),
+                max(30.0, distance / max(speed_far, 1.0) + 20.0),
             ),
             cancel_check=should_cancel,
         )
@@ -953,7 +1340,7 @@ class SpaceNavigatorController:
             return False
 
         remaining = _dist(stop_pos, waypoint)
-        progress = _dist(scan_center, stop_pos)
+        progress = _dist(current_pos, stop_pos)
         print(
             f"[FLY] stopped=({stop_pos[0]:.0f},{stop_pos[1]:.0f},{stop_pos[2]:.0f}) "
             f"progress={progress:.0f}m remaining={remaining:.0f}m"
@@ -970,16 +1357,109 @@ class SpaceNavigatorController:
                 return False
         return True
 
-    def _speed_for_profile(self, profile: ScanProfile, nearest_obstacle: float) -> float:
+    def _speed_for_profile(
+        self, profile: ScanProfile, nearest_obstacle: float, target_distance: float = float("inf")
+    ) -> float:
         if profile.name.upper() == "FINE":
             return self.speed_zone.close_speed
-        return self.speed_zone.speed_for_distance(nearest_obstacle)
+        speed_obstacle = self.speed_zone.speed_for_distance(nearest_obstacle)
+        speed_target = self.speed_zone.speed_for_target_distance(target_distance)
+        if profile.name.upper() == "MEDIUM":
+            return min(self.speed_zone.medium_speed, speed_obstacle, speed_target)
+        return min(speed_obstacle, speed_target)
 
     def _boundary_margin(self, profile: ScanProfile) -> float:
         return max(profile.cell_size * 2.0, self.ship_radius)
 
+    def _parking_distance(self, profile: ScanProfile, safety_radius: float) -> float:
+        return safety_radius + max(self.arrival_distance, profile.cell_size * 2.0)
+
+    def _recommended_profile_level(self, target_distance: float, nearest_obstacle: float) -> str:
+        target_level = self._profile_level_for_target_distance(target_distance)
+        obstacle_level = self._profile_level_for_obstacle_distance(nearest_obstacle)
+        return self._raise_profile_level(target_level, obstacle_level)
+
+    def _profile_level_for_target_distance(self, distance: float) -> str:
+        if distance <= self._usable_profile_radius(self.fine_scan):
+            return "FINE"
+        if distance <= self._usable_profile_radius(self.medium_scan):
+            return "MEDIUM"
+        return "COARSE"
+
+    def _profile_level_for_obstacle_distance(self, distance: float) -> str:
+        if not math.isfinite(distance):
+            return "COARSE"
+        if distance <= self._medium_obstacle_activation_distance():
+            return "MEDIUM"
+        return "COARSE"
+
+    def _medium_obstacle_activation_distance(self) -> float:
+        return max(
+            self._usable_profile_radius(self.medium_scan),
+            self._usable_profile_radius(self.medium_scan) + float(self.coarse_scan.rescan_distance or 0.0),
+            self.speed_zone.far_threshold,
+        )
+
+    def _usable_profile_radius(self, profile: ScanProfile) -> float:
+        return max(0.0, profile.radius - self._boundary_margin(profile))
+
+    def _goal_distance_limit(self, profile: ScanProfile) -> float:
+        return self._usable_profile_radius(profile) + profile.cell_size * math.sqrt(3.0)
+
+    def _goal_resolution_padding(self, safety_radius: float, profile: ScanProfile) -> float:
+        return max(float(safety_radius) + profile.cell_size * 5.0, profile.cell_size * 20.0)
+
+    def _profile_for_level(self, level: str) -> ScanProfile:
+        normalized = level.upper()
+        if normalized == "FINE":
+            return self.fine_scan
+        if normalized == "MEDIUM":
+            return self.medium_scan
+        return self.coarse_scan
+
+    def _profile_rank(self, level: str) -> int:
+        order = {"COARSE": 0, "MEDIUM": 1, "FINE": 2}
+        return order.get(level.upper(), 0)
+
+    def _raise_profile_level(self, current: str, candidate: str) -> str:
+        return candidate.upper() if self._profile_rank(candidate) > self._profile_rank(current) else current.upper()
+
     def _target_is_in_scan(self, radar_map: RawRadarMap, target: Point3D) -> bool:
         return radar_map.world_to_index(target) is not None
+
+    def _can_reuse_scan(
+        self,
+        profile: ScanProfile,
+        ship_pos: Point3D,
+        requested_target: Point3D,
+        cached_profile_name: Optional[str],
+        cached_scan_center: Optional[Point3D],
+        cached_map: Optional[RawRadarMap],
+        cached_solid: Sequence[Sequence[float]],
+    ) -> bool:
+        if cached_map is None or cached_scan_center is None:
+            return False
+        if cached_profile_name != profile.name.upper():
+            return False
+
+        moved = _dist(ship_pos, cached_scan_center)
+        if moved >= float(profile.rescan_distance or 0.0):
+            return False
+        if moved >= self._usable_profile_radius(profile):
+            return False
+        if cached_map.world_to_index(ship_pos) is None:
+            return False
+
+        # If an asteroid target just entered the useful part of an empty scan,
+        # take a fresh scan instead of trusting stale "no voxels" evidence.
+        if (
+            self.target_is_obstacle
+            and not cached_solid
+            and _dist(ship_pos, requested_target) <= self._usable_profile_radius(profile)
+        ):
+            return False
+
+        return True
 
     def _stop_for_retry(self) -> None:
         try:
@@ -998,6 +1478,10 @@ class SpaceNavigatorController:
         message: str,
     ) -> NavigationResult:
         final_position = _safe_get_position(self.rc)
+        if final_position is not None and self._position_is_invalid(final_position):
+            final_position = self._last_valid_position
+        elif final_position is not None:
+            self._last_valid_position = final_position
         return NavigationResult(
             status=status,
             final_position=final_position,
@@ -1009,6 +1493,24 @@ class SpaceNavigatorController:
             nearest_voxel_distance=self._nearest_voxel_distance,
             message=message,
         )
+
+    def _read_ship_position(self) -> Tuple[Optional[Point3D], bool]:
+        position = _safe_get_position(self.rc)
+        if position is None:
+            return None, False
+        if self._position_is_invalid(position):
+            print(
+                "[NAV] invalid position telemetry ignored: "
+                f"({position[0]:.0f},{position[1]:.0f},{position[2]:.0f})"
+            )
+            return None, True
+        self._last_valid_position = position
+        return position, False
+
+    def _position_is_invalid(self, position: Point3D) -> bool:
+        if self._last_valid_position is None:
+            return False
+        return _looks_like_zero_telemetry_glitch(position, self._last_valid_position)
 
     def stop(self) -> None:
         if self.scanner:
@@ -1048,6 +1550,10 @@ def _safe_get_position(rc: RemoteControlDevice) -> Optional[Point3D]:
         return get_world_position(rc)
     except Exception:
         return None
+
+
+def _looks_like_zero_telemetry_glitch(position: Point3D, last_valid_position: Point3D) -> bool:
+    return _dist(position, (0.0, 0.0, 0.0)) < 1.0 and _dist(last_valid_position, (0.0, 0.0, 0.0)) > 1000.0
 
 
 def _nearest_grid_contact(
@@ -1114,6 +1620,42 @@ def _point_toward(start: Point3D, target: Point3D, distance: float) -> Point3D:
     return (start[0] + dx * scale, start[1] + dy * scale, start[2] + dz * scale)
 
 
+def _point_from_target_toward_ship(target: Point3D, ship_pos: Point3D, distance: float) -> Point3D:
+    dx = ship_pos[0] - target[0]
+    dy = ship_pos[1] - target[1]
+    dz = ship_pos[2] - target[2]
+    total = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if total <= 1e-6:
+        return ship_pos
+    step = max(0.0, distance)
+    scale = step / total
+    return (target[0] + dx * scale, target[1] + dy * scale, target[2] + dz * scale)
+
+
+def _direction_from_target(target: Point3D, preferred_from: Optional[Point3D]) -> Optional[Point3D]:
+    if preferred_from is None:
+        return None
+    dx = preferred_from[0] - target[0]
+    dy = preferred_from[1] - target[1]
+    dz = preferred_from[2] - target[2]
+    length = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if length <= 1e-6:
+        return None
+    return (dx / length, dy / length, dz / length)
+
+
+def _direction_dot(target: Point3D, candidate: Point3D, preferred_dir: Optional[Point3D]) -> float:
+    if preferred_dir is None:
+        return 0.0
+    dx = candidate[0] - target[0]
+    dy = candidate[1] - target[1]
+    dz = candidate[2] - target[2]
+    length = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if length <= 1e-6:
+        return 0.0
+    return (dx / length) * preferred_dir[0] + (dy / length) * preferred_dir[1] + (dz / length) * preferred_dir[2]
+
+
 def _clamp_to_map_bounds(point: Point3D, radar_map: RawRadarMap, margin: float) -> Point3D:
     mins = radar_map.origin + margin
     maxs = radar_map.origin + np.asarray(radar_map.size, dtype=np.float64) * radar_map.cell_size - margin
@@ -1148,9 +1690,13 @@ __all__ = [
     "effective_clearance_radius",
     "estimate_ship_radius_from_blocks",
     "find_path_multiscale",
+    "crop_map_for_path",
     "nearest_point_distance",
+    "normalize_scan_metadata",
     "pick_waypoint_along_path",
+    "point_is_safe",
     "resolve_nearest_safe_point",
+    "_looks_like_zero_telemetry_glitch",
     "COARSE_SCAN",
     "MEDIUM_SCAN",
     "FINE_SCAN",

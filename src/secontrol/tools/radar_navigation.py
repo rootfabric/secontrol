@@ -183,17 +183,36 @@ class RawRadarMap:
 
     def _inflate(self, radius_cells: int) -> np.ndarray:
         inflated = self.occ.copy()
-        nx, ny, nz = inflated.shape
-        xs, ys, zs = np.where(self.occ)
-        for x, y, z in zip(xs, ys, zs):
-            x0 = max(0, x - radius_cells)
-            x1 = min(nx - 1, x + radius_cells)
-            y0 = max(0, y - radius_cells)
-            y1 = min(ny - 1, y + radius_cells)
-            z0 = max(0, z - radius_cells)
-            z1 = min(nz - 1, z + radius_cells)
-            inflated[x0 : x1 + 1, y0 : y1 + 1, z0 : z1 + 1] = True
+        for axis in range(3):
+            inflated = _dilate_axis(inflated, radius_cells, axis)
         return inflated
+
+
+def _dilate_axis(occ: np.ndarray, radius_cells: int, axis: int) -> np.ndarray:
+    """Dilate a boolean occupancy grid along one axis with a box window."""
+
+    if radius_cells <= 0:
+        return occ.copy()
+
+    pad_width = [(0, 0)] * occ.ndim
+    pad_width[axis] = (radius_cells, radius_cells)
+    padded = np.pad(occ, pad_width, mode="constant", constant_values=False)
+    cumsum = np.cumsum(padded, axis=axis, dtype=np.int32)
+
+    zero_shape = list(cumsum.shape)
+    zero_shape[axis] = 1
+    cumsum = np.concatenate(
+        [np.zeros(zero_shape, dtype=cumsum.dtype), cumsum],
+        axis=axis,
+    )
+
+    size = occ.shape[axis]
+    window = radius_cells * 2 + 1
+    hi = [slice(None)] * occ.ndim
+    lo = [slice(None)] * occ.ndim
+    hi[axis] = slice(window, window + size)
+    lo[axis] = slice(0, size)
+    return (cumsum[tuple(hi)] - cumsum[tuple(lo)]) > 0
 
 
 @dataclass

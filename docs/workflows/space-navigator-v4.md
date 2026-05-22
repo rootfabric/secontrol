@@ -35,21 +35,37 @@ python scripts/space_navigator_v4.py --grid skynet-baza0 --nearest-asteroid
 
 # Test the navigator by targeting a point 10 km straight ahead.
 python scripts/test_flight_10km.py --grid skynet-baza0
+
+# Test the navigator by targeting the nearest asteroid center.
+python scripts/test_flight_nearest_asteroid.py --grid skynet-baza0
 ```
 
 ## Scan Profiles
 
 | Profile | Radius | Cell | Rescan | Clearance |
 |---|---:|---:|---:|---:|
-| `COARSE` | 5000 m | 50 m | 1000 m | 10 cells |
-| `FINE` | 1000 m | 10 m | 500 m | 8 cells |
+| `COARSE` | 5000 m | 50 m | 2000 m | 12 cells |
+| `MEDIUM` | 1000 m | 10 m | 500 m | 20 cells |
+| `FINE` | 300 m | 10 m | 200 m | 20 cells |
 
-`MEDIUM_SCAN` remains available for compatibility, but the default route uses
-coarse scans for cruise and fine scans for the last kilometer.
+The default route uses all three profiles. Coarse is for open-space cruise,
+medium is entered before nearby asteroid work, and fine is for the final
+parking boundary.
 
-The radar bbox is computed as `ceil(2 * radius / cell_size)`, so the default
-coarse scan uses a 200x200x200 grid and the default fine scan also uses a
-200x200x200 grid.
+The radar bbox is sent to the game server in meters. It is computed as
+`ceil(2 * radius / cell_size) * cell_size`, so the default coarse scan sends a
+10000 m bbox, medium sends 2000 m, and fine sends 600 m. Those correspond to
+200x200x200, 200x200x200, and 60x60x60 cells.
+
+Profile switching is conservative:
+
+- `MEDIUM` starts when the target is within 1000 m, or when a coarse scan sees
+  any voxel within the medium activation range before movement.
+- `FINE` starts only when the requested target is inside the fine scan radius.
+  Nearby voxels by themselves keep the controller in `MEDIUM`, because medium
+  already uses the 10 m grid and keeps a larger safe map around the ship.
+- Medium movement is speed-capped by `--medium-speed`; fine movement uses
+  `--close-speed`.
 
 ## Safety Model
 
@@ -65,13 +81,26 @@ ship_radius + clearance_voxels * cell_size
 
 With the defaults this means:
 
-- Coarse: ship radius plus 500 m.
-- Fine: ship radius plus 80 m.
+- Coarse: ship radius plus 600 m.
+- Medium: ship radius plus 200 m.
+- Fine: ship radius plus 200 m.
 
 If the requested target is inside an asteroid or too close to voxels, the
 controller treats the nearest safe reachable point as the destination. The
 returned `NavigationResult` includes both `requested_target` and
 `resolved_target`.
+
+During fine parking, safe-target resolution prefers the side of the target that
+faces the current ship position. If the ship is already on a safe inflated
+boundary near the requested target, navigation stops there instead of chasing a
+new safe cell around the far side of the asteroid.
+
+When navigating to an asteroid center, the controller never treats an empty
+medium or fine scan as permission to fly into the center. If no voxels are
+returned while the asteroid center is inside the medium or fine scan volume,
+navigation stops with `scan_failed` instead of moving on a blind map. Coarse can
+still resolve a conservative long-range standoff point, but medium/fine require
+voxel evidence before approach or parking.
 
 ## Python API
 
@@ -94,7 +123,7 @@ finally:
 `NavigationResult` fields:
 
 - `status`: `arrived`, `safe_target_reached`, `dry_run`, `blocked`,
-  `scan_failed`, `flight_failed`, `cancelled`, or `max_steps`.
+  `scan_failed`, `flight_failed`, `telemetry_lost`, `cancelled`, or `max_steps`.
 - `final_position`: last known ship position.
 - `requested_target`: original target.
 - `resolved_target`: safe target used for the last plan.
@@ -118,8 +147,9 @@ Common options:
 Scan tuning:
 
 ```bash
---coarse-radius 5000 --coarse-cell 50 --coarse-rescan 1000 --coarse-clearance 10
---fine-radius 1000 --fine-cell 10 --fine-rescan 500 --fine-clearance 8
+--coarse-radius 5000 --coarse-cell 50 --coarse-rescan 2000 --coarse-clearance 12
+--medium-radius 1000 --medium-cell 10 --medium-rescan 500 --medium-clearance 20
+--fine-radius 300 --fine-cell 10 --fine-rescan 200 --fine-clearance 20
 ```
 
 Speed tuning:
@@ -128,8 +158,9 @@ Speed tuning:
 --max-speed 50 --far-speed 30 --medium-speed 15 --close-speed 3
 ```
 
-Fine-profile movement always uses `close-speed`; coarse movement uses the speed
-zone selected from the nearest voxel distance in the latest scan.
+Fine-profile movement always uses `close-speed`; medium movement is capped by
+`medium-speed`; coarse movement uses the speed zone selected from the nearest
+voxel distance in the latest scan.
 
 ## Forward-Vector Test
 
@@ -146,6 +177,18 @@ route.
 python scripts/test_flight_10km.py --grid skynet-baza0
 python scripts/test_flight_10km.py --grid skynet-baza0 --dry-run
 python scripts/test_flight_10km.py --grid skynet-baza0 --distance 10000 --ship-radius 60
+```
+
+## Nearest-Asteroid Test
+
+`scripts/test_flight_nearest_asteroid.py` finds the nearest asteroid through the
+radar asteroid index, targets the asteroid center, and relies on the navigator
+to resolve the final point to safe space near the voxels.
+
+```bash
+python scripts/test_flight_nearest_asteroid.py --grid skynet-baza0
+python scripts/test_flight_nearest_asteroid.py --grid skynet-baza0 --dry-run
+python scripts/test_flight_nearest_asteroid.py --grid skynet-baza0 --ship-radius 60
 ```
 
 ## Failure Behavior

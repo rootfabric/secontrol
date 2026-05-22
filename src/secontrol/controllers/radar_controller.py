@@ -248,11 +248,24 @@ class RadarController:
         initial_marker = self._radar_marker(initial_radar)
 
         # Send scan command
+        command_state = {**self.scan_params, **scan_kwargs}
+        print(
+            "[scan] Command state: "
+            f"includePlayers=True includeGrids=True includeVoxels=True "
+            f"radius={command_state.get('radius')} "
+            f"cellSize={command_state.get('cell_size')} "
+            f"bbox=({command_state.get('boundingBoxX')},"
+            f"{command_state.get('boundingBoxY')},"
+            f"{command_state.get('boundingBoxZ')}) "
+            f"voxelStep={command_state.get('voxel_step')} "
+            f"fullSolidScan={command_state.get('fullSolidScan')} "
+            f"oreOnly={command_state.get('ore_only')}"
+        )
         seq = self.radar.scan(
             include_players=True,
             include_grids=True,
             include_voxels=True,
-            **{**self.scan_params, **scan_kwargs}
+            **command_state
         )
         print(f"Scan sent, seq={seq}")
 

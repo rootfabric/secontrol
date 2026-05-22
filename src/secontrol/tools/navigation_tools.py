@@ -137,6 +137,7 @@ def fly_to_point(
     cancel_check: Optional[Callable[[], bool]] = None,
     ship_connector: Optional[ConnectorDevice] = None,
     connector_target: Optional[Tuple[float, float, float]] = None,
+    decel_distance: float = 0.0,
 ) -> Optional[Tuple[float, float, float]]:
     """
     Компактная обёртка над автопилотом для полёта к точке.
@@ -145,6 +146,10 @@ def fly_to_point(
     ранней остановки полёта (например, проверка условий или флаг из
     параллельного потока). Возвращает последнюю известную позицию RC
     или ``None``, если автопилот не стартовал.
+
+    Если ``decel_distance > 0``, скорость плавно снижается от
+    ``speed_far`` до ``speed_near`` при приближении к цели в пределах
+    этой дистанции.
     """
 
     curr_pos = get_world_position(remote)
@@ -177,17 +182,30 @@ def fly_to_point(
         ship_connector.update()
 
     engaged = False
-    for _ in range(15):
-        time.sleep(0.2)
-        remote.update()
-        if remote.telemetry.get("autopilotEnabled"):
-            engaged = True
+    for attempt in range(4):
+        for _ in range(10):
+            time.sleep(0.2)
+            remote.update()
+            if remote.telemetry.get("autopilotEnabled"):
+                engaged = True
+                break
+        if engaged:
             break
+        remote.goto(gps, speed=speed, gps_name=waypoint_name, dock=False)
+        remote.enable()
+        time.sleep(0.3)
     if not engaged:
         return None
 
     start_t = time.time()
     stop_pos = curr_pos
+    current_speed = speed
+
+    def _compute_speed(distance: float) -> float:
+        if decel_distance > 0 and distance < decel_distance:
+            t = max(0.0, min(1.0, distance / decel_distance))
+            return speed_near + (speed_far - speed_near) * t
+        return speed_far if distance > 15.0 else speed_near
 
     while True:
         if cancel_check and cancel_check():
@@ -227,6 +245,11 @@ def fly_to_point(
         if time.time() - start_t > max_flight_time:
             remote.disable()
             break
+
+        new_speed = _compute_speed(distance)
+        if abs(new_speed - current_speed) > 0.5:
+            current_speed = new_speed
+            remote.goto(gps, speed=current_speed, gps_name=waypoint_name, dock=False)
 
         time.sleep(check_interval)
 

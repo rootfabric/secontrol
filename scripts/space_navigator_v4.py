@@ -16,6 +16,7 @@ load_dotenv(os.path.join(WORKSPACE, ".env"))
 from secontrol.controllers.space_navigator_controller import (  # noqa: E402
     COARSE_SCAN,
     FINE_SCAN,
+    MEDIUM_SCAN,
     NavigationResult,
     ScanProfile,
     SpaceNavigatorController,
@@ -120,6 +121,10 @@ Examples:
     parser.add_argument("--coarse-radius", type=float, default=COARSE_SCAN.radius)
     parser.add_argument("--coarse-rescan", type=float, default=COARSE_SCAN.rescan_distance)
     parser.add_argument("--coarse-clearance", type=int, default=COARSE_SCAN.clearance_voxels)
+    parser.add_argument("--medium-cell", type=float, default=MEDIUM_SCAN.cell_size)
+    parser.add_argument("--medium-radius", type=float, default=MEDIUM_SCAN.radius)
+    parser.add_argument("--medium-rescan", type=float, default=MEDIUM_SCAN.rescan_distance)
+    parser.add_argument("--medium-clearance", type=int, default=MEDIUM_SCAN.clearance_voxels)
     parser.add_argument("--fine-cell", type=float, default=FINE_SCAN.cell_size)
     parser.add_argument("--fine-radius", type=float, default=FINE_SCAN.radius)
     parser.add_argument("--fine-rescan", type=float, default=FINE_SCAN.rescan_distance)
@@ -177,6 +182,13 @@ def main() -> None:
         rescan_distance=args.coarse_rescan,
         clearance_voxels=args.coarse_clearance,
     )
+    medium = ScanProfile(
+        name="MEDIUM",
+        radius=args.medium_radius,
+        cell_size=args.medium_cell,
+        rescan_distance=args.medium_rescan,
+        clearance_voxels=args.medium_clearance,
+    )
     fine = ScanProfile(
         name="FINE",
         radius=args.fine_radius,
@@ -197,10 +209,12 @@ def main() -> None:
         ship_radius=args.ship_radius,
         speed_zone=speed_zone,
         coarse_scan=coarse,
+        medium_scan=medium,
         fine_scan=fine,
         arrival_distance=args.arrival,
         max_steps=args.max_steps,
         dry_run=args.dry_run,
+        target_is_obstacle=args.nearest_asteroid,
     )
 
     try:
