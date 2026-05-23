@@ -229,13 +229,12 @@ def main() -> int:
     )
     print(f"Drill to target distance: {dist_to_target:.1f}m")
 
-    AREA_HALF = 37.5
-    if dist_to_target < AREA_HALF:
-        print(f"  [OK] Target within drill area ({AREA_HALF}m radius)")
-    elif dist_to_target < AREA_HALF * 1.5:
-        print("  [WARN] Target at edge of drill area")
+    MAX_OFFSET_PER_AXIS = 1000.0
+    max_axis_comp = max(abs(drill_frontback), abs(drill_updown), abs(drill_leftright))
+    if max_axis_comp <= MAX_OFFSET_PER_AXIS:
+        print(f"  [OK] All offset components ≤ {MAX_OFFSET_PER_AXIS:.0f}m — zone will reach target")
     else:
-        print("  [WARN] Target outside drill area — offset may not reach")
+        print(f"  [WARN] Offset component {max_axis_comp:.1f}m exceeds {MAX_OFFSET_PER_AXIS:.0f}m limit — zone may not reach")
 
     if args.dry_run:
         print("\n[Dry run — no commands sent]")

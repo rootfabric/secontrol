@@ -368,12 +368,11 @@ function buildScene(data, focusCamera = false) {
 
         const mesh = new THREE.Mesh(blockGeo, mat);
         mesh.position.set(
-            block.position.x * scale,
-            block.position.y * scale,
-            block.position.z * scale,
+            block.position.x,
+            block.position.y,
+            block.position.z,
         );
-        const s = Math.max(0.8, 1.5 * scale);
-        mesh.scale.set(s, s, s);
+        mesh.scale.set(1.5, 1.5, 1.5);
         mesh.userData = { block_id: block.id, isDevice, isDamaged, block };
         objectsGroup.add(mesh);
         allMeshes.push(mesh);
@@ -383,14 +382,14 @@ function buildScene(data, focusCamera = false) {
             const edgeGeo = new THREE.EdgesGeometry(blockGeo);
             const edge = new THREE.LineSegments(edgeGeo, edgeMat);
             edge.position.copy(mesh.position);
-            edge.scale.set(s, s, s);
+            edge.scale.set(1.5, 1.5, 1.5);
             objectsGroup.add(edge);
         }
 
         if (isDevice) {
             const label = block.name || block.subtype || block.type || '';
             if (label) {
-                const lbl = addLabel(label, mesh.position.clone().add(new THREE.Vector3(0, s * 0.7, 0)), '', false, 120);
+                const lbl = addLabel(label, mesh.position.clone().add(new THREE.Vector3(0, 3, 0)), '', false, 120);
                 if (isDamaged) lbl.style.color = '#ff5555';
             }
         }
@@ -468,13 +467,6 @@ function buildScene(data, focusCamera = false) {
         ];
         const ndCenter = orientLocal(nd.position.x, nd.position.y, nd.position.z);
 
-        let ndMaxExt = 1;
-        for (const b of nd.blocks) {
-            if (!b.position) continue;
-            ndMaxExt = Math.max(ndMaxExt, Math.abs(b.position.x), Math.abs(b.position.y), Math.abs(b.position.z));
-        }
-        const ndScale = ndMaxExt > 0 ? 100 / ndMaxExt : scale;
-
         const ndBlockGeo = new THREE.BoxGeometry(1, 1, 1);
         for (const b of nd.blocks) {
             if (!b.position) continue;
@@ -489,8 +481,7 @@ function buildScene(data, focusCamera = false) {
             const mat = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.7 });
             const mesh = new THREE.Mesh(ndBlockGeo, mat);
             mesh.position.copy(local);
-            const s = Math.max(0.8, 1.5 * ndScale);
-            mesh.scale.set(s, s, s);
+            mesh.scale.set(1.5, 1.5, 1.5);
             objectsGroup.add(mesh);
         }
 
@@ -503,7 +494,7 @@ function buildScene(data, focusCamera = false) {
             if (!b.position) continue;
             maxBlockDist = Math.max(maxBlockDist, Math.sqrt(b.position.x ** 2 + b.position.y ** 2 + b.position.z ** 2));
         }
-        const d = Math.max(maxBlockDist * scale * 2.5, 40);
+        const d = Math.max(maxBlockDist * 2.5, 40);
         controls.target.set(0, 0, 0);
         camera.position.set(0, d, d * 0.01);
         camera.up.set(0, 1, 0);

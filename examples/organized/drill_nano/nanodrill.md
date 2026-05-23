@@ -320,3 +320,123 @@ drill.set_collect_filter(["all"])
 drill.start_drilling()
 drill.set_work_mode("Drill")
 ```
+
+---
+
+## Выставление зоны добычи на цель (AreaOffset)
+
+### Когда это нужно
+
+Если руда находится на расстоянии >37.5м от бура, зона добычи (75×75×75м) не накроет её автоматически. Нужно выставить `AreaOffset` — сдвиг центра зоны относительно бура.
+
+**Важно:** `AreaOffset` можно выставить до **±1000м** по каждой оси. То есть бур может доставать руду на расстоянии до **1 км** от корабля. Сообщение `Target outside drill area — offset may not reach` в выводе скрипта — это предупреждение, а не ошибка. Зона спокойно накроет цель, если офсет ≤ 1000м по каждой оси. Не нужно подлетать ближе.
+
+### Процесс
+
+#### 1. Получить координаты руды
+
+Через `ore_deposit_scanner.py`:
+
+```bash
+python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 | grep -i nickel
+```
+
+Результат — мировые координаты цели (X Y Z).
+
+#### 2. Запустить `set_nanodrill_area.py` с --dry-run
+
+```bash
+python examples/organized/drill_nano/set_nanodrill_area.py --grid skynet-baza0 --target <X> <Y> <Z> --dry-run
+```
+
+Скрипт выведет:
+- Позицию корабля и бура
+- Расстояние до цели
+- Предлагаемые офсеты в drill-локальных координатах (FrontBack, UpDown, LeftRight)
+
+Если цель дальше ~75м от бура — скрипт предупредит. Нужно подлететь ближе.
+
+#### 3. Проверить DRILL_AXIS_MAP
+
+В `set_nanodrill_area.py` есть константа `DRILL_AXIS_MAP` — она определяет, как оси грида (Right=X, Up=Y, Forward=Z) транслируются в оси бура (LeftRight, UpDown, FrontBack).
+
+Для **skynet-baza0** (Nanobot Drill развёрнут):
+```python
+DRILL_AXIS_MAP = {
+    "LeftRight": (0, 1),  # grid X → drill LeftRight
+    "UpDown":    (2, 1),  # grid Z → drill UpDown   (drill_up = grid_forward)
+    "FrontBack": (1, 1),  # grid Y → drill FrontBack (drill_forward = grid_up)
+}
+```
+
+Если бур установлен без разворота (совпадает с осями грида):
+```python
+DRILL_AXIS_MAP = {
+    "LeftRight": (0, 1),  # grid X → drill LeftRight
+    "UpDown":    (1, 1),  # grid Y → drill UpDown
+    "FrontBack": (2, 1),  # grid Z → drill FrontBack
+}
+```
+
+#### 4. Установить офсеты
+
+Без `--dry-run` скрипт отправит команды на сервер:
+
+```bash
+python examples/organized/drill_nano/set_nanodrill_area.py --grid skynet-baza0 --target <X> <Y> <Z>
+```
+
+Можно добавить `--reset-area`, чтобы сначала обнулить все офсеты.
+
+#### 5. Проверить
+
+```bash
+python examples/organized/drill_nano/set_nanodrill_area.py --grid skynet-baza0 --target <X> <Y> <Z> --dry-run
+```
+
+Убедиться, что `Drill to target distance` уменьшилось (теперь это расстояние от центра зоны до цели, а не от бура до цели).
+
+### Определение DRILL_AXIS_MAP для нового грида
+
+Если зона визуально уходит не в ту сторону — маппинг осей неверен. Вот как это определить:
+
+1. Поставьте небольшой офсет по одной оси (например, `UpDown = 10`), остальные оставьте 0
+2. Посмотрите, в какую мировую сторону сдвинулась зона (визуально на HUD)
+3. Определите, какая ось грида соответствует этой оси бура
+4. Повторите для каждой оси
+
+Примеры симптомов:
+
+| Как установили | Куда зона ушла | Ошибка в маппинге |
+|---|---|---|
+| UpDown = +10 | Назад (-Forward) | drill_up = grid_forward, а не grid_up |
+| UpDown = +10 | Вниз (-Up) | drill_up = -grid_up, а не grid_up |
+| FrontBack = +10 | Вверх (+Up) | drill_forward = grid_up, а не grid_forward |
+
+### Полный пример
+
+```bash
+# Получить координаты никеля
+python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0
+
+# Подлететь ближе (если нужно)
+# ...
+
+# Прицелить зону бура на никель
+python examples/organized/drill_nano/set_nanodrill_area.py --grid skynet-baza0 --target -50626.3 146646.9 -137739.8
+
+# Настроить фильтр на никель и включить
+python -c "
+from secontrol import Grid
+from secontrol.devices.nanobot_drill_system_device import NanobotDrillSystemDevice
+
+grid = Grid.from_name('skynet-baza0')
+drill = grid.find_devices_by_type(NanobotDrillSystemDevice)[0]
+drill.set_script_controlled(True)
+drill.set_collect_filter(['Ore'])
+drill.set_ore_filters(['Nickel'], work_mode='Collect')
+drill.set_work_mode('Collect')
+drill.set_script_controlled(False)
+drill.turn_on()
+"
+```

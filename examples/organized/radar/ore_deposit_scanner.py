@@ -20,6 +20,7 @@ import sys
 import time
 from collections import Counter
 from datetime import datetime
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
@@ -30,6 +31,52 @@ from secontrol.common import close, prepare_grid
 from secontrol.devices.ore_detector_device import OreDetectorDevice
 from secontrol.controllers.radar_controller import RadarController
 from secontrol.tools.navigation_tools import get_world_position
+
+ORE_DB_PATH = Path.home() / "hermeswebui" / "se-data" / "ore_database.jsonl"
+
+
+def append_ore_scan_to_db(scan_result: dict) -> None:
+    """Append scan result to ore database (JSONL)."""
+    ORE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(scan_result, default=str)
+    with open(ORE_DB_PATH, "a") as f:
+        f.write(line + "\n")
+    print(f"  DB: appended to {ORE_DB_PATH}")
+
+
+def get_nearest_asteroid(grid) -> dict | None:
+    """Find the nearest asteroid from asteroidIndex."""
+    from secontrol.devices.ore_detector_device import OreDetectorDevice
+    radar = grid.get_first_device(OreDetectorDevice)
+    if not radar:
+        return None
+    radar.update()
+    tel = radar.telemetry or {}
+    ai = tel.get("asteroidIndex", {})
+    if not ai.get("ready"):
+        return None
+    items = ai.get("items", [])
+    if not items:
+        return None
+    ship = None
+    for dev_type in ["cockpit", "remote_control"]:
+        devices = grid.find_devices_by_type(dev_type)
+        if devices:
+            devices[0].update()
+            pos = get_world_position(devices[0])
+            if pos:
+                ship = list(pos)
+                break
+    if not ship:
+        return None
+    nearest = None
+    min_dist = float("inf")
+    for ast in items:
+        d = ast.get("distance", float("inf"))
+        if d < min_dist:
+            min_dist = d
+            nearest = ast
+    return nearest
 
 
 def get_own_position(grid):
@@ -116,7 +163,7 @@ def find_nearest_ore(scan_path, ore_type, from_position=None, n=1):
         Empty list if ore_type not found.
     """
     if scan_path is None:
-        scan_path = "/home/hermeswebui/se-data/scans/ore_latest.json"
+        scan_path = str(Path.home() / "hermeswebui" / "se-data" / "scans" / "ore_latest.json")
 
     with open(scan_path) as f:
         data = json.load(f)
@@ -165,7 +212,7 @@ def find_nearest_ore(scan_path, ore_type, from_position=None, n=1):
 
 def load_scan(path=None):
     """Load saved scan data. Returns parsed JSON dict."""
-    path = path or "/home/hermeswebui/se-data/scans/ore_latest.json"
+    path = path or str(Path.home() / "hermeswebui" / "se-data" / "scans" / "ore_latest.json")
     with open(path) as f:
         return json.load(f)
 
@@ -196,13 +243,15 @@ def main():
             print(f"     {r['gps']}")
         return
 
-    # Output path — outside git repo
+    # Output path — cross-platform, outside git repo
     if args.output:
         output_path = args.output
     else:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = f"/home/hermeswebui/se-data/scans/ore_scan_{ts}.json"
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        scan_dir = Path.home() / "hermeswebui" / "se-data" / "scans"
+        scan_dir.mkdir(parents=True, exist_ok=True)
+        output_path = scan_dir / f"ore_scan_{ts}.json"
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
     # Connect
     print(f"Connecting to grid: {args.grid}")
@@ -342,11 +391,25 @@ def main():
         c = cl["center"]
         gps_markers.append(gps_string(f"{cl['ore_type']}_{i+1}", c))
 
+    # ── Find nearest asteroid for context ──
+    asteroid = get_nearest_asteroid(grid)
+    asteroid_info = None
+    if asteroid:
+        asteroid_info = {
+            "name": asteroid.get("name"),
+            "center": asteroid.get("center"),
+            "distance": asteroid.get("distance"),
+            "surfaceDistance": asteroid.get("surfaceDistance"),
+            "approxRadius": asteroid.get("approxRadius"),
+            "seed": asteroid.get("seed"),
+        }
+
     # ── Build output ──
     scan_result = {
         "scan_time": datetime.now().isoformat(),
         "grid": {"name": grid_name, "id": grid_id},
         "ship_position": own_position,
+        "asteroid": asteroid_info,
         "scan_config": {
             "radius": args.radius,
             "cell_size": args.cell_size,
@@ -395,12 +458,15 @@ def main():
         print(f"\n  Solid voxels saved to: {solid_path}")
 
     # ── Save ──
+    output_path = Path(output_path)
     with open(output_path, "w") as f:
         json.dump(scan_result, f, indent=2, default=str)
 
-    latest_path = os.path.join(os.path.dirname(output_path), "ore_latest.json")
+    latest_path = output_path.parent / "ore_latest.json"
     with open(latest_path, "w") as f:
         json.dump(scan_result, f, indent=2, default=str)
+
+    append_ore_scan_to_db(scan_result)
 
     print(f"\n{'='*60}")
     print(f"  SAVED: {output_path}")
