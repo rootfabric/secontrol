@@ -122,7 +122,10 @@ async def api_voxel_scan(grid_id: str, body: VoxelScanRequest):
 @app.get("/api/grid/{grid_id}/voxel_status")
 async def api_voxel_status(grid_id: str):
     try:
-        return reader.get_scan_status(grid_id)
+        status = reader.get_scan_status(grid_id)
+        lightweight = {k: v for k, v in status.items() if k != "result"}
+        lightweight["has_result"] = status.get("result") is not None
+        return lightweight
     except Exception as e:
         return {"error": str(e)}
 

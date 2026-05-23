@@ -27,10 +27,34 @@ class FleetRedisReader:
             password=password or None,
             decode_responses=True,
             socket_keepalive=True,
+            retry_on_timeout=True,
         )
 
+    def _ensure_connected(self):
+        try:
+            self.client.ping()
+        except (redis.ConnectionError, redis.TimeoutError):
+            url = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+            username = os.getenv("REDIS_USERNAME", "")
+            password = os.getenv("REDIS_PASSWORD", "")
+            parsed = urlparse(url)
+            self.client = redis.Redis(
+                host=parsed.hostname or "127.0.0.1",
+                port=parsed.port or 6379,
+                db=int(parsed.path.lstrip("/") or 0) if parsed.path else 0,
+                username=username or None,
+                password=password or None,
+                decode_responses=True,
+                socket_keepalive=True,
+                retry_on_timeout=True,
+            )
+
     def _get_json(self, key: str) -> Optional[Dict[str, Any]]:
-        raw = self.client.get(key)
+        try:
+            raw = self.client.get(key)
+        except (redis.ConnectionError, redis.TimeoutError):
+            self._ensure_connected()
+            raw = self.client.get(key)
         if raw is None:
             return None
         try:
@@ -50,7 +74,11 @@ class FleetRedisReader:
             return None
 
     def _publish(self, channel: str, payload: Dict[str, Any]) -> int:
-        return self.client.publish(channel, json.dumps(payload))
+        try:
+            return self.client.publish(channel, json.dumps(payload))
+        except (redis.ConnectionError, redis.TimeoutError):
+            self._ensure_connected()
+            return self.client.publish(channel, json.dumps(payload))
 
     # ── Telemetry discovery ──
 
@@ -59,18 +87,20 @@ class FleetRedisReader:
         pattern = f"se:{self.owner_id}:grid:{grid_id}:*:*:telemetry"
         result: Dict[str, Dict[str, Any]] = {}
         try:
-            for key in self.client.scan_iter(match=pattern, count=200):
-                if isinstance(key, bytes):
-                    key = key.decode("utf-8", "replace")
-                parts = key.split(":")
-                if len(parts) != 7 or parts[6] != "telemetry":
-                    continue
-                device_id = parts[5]
-                telemetry = self._get_json(key)
-                if isinstance(telemetry, dict):
-                    result[device_id] = telemetry
-        except Exception:
-            pass
+            keys = list(self.client.scan_iter(match=pattern, count=200))
+        except (redis.ConnectionError, redis.TimeoutError):
+            self._ensure_connected()
+            keys = list(self.client.scan_iter(match=pattern, count=200))
+        for key in keys:
+            if isinstance(key, bytes):
+                key = key.decode("utf-8", "replace")
+            parts = key.split(":")
+            if len(parts) != 7 or parts[6] != "telemetry":
+                continue
+            device_id = parts[5]
+            telemetry = self._get_json(key)
+            if isinstance(telemetry, dict):
+                result[device_id] = telemetry
         return result
 
     # ── Grid list ──
@@ -153,6 +183,7 @@ class FleetRedisReader:
         position = self._extract_position(info)
         is_static = self._extract_bool(info, "isStatic", "gridIsStatic")
         speed = self._extract_speed(info)
+        orientation = self._extract_grid_orientation(grid_id)
 
         blocks = []
         raw_blocks = info.get("blocks", [])
@@ -197,6 +228,7 @@ class FleetRedisReader:
             "position": position,
             "is_static": is_static,
             "speed": speed,
+            "orientation": orientation,
             "blocks": blocks,
             "devices": devices,
             "subgrids": subgrids,
@@ -806,6 +838,50 @@ class FleetRedisReader:
                     return (float(vel["x"]) ** 2 + float(vel["y"]) ** 2 + float(vel["z"]) ** 2) ** 0.5
                 except (TypeError, ValueError):
                     pass
+        return None
+
+    def _extract_grid_orientation(self, grid_id: str) -> Optional[Dict[str, Any]]:
+        telemetry_map = self._discover_telemetry(grid_id)
+        for device_type in ("remote_control", "cockpit"):
+            for did, tel in telemetry_map.items():
+                if not isinstance(tel, dict):
+                    continue
+                t = (tel.get("type") or "").lower()
+                sub = (tel.get("subtype") or "").lower()
+                if device_type not in t and device_type.replace("_", "") not in sub:
+                    continue
+                orient = tel.get("orientation")
+                speed = None
+                vel = tel.get("linearVelocity")
+                if isinstance(vel, dict) and "length" in vel:
+                    speed = float(vel["length"])
+                elif isinstance(vel, dict) and all(k in vel for k in ("x", "y", "z")):
+                    speed = (float(vel["x"])**2 + float(vel["y"])**2 + float(vel["z"])**2) ** 0.5
+                elif isinstance(tel.get("speed"), (int, float)):
+                    speed = float(tel["speed"])
+                if isinstance(orient, dict) and "forward" in orient and "up" in orient:
+                    fwd = orient["forward"]
+                    up = orient["up"]
+                    left = orient.get("left")
+                    fwd_vec = [float(fwd.get("x", 0)), float(fwd.get("y", 0)), float(fwd.get("z", 0))]
+                    up_vec = [float(up.get("x", 0)), float(up.get("y", 0)), float(up.get("z", 0))]
+                    if left:
+                        left_vec = [float(left.get("x", 0)), float(left.get("y", 0)), float(left.get("z", 0))]
+                    else:
+                        left_vec = [
+                            up_vec[1] * fwd_vec[2] - up_vec[2] * fwd_vec[1],
+                            up_vec[2] * fwd_vec[0] - up_vec[0] * fwd_vec[2],
+                            up_vec[0] * fwd_vec[1] - up_vec[1] * fwd_vec[0],
+                        ]
+                    result: Dict[str, Any] = {"forward": fwd_vec, "up": up_vec, "left": left_vec}
+                    if speed is not None:
+                        result["speed"] = speed
+                    pos = tel.get("position")
+                    if isinstance(pos, dict) and all(k in pos for k in ("x", "y", "z")):
+                        result["device_position"] = [float(pos["x"]), float(pos["y"]), float(pos["z"])]
+                    return result
+                if speed is not None:
+                    return {"speed": speed}
         return None
 
     @staticmethod

@@ -608,6 +608,23 @@ class NanobotDrillSystemDevice(BaseDevice):
     def start_filling(self) -> int:
         return self.run_action("Fill_On")
 
+    def start_drilling_ore(
+        self,
+        ore_subtypes: Any,
+        collect_resources: Any = ("Ore",),
+        work_mode: str = "Collect",
+    ) -> int:
+        sent = 0
+        sent += self.stop_drilling()
+        sent += self.turn_off()
+        sent += self.set_script_controlled(True)
+        sent += self.set_collect_filter(collect_resources)
+        sent += self.set_ore_filters(ore_subtypes, work_mode=work_mode)
+        sent += self.set_work_mode(work_mode)
+        sent += self.set_script_controlled(False)
+        sent += self.turn_on()
+        return sent
+
     def set_collect_on_idle(self, enabled: bool) -> int:
         if enabled:
             return self.run_action("CollectIfIdle_On")

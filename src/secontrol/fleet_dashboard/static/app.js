@@ -404,15 +404,30 @@ function buildScene(data, focusCamera = false) {
     addLabel(`${data.name || 'Grid'} [${data.is_static ? 'Station' : 'Ship'}]`, new THREE.Vector3(0, 5, 0));
 
     const mainPos = data.position || { x: 0, y: 0, z: 0 };
+    const orient = data.orientation || {};
+    const oFwd = orient.forward || [0, 0, -1];
+    const oUp = orient.up || [0, 1, 0];
+    const oLeft = orient.left || [
+        oUp[1] * oFwd[2] - oUp[2] * oFwd[1],
+        oUp[2] * oFwd[0] - oUp[0] * oFwd[2],
+        oUp[0] * oFwd[1] - oUp[1] * oFwd[0],
+    ];
+
+    function orientLocal(wx, wy, wz) {
+        const dx = wx - mainPos.x;
+        const dy = wy - mainPos.y;
+        const dz = wz - mainPos.z;
+        return new THREE.Vector3(
+            -(dx * oLeft[0] + dy * oLeft[1] + dz * oLeft[2]),
+            dx * oUp[0] + dy * oUp[1] + dz * oUp[2],
+            -(dx * oFwd[0] + dy * oFwd[1] + dz * oFwd[2]),
+        );
+    }
+
     for (const ng of nearby) {
         if (!ng.position) continue;
-        const ox = ng.position.x - mainPos.x;
-        const oy = ng.position.y - mainPos.y;
-        const oz = ng.position.z - mainPos.z;
-        const local = toLocal(ox, oy, oz);
-        const dist = local.length() * scale;
-        if (dist < 1) continue;
-        local.multiplyScalar(scale);
+        const local = orientLocal(ng.position.x, ng.position.y, ng.position.z);
+        if (local.length() < 1) continue;
 
         const ngGeo = new THREE.BoxGeometry(4, 4, 4);
         const ngMat = new THREE.MeshLambertMaterial({ color: 0x3a4a5a, wireframe: true, transparent: true, opacity: 0.5 });
@@ -429,13 +444,8 @@ function buildScene(data, focusCamera = false) {
 
     for (const sg of subgrids) {
         if (!sg.position) continue;
-        const ox = sg.position.x - mainPos.x;
-        const oy = sg.position.y - mainPos.y;
-        const oz = sg.position.z - mainPos.z;
-        const local = toLocal(ox, oy, oz);
-        const dist = local.length() * scale;
-        if (dist < 1) continue;
-        local.multiplyScalar(scale);
+        const local = orientLocal(sg.position.x, sg.position.y, sg.position.z);
+        if (local.length() < 1) continue;
 
         const sgGeo = new THREE.BoxGeometry(3, 3, 3);
         const sgMat = new THREE.MeshLambertMaterial({ color: 0xbd93f9, wireframe: true, transparent: true, opacity: 0.6 });
@@ -479,13 +489,14 @@ function renderGridPanel(data) {
     const posStr = data.position
         ? `${data.position.x.toFixed(0)}, ${data.position.y.toFixed(0)}, ${data.position.z.toFixed(0)}`
         : '—';
-    const speedStr = data.speed != null ? `${data.speed.toFixed(1)} м/с` : (data.is_static ? '—' : '0 м/с');
+    const speedFromOrient = data.orientation && data.orientation.speed != null ? data.orientation.speed : data.speed;
+    const speedStr = speedFromOrient != null ? `${speedFromOrient.toFixed(1)} м/с` : (data.is_static ? '—' : '0 м/с');
 
     panelGridInfo.innerHTML = `
         <div class="grid-info-row"><span class="label">Тип</span><span class="value">${typeStr}</span></div>
         <div class="grid-info-row"><span class="label">ID</span><span class="value" style="font-size:10px;color:#5a6a7a">${data.grid_id}</span></div>
         <div class="grid-info-row"><span class="label">Позиция</span><span class="value" style="font-size:10px">${posStr}</span></div>
-        <div class="grid-info-row"><span class="label">Скорость</span><span class="value" style="color:${(!data.is_static && data.speed > 0.5) ? '#f1fa8c' : '#c0c8d0'}">${speedStr}</span></div>
+        <div class="grid-info-row"><span class="label">Скорость</span><span class="value" style="color:${(!data.is_static && speedFromOrient > 0.5) ? '#f1fa8c' : '#c0c8d0'}">${speedStr}</span></div>
         <div class="grid-info-row"><span class="label">Блоки</span><span class="value">${data.block_count || 0}</span></div>
         <div class="grid-info-row"><span class="label">Устройства</span><span class="value">${data.device_count || 0}</span></div>
     `;
@@ -851,6 +862,8 @@ function connectWS() {
         statusEl.textContent = 'Отключено. Переподключение...';
         setTimeout(connectWS, 2000);
     };
+    let lastGridPosition = null;
+
     ws.onmessage = (e) => {
         try {
             const msg = JSON.parse(e.data);
@@ -859,6 +872,23 @@ function connectWS() {
                 gridTitle.textContent = `${gridData.name} (${gridData.grid_id})`;
                 buildScene(gridData, false);
                 renderGridPanel(gridData);
+                renderVoxels();
+
+                if (gridData.position && lastGridPosition) {
+                    const dx = gridData.position.x - lastGridPosition.x;
+                    const dy = gridData.position.y - lastGridPosition.y;
+                    const dz = gridData.position.z - lastGridPosition.z;
+                    const moved = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                    if (moved > 0.5) {
+                        const camOffset = camera.position.clone().sub(controls.target);
+                        controls.target.set(0, 0, 0);
+                        camera.position.copy(camOffset);
+                        controls.update();
+                    }
+                }
+                if (gridData.position) {
+                    lastGridPosition = { ...gridData.position };
+                }
             }
         } catch (err) {
             console.error('WS parse error:', err);
@@ -1025,9 +1055,10 @@ async function checkScanStatus(gridId) {
             startScanPolling(gridId);
         } else {
             hideScanProgress();
-            if (data.result) {
+            if (data.has_result) {
                 voxelScanStatus.textContent = `Готово: ${data.solid_count || 0} вокселей, ${data.ore_count || 0} руды`;
                 voxelScanProgressSection.style.display = '';
+                loadVoxels(gridId);
             }
         }
     } catch (e) {}
@@ -1058,8 +1089,9 @@ function startScanPolling(gridId) {
                 stopScanPolling();
                 hideScanProgress();
                 voxelScanProgressSection.style.display = '';
-                voxelScanStatus.textContent = data.error ? `Ошибка: ${data.error}` : `Готово: ${data.solid_count || 0} вокселей`;
-                if (data.result) loadVoxels(gridId);
+                voxelScanStatus.textContent = data.error ? `Ошибка: ${data.error}` : `Готово: ${data.solid_count || 0} вокселей, ${data.ore_count || 0} руды`;
+                if (data.has_result) loadVoxels(gridId);
+                setTimeout(() => voxelScanMenu.classList.add('hidden'), 1500);
             }
         } catch (e) {}
     }, 500);
@@ -1120,15 +1152,17 @@ async function loadVoxels(gridId) {
 function mergeAndRenderVoxels(gridId, data) {
     const solid = data.solid || [];
     const oreCells = data.ore_cells || [];
+    const contacts = data.contacts || [];
     const metadata = data.metadata || {};
     const cellSize = metadata.cellSize || 10;
     const origin = metadata.origin || [0, 0, 0];
 
     const key = gridId;
     if (!allScannedVoxels[key]) {
-        allScannedVoxels[key] = { solid: {}, ore: {} };
+        allScannedVoxels[key] = { solid: {}, ore: {}, contacts: [], cellSize: cellSize };
     }
     const store = allScannedVoxels[key];
+    store.cellSize = cellSize;
 
     for (const pt of solid) {
         const k = `${Math.round(pt[0])},${Math.round(pt[1])},${Math.round(pt[2])}`;
@@ -1143,33 +1177,124 @@ function mergeAndRenderVoxels(gridId, data) {
         store.ore[k] = { pos, ore: oreName };
     }
 
+    store.contacts = contacts;
+
     renderVoxels();
 }
 
 function renderVoxels() {
     voxelGroup.clear();
 
-    const scale = 0.5;
-    const solidGeo = new THREE.BoxGeometry(scale, scale, scale);
+    if (!gridData || !gridData.position) return;
 
-    for (const key in allScannedVoxels) {
-        const store = allScannedVoxels[key];
+    const gridPos = gridData.position;
+    const orient = gridData.orientation;
+
+    let fwd, up, left;
+    if (orient && orient.forward && orient.up) {
+        fwd = orient.forward;
+        up = orient.up;
+        left = orient.left || [
+            up[1] * fwd[2] - up[2] * fwd[1],
+            up[2] * fwd[0] - up[0] * fwd[2],
+            up[0] * fwd[1] - up[1] * fwd[0],
+        ];
+    } else {
+        fwd = [0, 0, -1];
+        up = [0, 1, 0];
+        left = [1, 0, 0];
+    }
+
+    function worldToLocal(wx, wy, wz) {
+        const dx = wx - gridPos.x;
+        const dy = wy - gridPos.y;
+        const dz = wz - gridPos.z;
+        return [
+            -(dx * left[0] + dy * left[1] + dz * left[2]),
+            dx * up[0] + dy * up[1] + dz * up[2],
+            -(dx * fwd[0] + dy * fwd[1] + dz * fwd[2]),
+        ];
+    }
+
+    const solidPositions = [];
+    const oreByColor = {};
+    const activeGridId = gridData ? gridData.grid_id : null;
+    let voxelSize = 8;
+
+    if (activeGridId && allScannedVoxels[activeGridId]) {
+        const store = allScannedVoxels[activeGridId];
+        voxelSize = store.cellSize || 8;
+
         for (const k in store.ore) {
             const v = store.ore[k];
             const color = getOreColor(v.ore);
-            const mat = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.85 });
-            const mesh = new THREE.Mesh(solidGeo, mat);
-            mesh.position.set(v.pos[0] * scale, v.pos[1] * scale, v.pos[2] * scale);
-            voxelGroup.add(mesh);
+            const colorKey = '#' + color.toString(16).padStart(6, '0');
+            if (!oreByColor[colorKey]) oreByColor[colorKey] = [];
+            oreByColor[colorKey].push(v.pos);
         }
 
         for (const k in store.solid) {
             if (store.ore[k]) continue;
             const pt = store.solid[k];
-            const mat = new THREE.MeshLambertMaterial({ color: SOLID_COLOR, transparent: true, opacity: 0.25 });
-            const mesh = new THREE.Mesh(solidGeo, mat);
-            mesh.position.set(pt[0] * scale, pt[1] * scale, pt[2] * scale);
+            solidPositions.push(pt);
+        }
+    }
+
+    if (solidPositions.length > 0) {
+        const geo = new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize);
+        const mat = new THREE.MeshLambertMaterial({ color: SOLID_COLOR, transparent: true, opacity: 0.2 });
+        const instanced = new THREE.InstancedMesh(geo, mat, solidPositions.length);
+        const dummy = new THREE.Object3D();
+        for (let i = 0; i < solidPositions.length; i++) {
+            const pt = solidPositions[i];
+            const [lx, ly, lz] = worldToLocal(pt[0], pt[1], pt[2]);
+            dummy.position.set(lx, ly, lz);
+            dummy.updateMatrix();
+            instanced.setMatrixAt(i, dummy.matrix);
+        }
+        instanced.instanceMatrix.needsUpdate = true;
+        voxelGroup.add(instanced);
+    }
+
+    for (const [colorKey, positions] of Object.entries(oreByColor)) {
+        const color = parseInt(colorKey.slice(1), 16);
+        const geo = new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize);
+        const mat = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.85 });
+        const instanced = new THREE.InstancedMesh(geo, mat, positions.length);
+        const dummy = new THREE.Object3D();
+        for (let i = 0; i < positions.length; i++) {
+            const pt = positions[i];
+            const [lx, ly, lz] = worldToLocal(pt[0], pt[1], pt[2]);
+            dummy.position.set(lx, ly, lz);
+            dummy.updateMatrix();
+            instanced.setMatrixAt(i, dummy.matrix);
+        }
+        instanced.instanceMatrix.needsUpdate = true;
+        voxelGroup.add(instanced);
+    }
+
+    if (activeGridId && allScannedVoxels[activeGridId]) {
+        const store = allScannedVoxels[activeGridId];
+        for (const c of (store.contacts || [])) {
+            const pos = c.position;
+            if (!pos) continue;
+            const wx = Array.isArray(pos) ? pos[0] : (pos.x || 0);
+            const wy = Array.isArray(pos) ? pos[1] : (pos.y || 0);
+            const wz = Array.isArray(pos) ? pos[2] : (pos.z || 0);
+            const isPlayer = c.type === 'player';
+            const color = isPlayer ? 0xff5555 : 0x5555ff;
+            const size = isPlayer ? 12 : 10;
+            const [lx, ly, lz] = worldToLocal(wx, wy, wz);
+            const geo = new THREE.SphereGeometry(size, 8, 8);
+            const mat = new THREE.MeshLambertMaterial({ color });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(lx, ly, lz);
             voxelGroup.add(mesh);
+
+            const label = c.playerName || c.name || c.displayName || c.id || (isPlayer ? 'Player' : 'Grid');
+            const dist = Math.sqrt(lx * lx + ly * ly + lz * lz);
+            const distStr = dist > 0 ? ` (${(dist / 1000).toFixed(1)}km)` : '';
+            addLabel(label + distStr, mesh.position.clone().add(new THREE.Vector3(0, size + 4, 0)), isPlayer ? 'nearby' : 'subgrid', false, 200);
         }
     }
 }

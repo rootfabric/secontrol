@@ -9,6 +9,30 @@
 | **Planetary surface flight with altitude control** | `SurfaceFlightController` |
 | **No RemoteControl — cockpit + gyro + thruster manual** | Manual gyro/thruster pattern (see "Manual flight" section) |
 
+## Если перемещение не происходит — диагностика готовности
+
+Если корабль не двигается или команда `navigate_to()` не работает, сначала проверь готовность:
+
+```bash
+python examples/organized/diagnostics/check_flight_ready.py <grid_name>
+```
+
+**Что проверяет `check_flight_ready.py`:**
+- Заряд батарей (< 20% = не готов)
+- Водородные двигатели + уровень топлива
+- Ion thrusters как fallback
+
+**Возможные причины отказа:**
+| Проблема | Сообщение |
+|----------|-----------|
+| Низкий заряд батарей | `Low battery charge: X%` |
+| Нет водорода, нет ионных | `CRITICAL: No hydrogen fuel and no ion backup!` |
+| Низкий водород | `WARNING: Low hydrogen, ion thrusters available` |
+
+**Если не готов** — сначала зарядить батареи / заправить водород, затем повторить попытку.
+
+---
+
 ## SpaceNavigatorController — RECOMMENDED for all space movement
 
 **For normal ship movement in space, ALWAYS use `SpaceNavigatorController`.**

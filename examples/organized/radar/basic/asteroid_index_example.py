@@ -1,6 +1,9 @@
 """
 Example of requesting the asteroid index from an ore detector.
 
+Usage:
+    python asteroid_index_example.py [grid_name]
+
 The dedicated plugin handles this through OreScannerDevice commands:
 ``asteroids``, ``asteroid_index`` or ``list_asteroids``.  The response is
 published in ore detector telemetry as the top-level ``asteroidIndex`` field.
@@ -8,6 +11,7 @@ published in ore detector telemetry as the top-level ``asteroidIndex`` field.
 
 from __future__ import annotations
 
+import argparse
 import time
 from typing import Any, Dict, Optional
 
@@ -15,7 +19,7 @@ from secontrol.common import close, prepare_grid
 from secontrol.devices.ore_detector_device import OreDetectorDevice
 
 
-GRID_NAME = "skynet-baza0"  # Replace with actual grid name
+GRID_NAME_DEFAULT = "skynet-baza0"
 SEARCH_RADIUS = 50_000.0
 RESULT_LIMIT = 320
 INCLUDE_PLANETS = False
@@ -110,7 +114,11 @@ def print_asteroid_index(asteroid_index: Dict[str, Any]) -> None:
 
 
 def main() -> None:
-    grid = prepare_grid(GRID_NAME)
+    parser = argparse.ArgumentParser(description="Asteroid index scanner")
+    parser.add_argument("grid_name", nargs="?", default=GRID_NAME_DEFAULT, help="Grid name (default: %(default)s)")
+    args = parser.parse_args()
+
+    grid = prepare_grid(args.grid_name)
 
     try:
         radar = grid.get_first_device(OreDetectorDevice)

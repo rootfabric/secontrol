@@ -9,53 +9,82 @@ Goal: fly to the deposit, configure drill area, mine ore.
 
 ## Step 1: Find the asteroid
 
-Use OreDetector `asteroids` command to find nearby asteroids and correlate with ore position:
+Use the asteroid index example to find the nearest asteroid:
 
-```python
-ore_det.send_command({
-    "cmd": "asteroids",
-    "targetId": int(ore_det.device_id),
-    "state": {"radius": 50000.0, "limit": 320, "includePlanets": False},
-})
-# Wait for asteroidIndex.ready=True in telemetry
-# Parse items — center is a LIST [x, y, z], not a dict
-for a in tel['asteroidIndex']['items']:
-    cx, cy, cz = a['center'][0], a['center'][1], a['center'][2]
-    d_gold = sqrt((cx-gold[0])**2 + (cy-gold[1])**2 + (cz-gold[2])**2)
+```bash
+python examples/organized/radar/basic/asteroid_index_example.py <grid_name>
 ```
 
-Ore deposits are INSIDE asteroids. If `d_gold < approxRadius`, the deposit is within that asteroid.
-
-## Step 2: Fly to the asteroid surface
-
-Use RC autopilot at speed=15 (fast) then manually stop:
-
-```python
-rc.enable(); rc.gyro_control_on(); rc.thrusters_on(); rc.dampeners_on()
-rc.set_mode("oneway"); rc.set_collision_avoidance(False)
-rc.goto(gps_str, speed=15.0, gps_name="Ore")
-
-# Monitor — disable autopilot before overshoot
-while True:
-    time.sleep(2); rc.update()
-    dist = compute_dist(rc_pos, gold)
-    if dist < 40:
-        rc.disable(); time.sleep(1)
-        rc.enable(); rc.dampeners_on()
-        break
-
-# Wait for dampeners to stop
-for _ in range(30):
-    time.sleep(2); rc.update()
-    if rc.telemetry['speed'] < 0.3: break
+Example output shows the nearest asteroid with `distance` and `surface` (distance from asteroid surface):
+```
+Asteroid_-3_7_-8_0_180762343 (asteroid): center=[-50531.734, 146631.403, -137826.175],
+distance=378.5m, surface=0.0m, approxRadius=512.0m
 ```
 
-**Pitfall**: RC autopilot overshoots in space. The ship reaches ~30m then drifts past at 2-3 m/s.
-Always disable RC at ~40m and let dampeners handle the final stop.
+`surface=0.0m` means the ship is already on the asteroid surface — drill will work.
+`surface>0m` means the ship is far from the asteroid — need to fly there first.
 
-Verify: OreDetector `asteroidIndex` should show `surfaceDistance=0` for the nearest asteroid.
+## Step 2: Fly to the asteroid
 
-## Step 3: Compute drill area offset
+**Use SpaceNavigatorController** to fly to the asteroid surface.
+
+```python
+from secontrol.controllers.space_navigator_controller import SpaceNavigatorController
+
+controller = SpaceNavigatorController(
+    grid_name="skynet-baza0",
+    target_is_obstacle=True,
+)
+try:
+    # Use asteroid center coordinates from Step 1
+    result = controller.navigate_to((-50531.7, 146631.4, -137826.2))
+    print(result.status, result.final_position)
+finally:
+    controller.close()
+```
+
+## Step 3: Scan for ore deposits
+
+After arriving at the asteroid surface (`surface=0`), scan for ore:
+
+```bash
+python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 --radius 1000
+```
+
+Output shows ore types, counts, and GPS coordinates:
+```
+Nickel: 20 deposits, closest: 471m
+GPS:Nickel_1:-50626.7:146647.9:-137740.7:#FF8800:
+```
+
+## Step 4: Fly to the ore deposit
+
+**Use SpaceNavigatorController for all navigation to ore.**
+
+Do NOT fly directly to the ore coordinates. The navigator treats the asteroid as an
+obstacle and stops at the maximum safe traversable point from the ore.
+
+```python
+from secontrol.controllers.space_navigator_controller import SpaceNavigatorController
+
+controller = SpaceNavigatorController(
+    grid_name="skynet-baza0",
+    target_is_obstacle=True,   # asteroid treated as obstacle
+)
+try:
+    result = controller.navigate_to(ore_gps coordinates)
+    print(result.status, result.final_position)
+finally:
+    controller.close()
+```
+
+**Result**: navigator stops at the closest safe voxel position.
+
+**IMPORTANT**: Nanobot Drill can mine ore at **kilometers** distance. Do NOT assume you
+need to be close to the ore. If drill shows 0 targets, check `surfaceDistance` (must be 0)
+before assuming distance is the problem.
+
+## Step 5: Compute drill area offset
 
 The drill area is centered on the drill block. To point it at the ore deposit:
 
@@ -83,7 +112,7 @@ local_up    = ddx*up['x']  + ddy*up['y']  + ddz*up['z']
 local_right = ddx*right['x'] + ddy*right['y'] + ddz*right['z']
 ```
 
-## Step 4: Configure and start drill
+## Step 6: Configure and start drill
 
 ```python
 # Set area offset
@@ -110,7 +139,7 @@ drill.start_drilling()  # REQUIRED — without this, drill stays idle
 - `ScriptControlled=True` → drill reports targets but waits for commands (no auto-mining)
 - `start_drilling()` → must be called after `turn_on()` to begin mining
 
-## Step 5: Monitor
+## Step 7: Monitor
 
 ```python
 for i in range(20):
