@@ -4,7 +4,7 @@
 
 `SpaceNavigatorController` is the reusable base controller for moving ships in
 space with radar-backed obstacle avoidance. The CLI wrapper is
-`scripts/space_navigator_v4.py`.
+`examples/space_flight/space_navigator_v4.py`.
 
 The controller now uses one scan at a time:
 
@@ -22,22 +22,22 @@ There is no default background scanner and no blind direct-flight fallback.
 
 ```bash
 # Fly to a point.
-python scripts/space_navigator_v4.py --grid skynet-baza0 --target "100000,5000,-200000"
+python examples/space_flight/space_navigator_v4.py --grid skynet-baza0 --target "100000,5000,-200000"
 
 # GPS target.
-python scripts/space_navigator_v4.py --grid skynet-baza0 --target "GPS:Base:100000:5000:-200000:"
+python examples/space_flight/space_navigator_v4.py --grid skynet-baza0 --target "GPS:Base:100000:5000:-200000:"
 
 # Plan one bounded segment without moving.
-python scripts/space_navigator_v4.py --grid skynet-baza0 --target "100000,5000,-200000" --dry-run
+python examples/space_flight/space_navigator_v4.py --grid skynet-baza0 --target "100000,5000,-200000" --dry-run
 
 # Fly toward the nearest asteroid center; final point is resolved to safe space.
-python scripts/space_navigator_v4.py --grid skynet-baza0 --nearest-asteroid
+python examples/space_flight/space_navigator_v4.py --grid skynet-baza0 --nearest-asteroid
 
 # Test the navigator by targeting a point 10 km straight ahead.
-python scripts/test_flight_10km.py --grid skynet-baza0
+python examples/space_flight/test_flight_10km.py --grid skynet-baza0
 
 # Test the navigator by targeting the nearest asteroid center.
-python scripts/test_flight_nearest_asteroid.py --grid skynet-baza0
+python examples/space_flight/test_flight_nearest_asteroid.py --grid skynet-baza0
 ```
 
 ## Scan Profiles
@@ -164,7 +164,7 @@ voxel distance in the latest scan.
 
 ## Forward-Vector Test
 
-`scripts/test_flight_10km.py` is a focused real-flight example for testing
+`examples/space_flight/test_flight_10km.py` is a focused real-flight example for testing
 asteroid avoidance. It reads the current RemoteControl position and forward
 vector, builds a target 10 km ahead, then calls `SpaceNavigatorController`.
 
@@ -174,21 +174,21 @@ direct SE autopilot; any deviation around voxels must come from the scanned-map
 route.
 
 ```bash
-python scripts/test_flight_10km.py --grid skynet-baza0
-python scripts/test_flight_10km.py --grid skynet-baza0 --dry-run
-python scripts/test_flight_10km.py --grid skynet-baza0 --distance 10000 --ship-radius 60
+python examples/space_flight/test_flight_10km.py --grid skynet-baza0
+python examples/space_flight/test_flight_10km.py --grid skynet-baza0 --dry-run
+python examples/space_flight/test_flight_10km.py --grid skynet-baza0 --distance 10000 --ship-radius 60
 ```
 
 ## Nearest-Asteroid Test
 
-`scripts/test_flight_nearest_asteroid.py` finds the nearest asteroid through the
+`examples/space_flight/test_flight_nearest_asteroid.py` finds the nearest asteroid through the
 radar asteroid index, targets the asteroid center, and relies on the navigator
 to resolve the final point to safe space near the voxels.
 
 ```bash
-python scripts/test_flight_nearest_asteroid.py --grid skynet-baza0
-python scripts/test_flight_nearest_asteroid.py --grid skynet-baza0 --dry-run
-python scripts/test_flight_nearest_asteroid.py --grid skynet-baza0 --ship-radius 60
+python examples/space_flight/test_flight_nearest_asteroid.py --grid skynet-baza0
+python examples/space_flight/test_flight_nearest_asteroid.py --grid skynet-baza0 --dry-run
+python examples/space_flight/test_flight_nearest_asteroid.py --grid skynet-baza0 --ship-radius 60
 ```
 
 ## Failure Behavior

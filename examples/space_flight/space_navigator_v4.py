@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from dotenv import load_dotenv
 
-WORKSPACE = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+WORKSPACE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 load_dotenv(os.path.join(WORKSPACE, ".env"))
 
 from secontrol.controllers.space_navigator_controller import (  # noqa: E402
@@ -98,10 +98,10 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python scripts/space_navigator_v4.py --grid skynet-baza0 --target "100000,5000,-200000"
-  python scripts/space_navigator_v4.py --grid skynet-baza0 --target "GPS:Waypoint:100000:5000:-200000:"
-  python scripts/space_navigator_v4.py --grid skynet-baza0 --nearest-asteroid
-  python scripts/space_navigator_v4.py --grid skynet-baza0 --target "..." --dry-run
+  python examples/space_flight/space_navigator_v4.py --grid skynet-baza0 --target "100000,5000,-200000"
+  python examples/space_flight/space_navigator_v4.py --grid skynet-baza0 --target "GPS:Waypoint:100000:5000:-200000:"
+  python examples/space_flight/space_navigator_v4.py --grid skynet-baza0 --nearest-asteroid
+  python examples/space_flight/space_navigator_v4.py --grid skynet-baza0 --target "..." --dry-run
         """,
     )
     parser.add_argument("--grid", default=DEFAULT_GRID, help="Grid name")

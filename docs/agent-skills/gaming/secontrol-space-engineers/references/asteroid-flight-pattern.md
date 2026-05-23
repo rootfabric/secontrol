@@ -408,4 +408,4 @@ if solid:
     print(f"Nearest: {dists[0]:.1f}m, range: {dists[0]:.1f}-{dists[-1]:.1f}m")
 ```
 
-Diagnostic script: `/workspace/scripts/voxel_distance_meter.py` (supports `--loop`, `--ore-only`, `--cell`, `--radius`).
+Diagnostic pattern shown above. Use `RadarController.scan_voxels()` directly for voxel distance measurement.

@@ -74,6 +74,7 @@ src/secontrol/
     wheel_device.py
   controllers/         # High-level automation controllers
     radar_controller.py      # RadarController — voxel scanning, occupancy grid, surface height
+    space_navigator_controller.py  # SpaceNavigatorController — obstacle-avoiding space flight
     surface_flight_controller.py  # SurfaceFlightController — fly-over-surface autopilot
     shared_map_controller.py     # SharedMapController — Redis-backed shared voxel maps
   tools/               # Standalone CLI/GUI utilities (not public API)
@@ -155,7 +156,7 @@ instead of ad-hoc `RemoteControl.goto()` calls or one-off flight scripts.
 Use:
 
 ```bash
-python scripts/test_flight_nearest_asteroid.py --grid <grid-name>
+python examples/space_flight/test_flight_nearest_asteroid.py --grid <grid-name>
 ```
 
 or call `SpaceNavigatorController` from

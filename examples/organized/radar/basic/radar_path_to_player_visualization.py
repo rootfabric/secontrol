@@ -1,8 +1,8 @@
 """
 Visualize an obstacle-aware path from the current grid to the first detected player.
 
-The example combines the voxel visualization pattern with the A* pathfinder used by
-scripts/space_path_finder.py. It scans voxels and ore cells, picks the first player
+The example combines the voxel visualization pattern with the A* pathfinder from
+`secontrol.tools.radar_navigation`. It scans voxels and ore cells, picks the first player
 contact, plans a path through free cells, and shows the route together with voxels
 and resources.
 

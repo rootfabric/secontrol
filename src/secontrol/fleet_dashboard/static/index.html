@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SE Fleet Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="sidebar">
+        <div id="fleet-header">
+            <h2>SE Fleet</h2>
+            <div id="fleet-stats"></div>
+        </div>
+        <input id="grid-search" type="text" placeholder="Поиск гридов..." />
+        <div id="grid-list"></div>
+        <div id="status">Загрузка...</div>
+    </div>
+    <div id="divider"></div>
+    <div id="main">
+        <div id="toolbar">
+            <span id="grid-title">Выберите грид или нажмите [Fleet] для обзора</span>
+            <div id="toolbar-actions">
+                <button id="btn-fleet-view" class="toolbar-btn active" title="Обзор флота">Fleet</button>
+                <span id="zoom-level">Orbit: ЛКМ | Pan: ПКМ | Zoom: колесо</span>
+            </div>
+        </div>
+        <div id="viewport"></div>
+        <div id="right-panel" class="hidden">
+            <div id="panel-header">
+                <button id="panel-close" title="Закрыть">&times;</button>
+                <div id="panel-title"></div>
+            </div>
+            <div id="panel-body">
+                <div id="panel-grid-info"></div>
+                <div id="panel-actions"></div>
+                <div id="panel-health"></div>
+                <div id="panel-devices-header">
+                    <span>Устройства</span>
+                    <span id="device-count"></span>
+                </div>
+                <div id="panel-devices"></div>
+                <div id="panel-device-detail" class="hidden"></div>
+            </div>
+        </div>
+    </div>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module" src="/static/app.js"></script>
+</body>
+</html>
