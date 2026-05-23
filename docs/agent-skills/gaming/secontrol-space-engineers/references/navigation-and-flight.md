@@ -77,6 +77,34 @@ python examples/space_flight/space_navigator_v4.py --grid <name> --nearest-aster
 
 ---
 
+## 🚀 Docking in Space — USE `dock.py` (NOT `space_docker.py`)
+
+**For ALL docking operations in space (connector-to-connector), use `dock.py`:**
+
+```bash
+python examples/organized/parking/dock.py <ship> <target> [approach_distance]
+```
+
+**Examples:**
+```bash
+python examples/organized/parking/dock.py skynet-worker2 farpost0
+python examples/organized/parking/dock.py skynet-baza2 skynet-farpost0 80
+```
+
+**Why `dock.py` and not `space_docker.py`:**
+- `dock.py` is the **tested, working** script — used in production (2026-05-24)
+- `space_docker.py` has path encoding issues and is not actively maintained
+- `dock.py` uses a proven 3-phase approach: fly to approach point → rotate connector → creep and dock
+
+**3-Phase algorithm in `dock.py`:**
+1. **Phase 1**: Fly to approach point (100m in front of target connector)
+2. **Phase 2**: Rotate ship so connector faces target connector (gyro P-controller)
+3. **Phase 3**: Approach along connector axis + auto-lock (`connectorStatus == "Connectable"` → `connect()`)
+
+**⚠️ For docking — collision avoidance MUST be OFF.** The base sits on an asteroid, so SE's built-in collision avoidance detects voxels and stops the ship prematurely. `dock.py` handles this correctly.
+
+---
+
 ## RemoteControlDevice — full API
 
 ```python

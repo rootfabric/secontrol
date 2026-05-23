@@ -20,13 +20,15 @@ python examples/organized/drill_nano/mine_until.py \
 
 ## Пошаговая инструкция для агента
 
-### Шаг 1 — Сканировать руду
+### Шаг 1 — Сканировать руду (подлёт к астероиду)
+
+**Когда:** после прилёта к астероиду / месту добычи (ship на астероиде или рядом).
 
 ```bash
 python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 --radius 500
 ```
 
-Результат: GPS координаты рудных кластеров. Например:
+Результат: GPS координаты рудных кластеров + автоматически записываются в БД. Например:
 ```
 Nickel: 37 deposits, closest: 93m
 GPS:Nickel_1:-50626.3:146646.9:-137739.8:#FF8800:
@@ -83,9 +85,27 @@ grid.find_items_by_subtype("Nickel")
 
 | Скрипт | Назначение |
 |--------|------------|
-| `ore_deposit_scanner.py` | Сканировать руду на астероиде |
+| `ore_deposit_scanner.py` | Сканировать руду на астероиде, автоматически пишет в БД |
 | `set_nanodrill_area.py` | Навести зону бура на координаты |
 | `mine_until.py` | Добыть нужное кол-во и остановиться |
+
+---
+
+## База руд
+
+При каждом скане `ore_deposit_scanner.py` автоматически дописывает результат в `ore_database.jsonl`:
+
+```
+~/hermeswebui/se-data/ore_database.jsonl
+```
+
+Формат — JSONL (одна строка = один скан). Содержит:
+- `asteroid` — название, центр, distance, radius
+- `ore_summary` — Nickel: X dep, Silicon: Y dep...
+- `clusters` — координаты кластеров с GPS
+- `ship_position` — позиция корабля на момент скана
+
+**Агенту не нужно ничего делать вручную** — запустил скан, данные уже в БД.
 
 ---
 

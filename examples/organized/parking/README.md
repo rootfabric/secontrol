@@ -67,6 +67,27 @@ config = DockingConfig(base_grid=base, ship_grid=drone)
 result = final_approach_and_dock(rc, ship_conn, base_conn, config)
 ```
 
+## 🚀 Docking in Space — `dock.py`
+
+**For ALL docking operations in space (connector-to-connector), use `dock.py`:**
+
+```bash
+python examples/organized/parking/dock.py <ship> <target> [approach_distance]
+```
+
+**Examples:**
+```bash
+python examples/organized/parking/dock.py skynet-worker2 farpost0
+python examples/organized/parking/dock.py skynet-baza2 skynet-farpost0 80
+```
+
+**3-Phase algorithm:**
+1. **Phase 1**: Fly to approach point (100m in front of target connector)
+2. **Phase 2**: Rotate ship so connector faces target connector (gyro P-controller)
+3. **Phase 3**: Approach along connector axis + auto-lock (`connectorStatus == "Connectable"` → `connect()`)
+
+**⚠️ Collision avoidance MUST be OFF for docking.** The base sits on an asteroid — SE's built-in CA detects voxels and stops the ship prematurely.
+
 ## 📐 Алгоритм парковки (3 шага)
 
 1. **Подлёт** — RC летит на 10м по forward коннектора базы

@@ -432,6 +432,7 @@ def main():
             }
             for k, v in ore_summary.items()
         },
+        "ore_found": len(valuable) > 0,
         "clusters": clusters,
         "gps_markers": gps_markers,
         "all_deposits": ore_entries,

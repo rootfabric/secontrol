@@ -194,10 +194,14 @@ class NanobotDrillSystemDevice(BaseDevice):
     # ------------------------------------------------------------------
 
     def turn_on(self) -> int:
-        return self.run_action("OnOff_On")
+        sent = self.set_show_area(True)
+        sent += self.run_action("OnOff_On")
+        return sent
 
     def turn_off(self) -> int:
-        return self.run_action("OnOff_Off")
+        sent = self.set_show_area(False)
+        sent += self.run_action("OnOff_Off")
+        return sent
 
     def toggle_power(self) -> int:
         return self.run_action("OnOff")
@@ -224,7 +228,7 @@ class NanobotDrillSystemDevice(BaseDevice):
         return self.run_action("CollectIfIdle_OnOff")
 
     def set_show_area(self, enabled: bool) -> int:
-        return self.set_property("ShowArea", bool(enabled))
+        return self.set_raw_property("Drill.ShowArea", bool(enabled))
 
     def toggle_show_area(self) -> int:
         return self.run_action("ShowArea_OnOff")

@@ -1399,7 +1399,8 @@ window._openContainers = async function(gridId) {
             const fillPct = Math.round(totalFill * 100);
             const fillColor = getFillBarColor(fillPct);
 
-            html += `<div class="container-card" data-device="${c.device_id}">
+            const hasItems = totalCurVol > 0;
+            html += `<div class="container-card${hasItems ? ' open' : ''}" data-device="${c.device_id}">
                 <div class="container-card-header" onclick="this.parentElement.classList.toggle('open')">
                     <div>
                         <span class="container-card-name">${c.display_name}</span>

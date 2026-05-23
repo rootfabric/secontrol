@@ -24,12 +24,12 @@ def main() -> None:
     client = RedisEventClient()
     
     # === Подключаемся к базе и дрону ===
-    print("🏗️ База (DroneBase 2)...")
-    base = Grid.from_name("DroneBase 2", redis_client=client)
+    print("🏗️ База (farpost0)...")
+    base = Grid.from_name("farpost0", redis_client=client)
     print(f"  Найдена: {base.name}")
     
-    print("\n📡 Дрон (taburet3)...")
-    drone = Grid.from_name("taburet3", redis_client=client)
+    print("\n📡 Корабль (skynet-worker2)...")
+    drone = Grid.from_name("skynet-worker2", redis_client=client)
     print(f"  Найден: {drone.name}")
     
     # === Готовим к парковке ===

@@ -13,3 +13,4 @@ dist/
 .pytest_cache/
 .idea/
 .vscode/
+tmp/

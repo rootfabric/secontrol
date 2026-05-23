@@ -282,15 +282,6 @@ class FleetRedisReader:
 
         telemetry_map = self._discover_telemetry(grid_id)
 
-        CONTAINER_TYPES = {
-            "cargo", "container", "cargo_container",
-            "assembler", "refinery", "arcfurnace",
-            "gas_generator", "oxygen_farm",
-            "medical", "medical_room", "survival_kit",
-            "drill", "ship_drill", "nanobot",
-            "gas_tank", "hydrogen_tank", "oxygen_tank",
-        }
-
         containers = []
         for b in raw_blocks:
             if not isinstance(b, dict) or not b.get("isDevice"):
@@ -300,15 +291,14 @@ class FleetRedisReader:
             subtype = b.get("subtype") or b.get("SubtypeName") or ""
             normalized_type = self._normalize_device_type(device_type, subtype)
 
-            if normalized_type not in CONTAINER_TYPES:
-                continue
-
             raw_name = b.get("customName") or b.get("CustomName") or b.get("displayName") or b.get("DisplayName") or b.get("name") or ""
             display_name = raw_name or self._humanize_type(subtype or normalized_type)
 
             telemetry = telemetry_map.get(device_id, {})
 
             inventories = self._parse_inventories_from_telemetry(telemetry, device_id)
+            if not inventories:
+                continue
 
             containers.append({
                 "device_id": device_id,
@@ -325,6 +315,15 @@ class FleetRedisReader:
         if not isinstance(telemetry, dict):
             return []
 
+        INVENTORY_NAMES = {
+            "inputinventory": "Вход",
+            "outputinventory": "Выход",
+            "fuelinventory": "Топливо",
+            "ammunitioninventory": "Боеприпасы",
+            "gasinventory": "Газ",
+            "oxygeninventory": "Кислород",
+        }
+
         inventories = []
         seen_keys = set()
 
@@ -335,7 +334,7 @@ class FleetRedisReader:
                     continue
                 key = str(entry.get("inventoryKey") or entry.get("key") or f"inventories[{idx}]")
                 seen_keys.add(key)
-                name = entry.get("name") or entry.get("displayName") or key
+                name = entry.get("name") or entry.get("displayName") or INVENTORY_NAMES.get(key.lower()) or key
                 items = FleetRedisReader._parse_items(entry.get("items"))
                 current_volume = FleetRedisReader._safe_float(entry.get("currentVolume"))
                 max_volume = FleetRedisReader._safe_float(entry.get("maxVolume"))
