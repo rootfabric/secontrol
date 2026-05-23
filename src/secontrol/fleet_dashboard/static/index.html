@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SE Fleet Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#9875;</text></svg>">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -40,8 +41,39 @@
                     <span id="device-count"></span>
                 </div>
                 <div id="panel-devices"></div>
-                <div id="panel-device-detail" class="hidden"></div>
             </div>
+        </div>
+    </div>
+    <div id="device-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-row">
+                    <span id="modal-device-icon" class="modal-device-icon"></span>
+                    <div>
+                        <div id="modal-device-name" class="modal-device-name"></div>
+                        <div id="modal-device-type" class="modal-device-type"></div>
+                    </div>
+                </div>
+                <button id="modal-close" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+    <div id="containers-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content" style="width:620px">
+            <div class="modal-header">
+                <div class="modal-title-row">
+                    <span class="modal-device-icon" style="background:rgba(139,233,253,0.12);color:#8be9fd;border:1px solid rgba(139,233,253,0.25)">&#128230;</span>
+                    <div>
+                        <div class="modal-device-name">Контейнеры</div>
+                        <div id="containers-grid-name" class="modal-device-type"></div>
+                    </div>
+                </div>
+                <button id="containers-close" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="containers-body"></div>
         </div>
     </div>
     <script type="importmap">

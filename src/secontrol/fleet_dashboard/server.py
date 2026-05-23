@@ -58,6 +58,14 @@ async def api_grid_devices(grid_id: str):
         return {"error": str(e), "devices": []}
 
 
+@app.get("/api/grid/{grid_id}/containers")
+async def api_grid_containers(grid_id: str):
+    try:
+        return {"containers": reader.get_grid_containers(grid_id)}
+    except Exception as e:
+        return {"error": str(e), "containers": []}
+
+
 @app.get("/api/device/{device_id}/telemetry")
 async def api_device_telemetry(device_id: str, grid_id: str, device_type: str):
     try:

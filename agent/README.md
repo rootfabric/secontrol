@@ -6,8 +6,9 @@ Hermes Agent skills for the secontrol project. These files are the source of tru
 
 ```
 agent/
+  REPO_GUIDE.md          # Developer guide: source layout, adding devices, tests, architecture
   skills/
-    se-projection-builder.md   # Строительство блоков через проектор
+    se-projection-builder.md   # Building blocks via projector + nanobot welder
 ```
 
 ## Sync with Hermes
