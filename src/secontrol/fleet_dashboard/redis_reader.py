@@ -222,6 +222,39 @@ class FleetRedisReader:
 
         damaged_count = sum(1 for b in blocks if self._is_block_damaged_raw(b))
 
+        nearby_devices = []
+        if position:
+            for ng in self.get_nearby_grids(grid_id, radius=1000):
+                ng_pos = ng.get("position")
+                if not ng_pos:
+                    continue
+                ng_info = self.get_grid_info(ng["grid_id"])
+                ng_blocks = ng_info.get("blocks", [])
+                if not isinstance(ng_blocks, list):
+                    continue
+                ng_device_blocks = []
+                for b in ng_blocks:
+                    if not isinstance(b, dict) or not b.get("isDevice"):
+                        continue
+                    pos = self._extract_block_position(b)
+                    if not pos:
+                        continue
+                    ng_device_blocks.append({
+                        "id": b.get("id") or b.get("blockId") or b.get("entityId"),
+                        "type": b.get("type") or b.get("blockType") or "unknown",
+                        "subtype": b.get("subtype") or b.get("SubtypeName") or "",
+                        "name": b.get("customName") or b.get("CustomName") or b.get("name") or "",
+                        "position": pos,
+                    })
+                if ng_device_blocks:
+                    nearby_devices.append({
+                        "grid_id": ng["grid_id"],
+                        "name": ng.get("name", ""),
+                        "position": ng_pos,
+                        "orientation": self._extract_grid_orientation(ng["grid_id"]),
+                        "blocks": ng_device_blocks,
+                    })
+
         return {
             "grid_id": grid_id,
             "name": name or f"Grid_{grid_id}",
@@ -232,6 +265,7 @@ class FleetRedisReader:
             "blocks": blocks,
             "devices": devices,
             "subgrids": subgrids,
+            "nearby_devices": nearby_devices,
             "block_count": len(blocks),
             "device_count": len(devices),
             "damaged_block_count": damaged_count,

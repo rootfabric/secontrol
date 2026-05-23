@@ -32,6 +32,30 @@ from secontrol import Grid
 from secontrol.devices.nanobot_drill_system_device import NanobotDrillSystemDevice
 from secontrol.devices.remote_control_device import RemoteControlDevice
 
+# ---------------------------------------------------------------
+# DRILL AXIS MAP — how drill-local axes relate to grid axes
+# ---------------------------------------------------------------
+# Grid:  [Right=X, Up=Y, Forward=Z]
+# Drill: [LeftRight, UpDown, FrontBack]
+#
+# Each entry: (grid_axis_index, sign)
+#   grid_axis_index: 0=X(Right), 1=Y(Up), 2=Z(Forward)
+#   sign: +1 or -1
+#
+# On skynet-baza0 the Nanobot Drill is rotated:
+#   drill_right     = grid_right   → LeftRight = +grid[0]
+#   drill_up        = grid_forward → UpDown    = +grid[2]
+#   drill_forward   = grid_up      → FrontBack = +grid[1]
+#
+# Identity (default, drill aligned with grid):
+#   DRILL_AXIS_MAP = {"LeftRight": (0, 1), "UpDown": (1, 1), "FrontBack": (2, 1)}
+#
+DRILL_AXIS_MAP = {
+    "LeftRight": (0, 1),  # grid X → drill LeftRight
+    "UpDown":    (2, 1),  # grid Z → drill UpDown  (drill_up = grid_forward)
+    "FrontBack": (1, 1),  # grid Y → drill FrontBack (drill_forward = grid_up)
+}
+
 
 def cross(a: dict, b: dict) -> dict:
     return {
@@ -179,10 +203,23 @@ def main() -> int:
 
     local_fwd, local_up, local_right = compute_area_offset(rc_pos, orient, drill_local, target_world)
 
-    print("\nArea offset (ship-local):")
-    print(f"  FrontBack:  {local_fwd:+.2f}m")
-    print(f"  UpDown:     {local_up:+.2f}m")
-    print(f"  LeftRight:  {local_right:+.2f}m")
+    grid_vec = [local_right, local_up, local_fwd]
+
+    def remap(axis, sign):
+        return grid_vec[axis] * sign
+
+    drill_leftright = remap(*DRILL_AXIS_MAP["LeftRight"])
+    drill_updown    = remap(*DRILL_AXIS_MAP["UpDown"])
+    drill_frontback = remap(*DRILL_AXIS_MAP["FrontBack"])
+
+    print("\nArea offset (ship-local / grid frame):")
+    print(f"  Grid Right:   {local_right:+.2f}m")
+    print(f"  Grid Up:      {local_up:+.2f}m")
+    print(f"  Grid Forward: {local_fwd:+.2f}m")
+    print("\nArea offset (drill-local after axis map):")
+    print(f"  FrontBack:  {drill_frontback:+.2f}m")
+    print(f"  UpDown:     {drill_updown:+.2f}m")
+    print(f"  LeftRight:  {drill_leftright:+.2f}m")
 
     drill_pos = get_drill_world_pos(rc_pos, orient, drill_local)
     dist_to_target = math.sqrt(
@@ -206,17 +243,17 @@ def main() -> int:
 
     if args.reset_area:
         print("\nResetting area offsets to 0...")
-        drill.set_raw_property("Drill.AreaOffsetUpDown", 0.0)
         drill.set_raw_property("Drill.AreaOffsetFrontBack", 0.0)
+        drill.set_raw_property("Drill.AreaOffsetUpDown", 0.0)
         drill.set_raw_property("Drill.AreaOffsetLeftRight", 0.0)
         time.sleep(0.3)
 
     print("\nSetting area offset...")
-    drill.set_raw_property("Drill.AreaOffsetFrontBack", round(local_fwd, 2))
+    drill.set_raw_property("Drill.AreaOffsetFrontBack", round(drill_frontback, 2))
     time.sleep(0.1)
-    drill.set_raw_property("Drill.AreaOffsetUpDown", round(local_up, 2))
+    drill.set_raw_property("Drill.AreaOffsetUpDown", round(drill_updown, 2))
     time.sleep(0.1)
-    drill.set_raw_property("Drill.AreaOffsetLeftRight", round(local_right, 2))
+    drill.set_raw_property("Drill.AreaOffsetLeftRight", round(drill_leftright, 2))
 
     print("Done.")
     return 0

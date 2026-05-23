@@ -455,6 +455,48 @@ function buildScene(data, focusCamera = false) {
         addLabel(sg.name || `Sub_${sg.grid_id}`, local.clone().add(new THREE.Vector3(0, 4, 0)), 'subgrid');
     }
 
+    const nearbyDevices = data.nearby_devices || [];
+    for (const nd of nearbyDevices) {
+        if (!nd.position || !nd.blocks || !nd.blocks.length) continue;
+        const ndOrient = nd.orientation || {};
+        const ndFwd = ndOrient.forward || [0, 0, -1];
+        const ndUp = ndOrient.up || [0, 1, 0];
+        const ndLeft = ndOrient.left || [
+            ndUp[1] * ndFwd[2] - ndUp[2] * ndFwd[1],
+            ndUp[2] * ndFwd[0] - ndUp[0] * ndFwd[2],
+            ndUp[0] * ndFwd[1] - ndUp[1] * ndFwd[0],
+        ];
+        const ndCenter = orientLocal(nd.position.x, nd.position.y, nd.position.z);
+
+        let ndMaxExt = 1;
+        for (const b of nd.blocks) {
+            if (!b.position) continue;
+            ndMaxExt = Math.max(ndMaxExt, Math.abs(b.position.x), Math.abs(b.position.y), Math.abs(b.position.z));
+        }
+        const ndScale = ndMaxExt > 0 ? 100 / ndMaxExt : scale;
+
+        const ndBlockGeo = new THREE.BoxGeometry(1, 1, 1);
+        for (const b of nd.blocks) {
+            if (!b.position) continue;
+            const bx = b.position.x;
+            const by = b.position.y;
+            const bz = b.position.z;
+            const wx = nd.position.x + bx * ndLeft[0] + by * ndUp[0] + bz * ndFwd[0];
+            const wy = nd.position.y + bx * ndLeft[1] + by * ndUp[1] + bz * ndFwd[1];
+            const wz = nd.position.z + bx * ndLeft[2] + by * ndUp[2] + bz * ndFwd[2];
+            const local = orientLocal(wx, wy, wz);
+            const color = getDeviceColor(b.type);
+            const mat = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.7 });
+            const mesh = new THREE.Mesh(ndBlockGeo, mat);
+            mesh.position.copy(local);
+            const s = Math.max(0.8, 1.5 * ndScale);
+            mesh.scale.set(s, s, s);
+            objectsGroup.add(mesh);
+        }
+
+        addLabel(nd.name || 'Nearby', ndCenter.clone().add(new THREE.Vector3(0, 6, 0)), 'nearby');
+    }
+
     if (focusCamera || isNewGrid) {
         let maxBlockDist = 1;
         for (const b of blocks) {
@@ -1421,6 +1463,43 @@ function animate() {
     renderer.render(scene, camera);
     updateLabels();
 }
+
+// ── Periodic nearby grid position check ──
+let lastNearbyPositions = {};
+
+async function checkNearbyGridPositions() {
+    if (!selectedGridId || !gridData) return;
+    try {
+        const res = await fetch(`/api/grid/${selectedGridId}`);
+        const data = await res.json();
+        if (data.error) return;
+
+        const nearby = data.nearby || [];
+        let changed = false;
+        const newPositions = {};
+        for (const ng of nearby) {
+            if (!ng.position) continue;
+            const key = ng.grid_id;
+            const pos = `${ng.position.x},${ng.position.y},${ng.position.z}`;
+            newPositions[key] = pos;
+            if (lastNearbyPositions[key] !== pos) {
+                changed = true;
+            }
+        }
+        if (Object.keys(newPositions).length !== Object.keys(lastNearbyPositions).length) {
+            changed = true;
+        }
+        if (changed) {
+            lastNearbyPositions = newPositions;
+            gridData.nearby = nearby;
+            gridData.nearby_devices = data.nearby_devices || [];
+            buildScene(gridData, false);
+            renderVoxels();
+        }
+    } catch (e) {}
+}
+
+setInterval(checkNearbyGridPositions, 10000);
 
 loadGrids();
 loadFleet();
