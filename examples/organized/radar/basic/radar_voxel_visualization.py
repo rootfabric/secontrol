@@ -78,9 +78,9 @@ def process_and_visualize(solid: list[list[float]], metadata: Dict[str, Any], co
 
 
 def main() -> None:
-    # grid = prepare_grid("skynet-baza0")
+    grid = prepare_grid("skynet-baza0")
     # grid = prepare_grid("DroneBase")
-    grid = prepare_grid("farpost0")
+    # grid = prepare_grid("farpost0")
 
     try:
         radar = grid.get_first_device(OreDetectorDevice)
@@ -96,7 +96,7 @@ def main() -> None:
                                     radius=500,
                                     cell_size=10.0,
                                     ore_only=False,
-                                    # ore_only=False,
+                                    # ore_only=True,
                                     # boundingBoxX=10,
                                     # boundingBoxY=1000,
                                     # boundingBoxZ=5000,

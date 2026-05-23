@@ -3,15 +3,18 @@
 ## Быстрый цикл добычи (одна команда)
 
 ```bash
-# 1. Сканировать руду
-python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 --radius 500
+# 1. Сканировать руду (1km для полного покрытия)
+python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 --radius 1000
 
-# 2. Добыть нужное кол-во
-python examples/organized/drill_nano/mine_until.py \
+# 2. Долететь до руды (если дальше ~100m)
+python examples/space_flight/space_navigator_v4.py \
     --grid skynet-baza0 \
-    --ore Nickel \
-    --amount 5000 \
-    --check-interval 5
+    --target="X,Y,Z" \
+    --arrival 50
+
+# 3. Навести зону бура и добыть нужное кол-во
+python examples/organized/drill_nano/set_nanodrill_area.py --grid skynet-baza0 --target X Y Z --reset-area
+python examples/organized/drill_nano/mine_until.py --grid skynet-baza0 --ore Platinum --amount 10000 --check-interval 5
 ```
 
 Всё — бурение запустится и остановится автоматически при достижении целевого количества.
@@ -24,8 +27,11 @@ python examples/organized/drill_nano/mine_until.py \
 
 **Когда:** после прилёта к астероиду / месту добычи (ship на астероиде или рядом).
 
+**Важно:** всегда использовать `--radius 1000` (1km) для полного покрытия астероида.
+
 ```bash
-python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 --radius 500
+# Стандартный скан (1km — хватает для большинства астероидов)
+python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 --radius 1000
 ```
 
 Результат: GPS координаты рудных кластеров + автоматически записываются в БД. Например:
@@ -36,7 +42,21 @@ Silicon: 3 deposits, closest: 298m
 GPS:Silicon_3:-50473.4:146686.4:-137884.5:#FF8800:
 ```
 
-### Шаг 2 — Навести зону бура на руду
+### Шаг 2 — Долететь до руды (космос)
+
+**Если руда дальше ~300m от drill** —  Нужно долететь на расстояние которое позволяет space_navigator_v4:
+
+```bash
+python examples/space_flight/space_navigator_v4.py \
+    --grid skynet-baza0 \
+    --target="X,Y,Z" \
+    --arrival 50
+```
+
+- `--target` — координаты рудного кластера из шага 1
+- `--arrival 50` — остановиться в 50m от цели (безопасное расстояние)
+
+### Шаг 3 — Навести зону бура на руду
 
 ```bash
 python examples/organized/drill_nano/set_nanodrill_area.py \
@@ -50,19 +70,19 @@ python examples/organized/drill_nano/set_nanodrill_area.py \
 
 Скрипт вычисляет `AreaOffsetFrontBack`, `AreaOffsetUpDown`, `AreaOffsetLeftRight` и применяет.
 
-### Шаг 3 — Добыть нужное количество
+### Шаг 4 — Добыть нужное количество
 
 ```bash
 python examples/organized/drill_nano/mine_until.py \
     --grid skynet-baza0 \
-    --ore Nickel \
-    --amount 5000 \
+    --ore Platinum \
+    --amount 10000 \
     --check-interval 5
 ```
 
 - `--amount` — сколько добыть (delta от текущего)
 - `--check-interval` — как часто проверять (сек)
-- `--ore` — тип руды (Nickel, Gold, Silicon, Uranium, Iron и т.д.)
+- `--ore` — тип руды (Nickel, Gold, Platinum, Silicon, Uranium, Iron и т.д.)
 
 Скрипт:
 1. Фиксирует baseline
@@ -71,12 +91,12 @@ python examples/organized/drill_nano/mine_until.py \
 4. Останавливает при достижении цели
 5. Показывает rate (ед/сек) и ETA
 
-### Шаг 4 — Проверить результат
+### Шаг 5 — Проверить результат
 
 ```python
 grid.get_all_grid_items()  # все предметы на гриде
 # или фильтр:
-grid.find_items_by_subtype("Nickel")
+grid.find_items_by_subtype("Platinum")
 ```
 
 ---
