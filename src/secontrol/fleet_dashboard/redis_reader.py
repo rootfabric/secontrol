@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -17,7 +18,7 @@ class FleetRedisReader:
         password = os.getenv("REDIS_PASSWORD", "")
         parsed = urlparse(url)
         self.owner_id = username or parsed.username or ""
-        self.player_id = os.getenv("SE_PLAYER_ID", "")
+        self.player_id = os.getenv("SE_PLAYER_ID", "") or self.owner_id
         self.client = redis.Redis(
             host=parsed.hostname or "127.0.0.1",
             port=parsed.port or 6379,
@@ -355,6 +356,53 @@ class FleetRedisReader:
         return result
 
     @staticmethod
+    def _decode_solid_points(raw: Dict[str, Any]) -> List[List[float]]:
+        solid_points = raw.get("solidPoints")
+        if isinstance(solid_points, list) and solid_points:
+            return solid_points
+
+        solid = raw.get("solid")
+        if not isinstance(solid, list) or not solid:
+            return []
+
+        size = raw.get("size")
+        origin = raw.get("origin")
+        cell_size = raw.get("cellSize")
+        if not (isinstance(size, list) and len(size) >= 3 and isinstance(origin, list) and len(origin) >= 3 and cell_size is not None):
+            return []
+
+        try:
+            sx, sy, sz = int(size[0]), int(size[1]), int(size[2])
+            ox, oy, oz = float(origin[0]), float(origin[1]), float(origin[2])
+            cell = float(cell_size)
+        except (TypeError, ValueError):
+            return []
+
+        if sx <= 0 or sy <= 0 or sz <= 0 or cell <= 0:
+            return []
+
+        points = []
+        plane = sy * sz
+        for value in solid:
+            try:
+                idx = int(value)
+            except (TypeError, ValueError):
+                continue
+            if idx < 0:
+                continue
+            x = idx // plane
+            yz = idx % plane
+            y = yz // sz
+            z = yz % sz
+            if 0 <= x < sx and 0 <= y < sy and 0 <= z < sz:
+                points.append([
+                    ox + (x + 0.5) * cell,
+                    oy + (y + 0.5) * cell,
+                    oz + (z + 0.5) * cell,
+                ])
+        return points
+
+    @staticmethod
     def _safe_float(value: Any) -> Optional[float]:
         if value is None:
             return None
@@ -454,6 +502,217 @@ class FleetRedisReader:
         channel = f"se.{self.player_id}.commands.device.{device_id}"
         self._publish(channel, command)
         return True
+
+    # ── Voxel scan ──
+
+    _scan_states: Dict[str, Dict[str, Any]] = {}
+    _scan_lock = threading.Lock()
+
+    def _find_ore_detector(self, grid_id: str) -> Optional[Dict[str, Any]]:
+        info = self.get_grid_info(grid_id)
+        raw_blocks = info.get("blocks", [])
+        if not isinstance(raw_blocks, list):
+            return None
+        for b in raw_blocks:
+            if not isinstance(b, dict) or not b.get("isDevice"):
+                continue
+            subtype = (b.get("subtype") or b.get("SubtypeName") or "").lower()
+            btype = (b.get("type") or b.get("blockType") or "").lower()
+            if "oredetector" in subtype or "ore_detector" in subtype or "ore detector" in subtype:
+                return {
+                    "device_id": str(b.get("id") or b.get("blockId") or b.get("entityId") or ""),
+                    "name": b.get("customName") or b.get("CustomName") or b.get("name") or "Radar",
+                    "type": b.get("type") or b.get("blockType") or "",
+                }
+        return None
+
+    def start_voxel_scan(self, grid_id: str, radius: float = 500, cell_size: float = 10.0, ore_only: bool = True) -> Dict[str, Any]:
+        detector = self._find_ore_detector(grid_id)
+        if not detector:
+            return {"error": "Ore detector not found on grid"}
+
+        with self._scan_lock:
+            if grid_id in self._scan_states and self._scan_states[grid_id].get("scanning"):
+                return {"error": "Scan already in progress"}
+
+        device_id = detector["device_id"]
+        state = {
+            "scanning": True,
+            "progress": 0.0,
+            "status": "starting",
+            "detector_name": detector["name"],
+            "detector_id": device_id,
+            "error": None,
+            "result": None,
+            "solid_count": 0,
+            "ore_count": 0,
+        }
+        with self._scan_lock:
+            self._scan_states[grid_id] = state
+
+        thread = threading.Thread(
+            target=self._run_scan,
+            args=(grid_id, device_id, radius, cell_size, ore_only),
+            daemon=True,
+        )
+        thread.start()
+        return {"ok": True, "detector": detector["name"]}
+
+    def _run_scan(self, grid_id: str, device_id: str, radius: float, cell_size: float, ore_only: bool):
+        state = self._scan_states[grid_id]
+        try:
+            detector_name = state.get("detector_name", "")
+            command = {
+                "cmd": "scan",
+                "targetId": int(device_id),
+                "targetName": detector_name,
+                "state": {
+                    "includePlayers": True,
+                    "includeGrids": True,
+                    "includeVoxels": True,
+                    "oreOnly": ore_only,
+                    "radius": radius,
+                    "cellSize": cell_size,
+                    "voxelStep": 1,
+                    "fullSolidScan": True,
+                    "resetActiveScan": True,
+                    "boundingBoxX": radius * 2,
+                    "boundingBoxY": radius * 2,
+                    "boundingBoxZ": radius * 2,
+                },
+            }
+            self.send_device_command(device_id, command)
+
+            max_wait = 120.0
+            t0 = time.time()
+            initial_radar_rev = None
+            got_started = False
+            scan_completed = False
+
+            pre_telemetry = self._discover_telemetry(grid_id).get(device_id, {})
+            pre_radar = pre_telemetry.get("radar", {})
+            if isinstance(pre_radar, dict):
+                initial_radar_rev = pre_radar.get("revision") or pre_radar.get("rev")
+
+            while time.time() - t0 < max_wait:
+                time.sleep(0.5)
+
+                telemetry = self._discover_telemetry(grid_id).get(device_id)
+                if not telemetry:
+                    continue
+
+                scan_info = telemetry.get("scan", {})
+                progress = scan_info.get("progressPercent", 0)
+                tiles_done = scan_info.get("processedTiles", 0)
+                tiles_total = scan_info.get("totalTiles", 0)
+                in_progress = scan_info.get("inProgress", False)
+                scan_done = scan_info.get("done", False)
+
+                if tiles_total > 0:
+                    got_started = True
+                    state["progress"] = round(progress, 1)
+                    state["status"] = f"{tiles_done}/{tiles_total} tiles"
+
+                if not in_progress and (scan_done or (got_started and progress >= 99.9)):
+                    scan_completed = True
+
+                if scan_completed:
+                    radar = telemetry.get("radar", {})
+                    if isinstance(radar, dict):
+                        radar_done = radar.get("done", False)
+                        radar_rev = radar.get("revision") or radar.get("rev")
+                        raw = radar.get("raw", {})
+                        if isinstance(raw, dict):
+                            sp = raw.get("solidPoints", [])
+                            has_data = isinstance(sp, list) and len(sp) > 0
+                        else:
+                            has_data = False
+
+                        if radar_done and (has_data or (radar_rev is not None and radar_rev != initial_radar_rev)):
+                            state["progress"] = 100.0
+                            state["status"] = "done"
+                            state["_radar"] = radar
+                            break
+
+                    if time.time() - t0 > 20:
+                        state["progress"] = 100.0
+                        state["status"] = "done (timeout waiting for radar)"
+                        break
+
+            time.sleep(1.0)
+
+            cached_radar = state.pop("_radar", None)
+            if cached_radar and isinstance(cached_radar, dict):
+                radar = cached_radar
+            else:
+                telemetry = self._discover_telemetry(grid_id).get(device_id, {})
+                radar = telemetry.get("radar", {})
+                if not isinstance(radar, dict):
+                    radar = {}
+
+            raw = radar.get("raw", {}) if isinstance(radar, dict) else {}
+            if not raw:
+                raw = radar if isinstance(radar, dict) else {}
+
+            solid = self._decode_solid_points(raw)
+            if not solid:
+                solid = self._decode_solid_points(radar)
+
+            ore_cells = radar.get("oreCells", []) if isinstance(radar, dict) else []
+            if not isinstance(ore_cells, list):
+                ore_cells = []
+
+            contacts = radar.get("contacts", []) if isinstance(radar, dict) else []
+            if not isinstance(contacts, list):
+                contacts = []
+
+            metadata = {
+                "size": raw.get("size", [100, 100, 100]),
+                "cellSize": raw.get("cellSize", cell_size),
+                "origin": raw.get("origin", [0, 0, 0]),
+                "rev": raw.get("rev", 0),
+            }
+
+            state["scanning"] = False
+            state["progress"] = 100.0
+            state["status"] = "done"
+            state["result"] = {
+                "solid": solid,
+                "ore_cells": ore_cells,
+                "contacts": contacts,
+                "metadata": metadata,
+            }
+            state["solid_count"] = len(solid)
+            state["ore_count"] = len(ore_cells)
+
+        except Exception as e:
+            state["scanning"] = False
+            state["error"] = str(e)
+            state["status"] = f"error: {e}"
+
+    def get_scan_status(self, grid_id: str) -> Dict[str, Any]:
+        with self._scan_lock:
+            return dict(self._scan_states.get(grid_id, {}))
+
+    def get_voxels(self, grid_id: str) -> Optional[Dict[str, Any]]:
+        with self._scan_lock:
+            state = self._scan_states.get(grid_id)
+            if state and state.get("result"):
+                return state["result"]
+        return None
+
+    def cancel_voxel_scan(self, grid_id: str) -> bool:
+        detector = self._find_ore_detector(grid_id)
+        if not detector:
+            return False
+        device_id = detector["device_id"]
+        command = {"cmd": "scan", "targetId": int(device_id), "cancel": True}
+        ok = self.send_device_command(device_id, command)
+        with self._scan_lock:
+            if grid_id in self._scan_states:
+                self._scan_states[grid_id]["scanning"] = False
+                self._scan_states[grid_id]["status"] = "cancelled"
+        return ok
 
     # ── Helpers ──
 

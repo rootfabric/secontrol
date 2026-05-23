@@ -78,9 +78,9 @@ def process_and_visualize(solid: list[list[float]], metadata: Dict[str, Any], co
 
 
 def main() -> None:
-    grid = prepare_grid("skynet-baza0")
+    # grid = prepare_grid("skynet-baza0")
     # grid = prepare_grid("DroneBase")
-    # grid = prepare_grid("taburet3")
+    grid = prepare_grid("farpost0")
 
     try:
         radar = grid.get_first_device(OreDetectorDevice)
@@ -95,7 +95,7 @@ def main() -> None:
         controller = RadarController(radar,
                                     radius=500,
                                     cell_size=10.0,
-                                    ore_only=True,
+                                    ore_only=False,
                                     # ore_only=False,
                                     # boundingBoxX=10,
                                     # boundingBoxY=1000,
@@ -148,7 +148,7 @@ def main() -> None:
                 print(f"  {'─'*3}  {'─'*8}  {'─'*50}")
                 for i, v in enumerate(voxel_info):
                     w = v["world"]
-                    print(f"  {i+1:3d}  {v['dist']:8.1f}m  ({w[0]:.1f}, {w[1]:.1f}, {w[2]:.1f})")
+                    # print(f"  {i+1:3d}  {v['dist']:8.1f}m  ({w[0]:.1f}, {w[1]:.1f}, {w[2]:.1f})")
 
                 nearest = voxel_info[0]
                 print(f"\n  → Ближайший воксель: {nearest['dist']:.1f}m")

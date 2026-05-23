@@ -509,6 +509,7 @@ function renderGridPanel(data) {
         <button class="action-btn" onclick="window._gridCommand('power_off')">Power Off</button>
         <button class="action-btn" onclick="window._gridCommand('convert')">${data.is_static ? 'To Ship' : 'To Station'}</button>
         <button class="action-btn" style="border-color:#8be9fd;color:#8be9fd" onclick="window._openContainers('${data.grid_id}')">&#128230; Контейнеры</button>
+        <button class="action-btn" style="border-color:#bd93f9;color:#bd93f9" onclick="window._openVoxelScan('${data.grid_id}')">&#128225; Voxels</button>
     `;
 
     renderDeviceList(data.device_details || data.devices || []);
@@ -967,6 +968,211 @@ viewport.addEventListener('click', (e) => {
         }
     }
 });
+
+// ── Voxel scan ──
+const ORE_COLORS = {
+    'iron': 0xb4643c, 'nickel': 0x80aa50, 'cobalt': 0x3c8cc8,
+    'magnesium': 0xdcdcdc, 'silicon': 0xc8be8c, 'silver': 0xbebed2,
+    'gold': 0xffd700, 'platinum': 0xb4dcf0, 'uranium': 0x50dc50,
+    'uraninite': 0x50dc50, 'ice': 0x8cc8ff, 'stone': 0x808080,
+};
+const DEFAULT_ORE_COLOR = 0xc850c8;
+const SOLID_COLOR = 0x4a5568;
+
+function getOreColor(name) {
+    const lower = (name || '').toLowerCase();
+    for (const [key, color] of Object.entries(ORE_COLORS)) {
+        if (lower.includes(key)) return color;
+    }
+    return DEFAULT_ORE_COLOR;
+}
+
+const voxelGroup = new THREE.Group();
+scene.add(voxelGroup);
+const allScannedVoxels = {};
+
+const voxelScanMenu = document.getElementById('voxel-scan-menu');
+const voxelScanClose = document.getElementById('voxel-scan-close');
+const voxelScanGridName = document.getElementById('voxel-scan-grid-name');
+const voxelRadius = document.getElementById('voxel-radius');
+const voxelCellSize = document.getElementById('voxel-cellsize');
+const voxelOreOnly = document.getElementById('voxel-oreonly');
+const voxelScanStart = document.getElementById('voxel-scan-start');
+const voxelScanCancel = document.getElementById('voxel-scan-cancel');
+const voxelScanProgressSection = document.getElementById('voxel-scan-progress-section');
+const voxelScanStatus = document.getElementById('voxel-scan-status');
+const voxelScanFill = document.getElementById('voxel-scan-fill');
+
+let voxelScanPolling = null;
+let currentVoxelGridId = null;
+
+voxelScanClose.addEventListener('click', () => voxelScanMenu.classList.add('hidden'));
+voxelScanMenu.querySelector('.modal-backdrop').addEventListener('click', () => voxelScanMenu.classList.add('hidden'));
+
+window._openVoxelScan = function(gridId) {
+    currentVoxelGridId = gridId;
+    voxelScanGridName.textContent = gridData ? gridData.name : gridId;
+    voxelScanMenu.classList.remove('hidden');
+    checkScanStatus(gridId);
+};
+
+async function checkScanStatus(gridId) {
+    try {
+        const res = await fetch(`/api/grid/${gridId}/voxel_status`);
+        const data = await res.json();
+        if (data.scanning) {
+            showScanProgress(data);
+            startScanPolling(gridId);
+        } else {
+            hideScanProgress();
+            if (data.result) {
+                voxelScanStatus.textContent = `Готово: ${data.solid_count || 0} вокселей, ${data.ore_count || 0} руды`;
+                voxelScanProgressSection.style.display = '';
+            }
+        }
+    } catch (e) {}
+}
+
+function showScanProgress(data) {
+    voxelScanProgressSection.style.display = '';
+    voxelScanStatus.textContent = data.status || 'Scanning...';
+    voxelScanFill.style.width = (data.progress || 0) + '%';
+    voxelScanStart.style.display = 'none';
+    voxelScanCancel.style.display = '';
+}
+
+function hideScanProgress() {
+    voxelScanStart.style.display = '';
+    voxelScanCancel.style.display = 'none';
+}
+
+function startScanPolling(gridId) {
+    stopScanPolling();
+    voxelScanPolling = setInterval(async () => {
+        try {
+            const res = await fetch(`/api/grid/${gridId}/voxel_status`);
+            const data = await res.json();
+            if (data.scanning) {
+                showScanProgress(data);
+            } else {
+                stopScanPolling();
+                hideScanProgress();
+                voxelScanProgressSection.style.display = '';
+                voxelScanStatus.textContent = data.error ? `Ошибка: ${data.error}` : `Готово: ${data.solid_count || 0} вокселей`;
+                if (data.result) loadVoxels(gridId);
+            }
+        } catch (e) {}
+    }, 500);
+}
+
+function stopScanPolling() {
+    if (voxelScanPolling) {
+        clearInterval(voxelScanPolling);
+        voxelScanPolling = null;
+    }
+}
+
+voxelScanStart.addEventListener('click', async () => {
+    if (!currentVoxelGridId) return;
+    const radius = parseFloat(voxelRadius.value) || 500;
+    const cellSize = parseFloat(voxelCellSize.value) || 10;
+    const oreOnly = voxelOreOnly.checked;
+    try {
+        const res = await fetch(`/api/grid/${currentVoxelGridId}/voxel_scan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ radius, cell_size: cellSize, ore_only: oreOnly }),
+        });
+        const data = await res.json();
+        if (data.error) {
+            voxelScanStatus.textContent = `Ошибка: ${data.error}`;
+            voxelScanProgressSection.style.display = '';
+            return;
+        }
+        showScanProgress({ progress: 0, status: 'Starting scan...', scanning: true });
+        startScanPolling(currentVoxelGridId);
+    } catch (e) {
+        voxelScanStatus.textContent = `Ошибка: ${e.message}`;
+        voxelScanProgressSection.style.display = '';
+    }
+});
+
+voxelScanCancel.addEventListener('click', async () => {
+    if (!currentVoxelGridId) return;
+    try {
+        await fetch(`/api/grid/${currentVoxelGridId}/voxel_cancel`, { method: 'POST' });
+        stopScanPolling();
+        hideScanProgress();
+        voxelScanStatus.textContent = 'Отменено';
+        voxelScanProgressSection.style.display = '';
+    } catch (e) {}
+});
+
+async function loadVoxels(gridId) {
+    try {
+        const res = await fetch(`/api/grid/${gridId}/voxels`);
+        const data = await res.json();
+        if (data.error || !data.solid) return;
+        mergeAndRenderVoxels(gridId, data);
+    } catch (e) {}
+}
+
+function mergeAndRenderVoxels(gridId, data) {
+    const solid = data.solid || [];
+    const oreCells = data.ore_cells || [];
+    const metadata = data.metadata || {};
+    const cellSize = metadata.cellSize || 10;
+    const origin = metadata.origin || [0, 0, 0];
+
+    const key = gridId;
+    if (!allScannedVoxels[key]) {
+        allScannedVoxels[key] = { solid: {}, ore: {} };
+    }
+    const store = allScannedVoxels[key];
+
+    for (const pt of solid) {
+        const k = `${Math.round(pt[0])},${Math.round(pt[1])},${Math.round(pt[2])}`;
+        store.solid[k] = pt;
+    }
+
+    for (const cell of oreCells) {
+        const pos = cell.position;
+        if (!pos || !Array.isArray(pos) || pos.length < 3) continue;
+        const k = `${Math.round(pos[0])},${Math.round(pos[1])},${Math.round(pos[2])}`;
+        const oreName = cell.ore || cell.material || cell.type || '?';
+        store.ore[k] = { pos, ore: oreName };
+    }
+
+    renderVoxels();
+}
+
+function renderVoxels() {
+    voxelGroup.clear();
+
+    const scale = 0.5;
+    const solidGeo = new THREE.BoxGeometry(scale, scale, scale);
+
+    for (const key in allScannedVoxels) {
+        const store = allScannedVoxels[key];
+        for (const k in store.ore) {
+            const v = store.ore[k];
+            const color = getOreColor(v.ore);
+            const mat = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.85 });
+            const mesh = new THREE.Mesh(solidGeo, mat);
+            mesh.position.set(v.pos[0] * scale, v.pos[1] * scale, v.pos[2] * scale);
+            voxelGroup.add(mesh);
+        }
+
+        for (const k in store.solid) {
+            if (store.ore[k]) continue;
+            const pt = store.solid[k];
+            const mat = new THREE.MeshLambertMaterial({ color: SOLID_COLOR, transparent: true, opacity: 0.25 });
+            const mesh = new THREE.Mesh(solidGeo, mat);
+            mesh.position.set(pt[0] * scale, pt[1] * scale, pt[2] * scale);
+            voxelGroup.add(mesh);
+        }
+    }
+}
 
 // ── Containers modal ──
 const containersModal = document.getElementById('containers-modal');

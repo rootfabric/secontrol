@@ -1,6 +1,57 @@
 # Navigation & Flight Control — secontrol API Reference
 
-Covers: RemoteControl autopilot, gyro orientation, thruster overrides, navigation_tools utilities, SurfaceFlightController, and the forward-scan obstacle avoidance pattern.
+**⚠️ IMPORTANT — Choose the right flight method:**
+
+| Situation | Use this |
+|---|---|
+| **Normal space flight (between asteroids, around bases, long distance)** | `SpaceNavigatorController` — 3-phase coarse/medium/fine obstacle scanning |
+| **Precise final parking, connector alignment, sub-meter maneuvers** | Low-level `RemoteControl.goto()` or `fly_to_point()` with `cancel_check` |
+| **Planetary surface flight with altitude control** | `SurfaceFlightController` |
+| **No RemoteControl — cockpit + gyro + thruster manual** | Manual gyro/thruster pattern (see "Manual flight" section) |
+
+## SpaceNavigatorController — RECOMMENDED for all space movement
+
+**For normal ship movement in space, ALWAYS use `SpaceNavigatorController`.**
+Do NOT use ad-hoc `RemoteControl.goto()` calls — the ship will crash into asteroids.
+
+```python
+from secontrol.controllers.space_navigator_controller import SpaceNavigatorController
+
+controller = SpaceNavigatorController(
+    grid_name="MyShip",          # grid name or ID
+    ship_radius=None,             # auto-estimated from block AABBs, or set manually in meters
+    arrival_distance=50.0,        # stop when within N meters of target
+)
+
+# Navigate to target — handles obstacle scanning automatically
+result = controller.navigate_to((x, y, z))
+print(result.status, result.final_position)
+
+# Or fly to nearest asteroid
+controller.target_is_obstacle = True
+result = controller.navigate_to(asteroid_center)
+
+controller.close()
+```
+
+**CLI wrapper** (run directly):
+```bash
+python examples/space_flight/space_navigator_v4.py --grid <name> --target "x,y,z"
+python examples/space_flight/space_navigator_v4.py --grid <name> --nearest-asteroid
+```
+
+**Key features:**
+- 3-phase scanning: coarse (long range) → medium → fine (close range)
+- Continuous voxel map with path re-planning when obstacles appear
+- Speed zones: fast cruise when clear, slow when near obstacles
+- Arrival threshold: `arrival_distance` parameter
+
+**⚠️ Only use low-level `rc.goto()` or `fly_to_point()` for:**
+- Final parking at a connector (sub-meter precision)
+- Docking approach sequences
+- Any maneuver where you need exact GPS waypoints with no obstacle scanning
+
+---
 
 ## RemoteControlDevice — full API
 

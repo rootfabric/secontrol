@@ -105,6 +105,48 @@ async def api_device_command(device_id: str, body: DeviceCommand):
         return {"error": str(e)}
 
 
+class VoxelScanRequest(BaseModel):
+    radius: float = 500
+    cell_size: float = 10.0
+    ore_only: bool = True
+
+
+@app.post("/api/grid/{grid_id}/voxel_scan")
+async def api_voxel_scan(grid_id: str, body: VoxelScanRequest):
+    try:
+        return reader.start_voxel_scan(grid_id, body.radius, body.cell_size, body.ore_only)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/grid/{grid_id}/voxel_status")
+async def api_voxel_status(grid_id: str):
+    try:
+        return reader.get_scan_status(grid_id)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/grid/{grid_id}/voxels")
+async def api_voxels(grid_id: str):
+    try:
+        result = reader.get_voxels(grid_id)
+        if result is None:
+            return {"error": "No scan data available"}
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/grid/{grid_id}/voxel_cancel")
+async def api_voxel_cancel(grid_id: str):
+    try:
+        ok = reader.cancel_voxel_scan(grid_id)
+        return {"ok": ok}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
