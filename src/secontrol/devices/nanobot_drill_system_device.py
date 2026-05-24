@@ -713,6 +713,12 @@ class NanobotDrillSystemDevice(BaseDevice):
 
     def debug_get_collect_priority_list_raw(self) -> List[str]:
         raw_list = self._get_telemetry_property(
+            "Drill.ComponentClassList",
+            "ComponentClassList",
+            "componentClassList",
+            "component_class_list",
+            "drill_componentclasslist",
+            "componentclasslist",
             "Drill.CollectPriorityList",
             "CollectPriorityList",
             "collectPriorityList",

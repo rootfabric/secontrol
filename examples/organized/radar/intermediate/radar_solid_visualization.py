@@ -211,7 +211,7 @@ def main() -> None:
     input_t = threading.Thread(target=input_thread, daemon=True)
     input_t.start()
 
-    grid = prepare_grid("skynet-baza0")
+    grid = prepare_grid("skynet-baza1")
     try:
         # Найти ore_detector
         # detectors = grid.find_devices_by_type("ore_detector")

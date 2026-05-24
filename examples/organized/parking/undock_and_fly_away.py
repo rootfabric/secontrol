@@ -27,13 +27,14 @@ sys.path.insert(0, "C:/secontrol/src")
 from secontrol.common import prepare_grid, get_all_grids
 from secontrol.devices.remote_control_device import RemoteControlDevice
 from secontrol.devices.connector_device import ConnectorDevice
+from secontrol.devices.gyro_device import GyroDevice
 
 SHIP = sys.argv[1] if len(sys.argv) > 1 else None
 BASE = sys.argv[2] if len(sys.argv) > 2 else None
 DISTANCE = float(sys.argv[3]) if len(sys.argv) > 3 else 100.0
 
-MAX_RATE = 0.3
-GYRO_GAIN = 0.3
+MAX_RATE = 0.8
+GYRO_GAIN = 0.5
 ALIGN_TOLERANCE = 0.1
 
 def dist3(a, b):
@@ -136,13 +137,7 @@ if not is_conn:
     print(f"  Ship is not connected (status={status}). Nothing to undock.")
     sys.exit(0)
 
-print(f"\n[UNDOCK] Disconnecting...")
-sc.disconnect()
-time.sleep(2)
-is_conn, status, _ = check_connector(sc)
-print(f"  Status after disconnect: {status}")
-
-# --- Calculate fly-away point ---
+# --- Calculate fly-away point BEFORE undocking ---
 t_pos = get_pos(tc.telemetry or {})
 t_orient = (tc.telemetry or {}).get("orientation", {})
 t_fwd = normalize(get_vec3(t_orient.get("forward")) or (0,0,0))
@@ -156,20 +151,47 @@ print(f"  Base connector: ({t_pos[0]:.1f}, {t_pos[1]:.1f}, {t_pos[2]:.1f})")
 print(f"  Forward: ({t_fwd[0]:.3f}, {t_fwd[1]:.3f}, {t_fwd[2]:.3f})")
 print(f"  Target: ({target_point[0]:.1f}, {target_point[1]:.1f}, {target_point[2]:.1f})")
 
-# --- Fly ---
+# --- Enable systems BEFORE disconnect ---
+print("\n[INIT] Enabling systems before undock...")
+ship_grid.park_off()           # снять парковку
 rc.enable()
+rc.gyro_control_on()
 rc.thrusters_on()
 rc.dampeners_on()
-time.sleep(1)
+time.sleep(0.5)
 
-gps = f"GPS:FlyAway:{target_point[0]:.1f}:{target_point[1]:.1f}:{target_point[2]:.1f}:"
-print(f"\n[FLY] Sending to autopilot...")
-rc.goto(gps, speed=10.0, gps_name="FlyAway")
+# --- Disconnect + disable magnet ---
+print(f"\n[UNDOCK] Disconnecting...")
+sc.disconnect()
 time.sleep(2)
+sc.update()
+is_conn, status, _ = check_connector(sc)
+print(f"  Status after disconnect: {status}")
+
+if is_conn or status == "Connected":
+    print("  Disconnect failed, retrying...")
+    sc.disconnect()
+    time.sleep(2)
+    sc.update()
+    is_conn, status, _ = check_connector(sc)
+    print(f"  Status after retry: {status}")
+
+# If disconnected, disable connector magnet so it doesn't interfere
+if not is_conn and status != "Connected":
+    print("  Disabling connector magnet...")
+    sc.set_state(enabled=False)
+
+# --- Fly to target (autopilot handles rotation + flight together) ---
+gps = f"GPS:FlyAway:{target_point[0]:.1f}:{target_point[1]:.1f}:{target_point[2]:.1f}:"
+print(f"\n[FLY] Departing to target at {DISTANCE:.0f}m...")
+rc.set_mode("oneway")
+rc.set_collision_avoidance(False)
+rc.goto(gps, speed=5.0, gps_name="FlyAway")
+time.sleep(1)
 
 start = time.time()
 while time.time() - start < 300:
-    time.sleep(3)
+    time.sleep(2)
     cur = get_pos(rc.telemetry or {})
     if not cur: continue
     d = dist3(cur, target_point)

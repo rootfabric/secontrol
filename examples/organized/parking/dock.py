@@ -319,10 +319,7 @@ while True:
         print(f"  STUCK — trying connect() + big step")
         if try_connect(sc, "  ", axis_dist):
             connected = True; break
-        axis_dist_raw = axis_dist
-        step_size = max(2.0, axis_dist_raw - DOCK_DISTANCE)
-        speed = 1.0
-        stuck_count = 0
+        step_size = max(2.5, axis_dist - DOCK_DISTANCE + 0.5)
         stuck_mode = True
     else:
         stuck_mode = False
@@ -341,7 +338,7 @@ while True:
     if stuck_mode:
         move_dist = step_size
     else:
-        move_dist = min(step_size, max(0, axis_dist - DOCK_DISTANCE))
+        move_dist = min(step_size, max(0, axis_dist - DOCK_DISTANCE + 0.5))
     if move_dist < 0.1:
         if try_connect(sc, "  ", axis_dist):
             connected = True; break

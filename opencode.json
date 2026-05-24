@@ -1,0 +1,108 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "llmproxy": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LLM Proxy",
+      "options": {
+        "baseURL": "http://192.168.0.15:4000/v1",
+        "apiKey": "sk-4CqSfF3fB4yrsALVTQqjhg"
+      },
+      "models": {
+        "deepseek-v4-pro": {
+          "name": "DeepSeek V4 Pro",
+          "limit": {
+            "context": 64000,
+            "output": 8192
+          }
+        },
+        "mimo-v25-pro": {
+          "name": "Xiaomi MiMo V2.5 Pro",
+          "limit": {
+            "context": 1000000,
+            "output": 65536
+          }
+        },
+        "mimo-v25": {
+          "name": "Xiaomi MiMo V2.5",
+          "limit": {
+            "context": 1000000,
+            "output": 65536
+          }
+        },
+        "mimo-v2-omni": {
+          "name": "Xiaomi MiMo V2 Omni",
+          "limit": {
+            "context": 1000000,
+            "output": 65536
+          }
+        },
+        "mimo-v2-pro": {
+          "name": "Xiaomi MiMo V2 Pro",
+          "limit": {
+            "context": 1000000,
+            "output": 65536
+          }
+        },
+        "minimax-m27": {
+          "name": "MiniMax M2.7",
+          "limit": {
+            "context": 204800,
+            "output": 65536
+          }
+        },
+        "minimax-m27-highspeed": {
+          "name": "MiniMax M2.7 Highspeed",
+          "limit": {
+            "context": 204800,
+            "output": 65536
+          }
+        },
+        "minimax-m25": {
+          "name": "MiniMax M2.5",
+          "limit": {
+            "context": 204800,
+            "output": 65536
+          }
+        },
+        "minimax-m25-highspeed": {
+          "name": "MiniMax M2.5 Highspeed",
+          "limit": {
+            "context": 204800,
+            "output": 65536
+          }
+        },
+        "minimax-m21": {
+          "name": "MiniMax M2.1",
+          "limit": {
+            "context": 204800,
+            "output": 65536
+          }
+        },
+        "minimax-m21-highspeed": {
+          "name": "MiniMax M2.1 Highspeed",
+          "limit": {
+            "context": 204800,
+            "output": 65536
+          }
+        },
+        "minimax-m2": {
+          "name": "MiniMax M2",
+          "limit": {
+            "context": 204800,
+            "output": 65536
+          }
+        },
+        "local-35b": {
+          "name": "Qwen 3.6 35B (local, free)",
+          "limit": {
+            "context": 32000,
+            "output": 8192
+          }
+        }
+      }
+    }
+  },
+  "model": "llmproxy/mimo-v25-pro",
+  "small_model": "llmproxy/local-35b"
+}
