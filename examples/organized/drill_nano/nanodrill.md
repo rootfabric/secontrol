@@ -1,112 +1,129 @@
 # Инструкция по управлению Nanobot Drill & Fill через secontrol
 
-## Цель
+## ⚠️ ВАЖНО: НЕ ЛЕТИ К РУДЕ
 
-Настроить Nanobot Drill & Fill так, чтобы он добывал выбранный материал, например `Ice`, и не забирал лишний камень в инвентарь.
+Nanobot Drill имеет зону действия **1000м**. Подлетать к руде **не нужно** и опасно — корабль врежется в астероид.
 
-Проверенный рабочий сценарий для льда:
+Условия для работы бура:
+- Корабль стоит на астероиде (`surface=0` по `asteroid_index_example.py`)
+- Руда в радиусе ≤1000м от бура
+- `start_drill.py` сам наведёт зону захвата через `--target`
 
-- `WorkMode = Collect`
-- `OreFilter = Ice`
-- `CollectFilter = Ore`
-- `ScriptControlled` включается только временно на время применения фильтров
-- после применения фильтров `ScriptControlled` обязательно выключается
-- `Drill_On` не вызывать
+Если `surface > 0` — сначала прилететь на астероид через `space_navigator_v4.py --nearest-asteroid`.
 
-Важно: в текущем поведении мода камень может физически ломаться/удаляться, если он мешает области работы, но при правильном `CollectFilter` он не должен подбираться как floating object.
+## ⚠️ Фильтр руды НЕ РАБОТАЕТ на этом сервере
 
----
+`set_ore_filters()` ставит фильтр (`nickel=True, stone=False`), но мод на этом сервере **игнорирует его для воксельного бурения**. Бур дробит **ближайший воксель** независимо от типа руды.
 
-## Правильная последовательность настройки
+Вместе с Nickel будет добываться Stone и другие руды в зоне действия. Это особенность серверного плагина.
 
-1. Выключить блок.
-2. Включить `ScriptControlled`.
-3. Применить фильтр типов подбора: `CollectFilter = Ore`.
-4. Применить фильтр материалов: `OreFilter = Ice`, `WorkMode = Collect`.
-5. Ещё раз явно поставить `WorkMode = Collect`.
-6. Выключить `ScriptControlled`.
-7. Ещё раз явно поставить `WorkMode = Collect`.
-8. Включить блок.
-9. Не вызывать `start_drilling()` / `Drill_On`.
+**Важно:** перед запуском добычи **выключи ассемблеры** (или production, потребляющий Nickel), иначе скрипт никогда не накопит target amount.
 
----
+## Быстрый старт
 
-## Рабочий пример для добычи только льда
+```bash
+# 0. ОСТАНОВИТЬ АССЕМБЛЕРЫ (иначе Nickel будет убывать быстрее чем добывается)
+#    В терминале SE вручную выключить все Assembler / Basic Refinery
+
+# 1. Проверить, на астероиде ли мы
+python examples/organized/radar/basic/asteroid_index_example.py skynet-baza0
+# Ищем: surface=0.0m — значит на астероиде
+
+# 2. Найти координаты руды
+python examples/organized/radar/shared_map/shared_map_deposits.py --grid skynet-baza0 --material Nickel --clusters --gps
+
+# 3. Запустить бур с наведением на цель + мониторить до 10000
+python examples/organized/drill_nano/mine_until.py --grid skynet-baza0 --ore Nickel --target -50625.8 146646.9 -137740.2 --amount 10000
+```
+
+Что делает `mine_until.py`:
+- Сбрасывает и настраивает фильтры (только указанная руда; фильтр не работает на этом сервере)
+- Вычисляет `AreaOffset` — наводит зону захвата на цель (триггер рескана)
+- Включает бур (ждёт 10s для авто-запуска)
+- Мониторит контейнеры в цикле до target amount
+- Выключает бур и HUD по готовности
+
+### Мониторинг добычи (контейнеры)
+
+Руда поступает в грузовые контейнеры через конвейер. Проверять надо их:
 
 ```python
-from __future__ import annotations
-
 import time
 
 from secontrol import Grid
-from secontrol.devices.nanobot_drill_system_device import NanobotDrillSystemDevice
 
+grid = Grid.from_name("skynet-baza0")
 
-GRID_NAME = "taburet2"
+# Получить всю руду на гриде
+items = grid.get_all_grid_items()
+nickel_total = 0
+for item in items:
+    subtype = str(item.get("item_subtype", ""))
+    if "Nickel" in subtype:
+        nickel_total += item.get("amount", 0)
+        print(f"{item.get('display_name')}: {item.get('amount'):.1f}")
 
-
-def main() -> None:
-    grid = Grid.from_name(GRID_NAME)
-    drills = grid.find_devices_by_type(NanobotDrillSystemDevice)
-
-    if not drills:
-        raise RuntimeError("Nanobot Drill System devices were not found")
-
-    for index, item in enumerate(drills):
-        print(
-            f"{index}: "
-            f"name={item.name!r}, "
-            f"device_id={item.device_id}, "
-            f"telemetry_key={item.telemetry_key}"
-        )
-
-    drill = drills[0]
-
-    sent = 0
-
-    try:
-        sent += drill.turn_off()
-        time.sleep(0.3)
-    except Exception as exc:
-        print("turn_off failed:", exc)
-
-    sent += drill.set_script_controlled(True)
-    time.sleep(0.2)
-
-    # Не использовать ["all"], иначе бур сможет подбирать floating objects камня.
-    sent += drill.set_collect_filter(["Ore"])
-
-    # Материальный фильтр: только Ice.
-    sent += drill.set_ore_filters(["Ice"], work_mode="Collect")
-
-    sent += drill.set_work_mode("Collect")
-    time.sleep(0.2)
-
-    sent += drill.set_script_controlled(False)
-
-    try:
-        sent += drill.set_script_controlled_action(False)
-    except Exception as exc:
-        print("ScriptControlled_Off action failed:", exc)
-
-    time.sleep(0.2)
-
-    sent += drill.set_work_mode("Collect")
-    sent += drill.turn_on()
-
-    print("sent:", sent)
-
-    time.sleep(1.0)
-
-    print("work mode:", drill.get_work_mode())
-    print("priority:", drill.debug_get_priority_list_raw())
-    print("known ores:", drill.debug_get_enabled_known_ores())
-    print("status:", drill.debug_status())
-
-
-if __name__ == "__main__":
-    main()
+print(f"Total Nickel Ore: {nickel_total:.1f}")
 ```
+
+Или через ContainerDevice:
+
+```python
+from secontrol import Grid
+from secontrol.devices.container_device import ContainerDevice
+
+grid = Grid.from_name("skynet-baza0")
+for c in grid.find_devices_by_type(ContainerDevice):
+    c.update()
+    for inv in c.inventories():
+        for item in (inv.items or []):
+            subtype = str(item.subtype or "")
+            if "Nickel" in subtype:
+                print(f"{c.name}: {item.display_name}: {item.amount:.1f}")
+```
+
+### Остановка бура
+
+```bash
+python examples/organized/drill_nano/stop_drill.py --grid skynet-baza0
+```
+
+Отключает питание, ShowArea и ShowOnHUD.
+
+---
+
+## Полный пайплайн для агента
+
+```bash
+# 0. Выключить ассемблеры (иначе Nickel будет убывать)
+# 1. Проверить поверхность
+asteroid_index_example.py --grid skynet-baza0
+# surface=0? -> можно бурить. surface>0? -> лететь на астероид.
+
+# 2. Найти руду
+shared_map_deposits.py --grid skynet-baza0 --material Nickel --clusters
+# Запомнить координаты ближайшего кластера
+
+# 3. Запустить бур + мониторинг (одна команда, НЕ ЛЕТЕТЬ К РУДЕ)
+mine_until.py --grid skynet-baza0 --ore Nickel --target <X> <Y> <Z> --amount 10000
+
+# mine_until.py сам:
+#   - наводит AreaOffset на цель
+#   - включает бур (ждёт 10s авто-запуска)
+#   - ждёт пока накопится target amount
+#   - выключает бур и HUD по готовности
+```
+
+---
+
+## Параметры start_drill.py
+
+| Параметр | Описание |
+|---|---|
+| `--grid` | Имя грида (обязательно) |
+| `--ore` | Тип руды (по умолч. Nickel) |
+| `--target X Y Z` | Мировые координаты цели (обязательно для наведения области) |
+| `--mode` | Режим: Collect / Drill / Fill (по умолч. Collect) |
 
 ---
 
@@ -116,9 +133,9 @@ if __name__ == "__main__":
 work mode: Collect
 priority: [
   '1137917536;False',
-  '1579040667;True',
+  '1579040667;False',
   '2112235764;False',
-  '-723128632;False',
+  '-723128632;True',
   '-122448462;False',
   '-2115209756;False',
   '2104309205;False',
@@ -129,9 +146,9 @@ priority: [
 ]
 known ores: {
   'stone': False,
-  'ice': True,
+  'ice': False,
   'iron': False,
-  'nickel': False,
+  'nickel': True,
   'silicon': False,
   'cobalt': False,
   'magnesium': False,
@@ -143,12 +160,10 @@ known ores: {
 ```
 
 Главная проверка:
-
-```text
-'1137917536;False'  -> Stone выключен
-'1579040667;True'   -> Ice включен
-work mode: Collect
-```
+- Только выбранная руда `True`, остальные `False`
+- `work mode: Collect` (или Drill)
+- `OnOff: True`
+- `ShowArea: True`
 
 ---
 
@@ -186,6 +201,8 @@ drill.set_ore_filters(["Ice"], work_mode="Collect")
 drill.set_ore_filters(["Uranium"], work_mode="Collect")
 drill.set_ore_filters(["Ice", "Uranium", "Iron"], work_mode="Collect")
 ```
+
+**На сервере skynet-baza0 OreFilter не работает для воксельного бурения.** Фильтр выставляется (в телеметрии `nickel=True, stone=False`), но мод его игнорирует и бурит ближайший воксель.
 
 ### CollectFilter
 
@@ -378,23 +395,21 @@ DRILL_AXIS_MAP = {
 }
 ```
 
-#### 4. Установить офсеты
+#### 4. Запустить добычу (единая команда)
 
-Без `--dry-run` скрипт отправит команды на сервер:
-
-```bash
-python examples/organized/drill_nano/set_nanodrill_area.py --grid skynet-baza0 --target <X> <Y> <Z>
-```
-
-Можно добавить `--reset-area`, чтобы сначала обнулить все офсеты.
-
-#### 5. Проверить
+`mine_until.py` сам наводит AreaOffset, включает бур и мониторит:
 
 ```bash
-python examples/organized/drill_nano/set_nanodrill_area.py --grid skynet-baza0 --target <X> <Y> <Z> --dry-run
+python examples/organized/drill_nano/mine_until.py --grid skynet-baza0 --ore Nickel --target <X> <Y> <Z> --amount 10000
 ```
 
-Убедиться, что `Drill to target distance` уменьшилось (теперь это расстояние от центра зоны до цели, а не от бура до цели).
+`start_drill.py` — если нужен только запуск без мониторинга:
+
+```bash
+python examples/organized/drill_nano/start_drill.py --grid skynet-baza0 --ore Nickel --target <X> <Y> <Z>
+```
+
+Отдельно `set_nanodrill_area.py` — только для отладки/проверки наведения.
 
 ### Определение DRILL_AXIS_MAP для нового грида
 
@@ -416,27 +431,14 @@ python examples/organized/drill_nano/set_nanodrill_area.py --grid skynet-baza0 -
 ### Полный пример
 
 ```bash
-# Получить координаты никеля
+# 0. Выключить ассемблеры в терминале SE
+# 1. Проверить что мы на астероиде
+python examples/organized/radar/basic/asteroid_index_example.py skynet-baza0
+# Ищем nearest asteroid: surface=0.0m
+
+# 2. Найти руду
 python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0
 
-# Подлететь ближе (если нужно)
-# ...
-
-# Прицелить зону бура на никель
-python examples/organized/drill_nano/set_nanodrill_area.py --grid skynet-baza0 --target -50626.3 146646.9 -137739.8
-
-# Настроить фильтр на никель и включить
-python -c "
-from secontrol import Grid
-from secontrol.devices.nanobot_drill_system_device import NanobotDrillSystemDevice
-
-grid = Grid.from_name('skynet-baza0')
-drill = grid.find_devices_by_type(NanobotDrillSystemDevice)[0]
-drill.set_script_controlled(True)
-drill.set_collect_filter(['Ore'])
-drill.set_ore_filters(['Nickel'], work_mode='Collect')
-drill.set_work_mode('Collect')
-drill.set_script_controlled(False)
-drill.turn_on()
-"
+# 3. Запустить бур + добывать 5000 никеля (сам наведётся на цель)
+python examples/organized/drill_nano/mine_until.py --grid skynet-baza0 --ore Nickel --target <X> <Y> <Z> --amount 5000
 ```

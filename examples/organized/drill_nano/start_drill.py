@@ -151,32 +151,29 @@ def main() -> int:
                 drill.set_raw_property(prop, val)
                 time.sleep(0.1)
 
-    # Подсветка области + HUD + включение
+    # Подсветка области + включение
     drill.set_raw_property("Drill.ShowArea", True)
-    drill.set_raw_property("ShowOnHUD", True)
-
     drill.set_raw_property("OnOff", True)
-    time.sleep(2)
-
-    # Если режим Drill — надо запустить бурение
-    if args.mode == "Drill":
-        drill.set_raw_property("DrillOn", True)
-
+    # Моду нужно ~10s на авто-запуск (Collect + ScriptControlled=False)
+    time.sleep(10)
     drill.update()
-
     tel = drill.telemetry or {}
     props = tel.get("properties", {})
+    current = props.get("Drill.CurrentDrillTarget")
+
     targets = tel.get("drill_possibledrilltargets", [])
     nickel = [t for t in targets if args.ore in str(t)]
-    current = props.get("Drill.CurrentDrillTarget")
 
     print()
     print(f"OnOff: {props.get('OnOff')}")
     print(f"WorkMode: {drill.get_work_mode()}")
     print(f"ShowArea: {props.get('Drill.ShowArea')}")
+    print(f"ScriptControlled: {props.get('Drill.ScriptControlled')}")
     print(f"Enabled: {drill.debug_get_enabled_known_ores()}")
     print(f"Targets: {len(targets)}, {args.ore}: {len(nickel)}")
     print(f"Current: {current}")
+    if current is None:
+        print("WARNING: drill not started — try running again to re-trigger")
     return 0
 
 
