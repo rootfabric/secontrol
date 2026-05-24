@@ -796,18 +796,60 @@ class FleetRedisReader:
             return []
         from_position = (position["x"], position["y"], position["z"])
 
-        from examples.organized.radar.shared_map.shared_map_deposits import get_deposits_sorted
-        deposits = get_deposits_sorted(
-            owner_id=self.owner_id,
-            from_position=from_position,
-            material=material,
-            storage_backend="redis",
-            order="nearest",
-            cluster=False,
-        )
-        if limit and len(deposits) > limit:
-            deposits = deposits[:limit]
-        return deposits
+        from secontrol.controllers import SharedMapController
+        import math
+        from collections import defaultdict
+        ctrl = SharedMapController(owner_id=self.owner_id, storage_backend="redis", chunk_size=100.0)
+        ctrl.load()
+        ores = ctrl.get_known_ores(material=material)
+
+        # cluster nearby deposits of same material (50m radius)
+        by_type = defaultdict(list)
+        for ore in ores:
+            by_type[ore.material].append(ore.position)
+
+        clusters = []
+        for mat, positions in sorted(by_type.items()):
+            remaining = list(set(positions))
+            while remaining:
+                seed = remaining.pop(0)
+                group = [seed]
+                rest = []
+                for pt in remaining:
+                    d = math.sqrt(sum((a - b) ** 2 for a, b in zip(seed, pt)))
+                    if d <= 50.0:
+                        group.append(pt)
+                    else:
+                        rest.append(pt)
+                remaining = rest
+                cx = sum(p[0] for p in group) / len(group)
+                cy = sum(p[1] for p in group) / len(group)
+                cz = sum(p[2] for p in group) / len(group)
+                clusters.append({
+                    "material": mat,
+                    "position": (cx, cy, cz),
+                    "count": len(group),
+                })
+
+        results = []
+        for cl in clusters:
+            d = math.sqrt(
+                (cl["position"][0] - from_position[0]) ** 2
+                + (cl["position"][1] - from_position[1]) ** 2
+                + (cl["position"][2] - from_position[2]) ** 2
+            )
+            results.append({
+                "material": cl["material"],
+                "position": cl["position"],
+                "distance_m": round(d, 1),
+                "count": cl["count"],
+                "cluster": True,
+                "source": "shared_map",
+            })
+        results.sort(key=lambda r: r["distance_m"])
+        if limit and len(results) > limit:
+            results = results[:limit]
+        return results
 
     def start_ore_scan(self, grid_id: str, radius: float = 300, cell_size: float = 10.0) -> Dict[str, Any]:
         detector = self._find_ore_detector(grid_id)

@@ -56,18 +56,18 @@ def main() -> int:
     print()
 
     print("Starting drill...")
-    drill.stop_drilling()
-    drill.turn_off()
-    time.sleep(0.3)
-
-    drill.set_script_controlled(True)
-    drill.set_collect_filter(["Ore"])
-    drill.set_ore_filters([args.ore], work_mode="Collect")
-    drill.set_work_mode("Collect")
-    drill.set_script_controlled(False)
-    drill.turn_on()
-    time.sleep(0.5)
-    drill.start_drilling()
+    sent = drill.start_drilling_ore([args.ore], collect_resources=["Ore"], work_mode="Collect")
+    time.sleep(1.0)
+    drill.update()
+    props = (drill.telemetry or {}).get("properties", {})
+    print(f"Commands sent: {sent}")
+    print(f"WorkMode: {drill.get_work_mode()}")
+    print(f"ScriptControlled: {props.get('Drill.ScriptControlled')}")
+    print(f"OnOff: {props.get('OnOff')}")
+    try:
+        print(f"Enabled ores: {drill.debug_get_enabled_known_ores()}")
+    except Exception as exc:
+        print(f"Enabled ores: <unavailable: {exc}>")
 
     print(f"Mining {args.ore} until {args.amount:.1f} units...")
     start = time.time()
@@ -76,13 +76,14 @@ def main() -> int:
         current = get_ore_amount(grid, args.ore)
         elapsed = time.time() - start
         rate = (current - baseline) / elapsed if elapsed > 0 else 0
-        remaining = args.amount - current
+        mined = current - baseline
+        remaining = args.amount - mined
         eta = remaining / rate if rate > 0 else float("inf")
         print(f"  [{elapsed:.0f}s] {args.ore}: {current:.1f} / {args.amount:.1f} "
-              f"(+{current-baseline:.1f}, rate={rate:.1f}/s, eta={eta:.0f}s)")
+              f"(+{mined:.1f}, rate={rate:.1f}/s, eta={eta:.0f}s)")
 
-        if (current - baseline) >= args.amount:
-            print(f"\nTarget reached! Delta={current-baseline:.1f} >= {args.amount:.1f}")
+        if mined >= args.amount:
+            print(f"\nTarget reached! Delta={mined:.1f} >= {args.amount:.1f}")
             break
 
     print("Stopping drill...")

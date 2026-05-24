@@ -15,10 +15,7 @@ python examples/space_flight/space_navigator_v4.py \
 # 3. Навести зону бура (ПОСЛЕ КАЖДОГО ПЕРЕЛЁТА!)
 python examples/organized/drill_nano/set_nanodrill_area.py --grid skynet-baza0 --target X Y Z --reset-area
 
-# 4. Запустить бурение
-python -c "import sys,time; sys.path.insert(0,'src'); from dotenv import load_dotenv; load_dotenv('.env'); from secontrol import Grid; from secontrol.devices.nanobot_drill_system_device import NanobotDrillSystemDevice; grid=Grid.from_name('skynet-baza0'); drill=grid.find_devices_by_type(NanobotDrillSystemDevice)[0]; drill.send_command({'cmd':'set','payload':{'property':'Drill.WorkMode','value':2}}); time.sleep(0.3); drill.set_property('ScriptControlled',False); time.sleep(0.3); drill.set_use_conveyor(True); time.sleep(0.2); drill.turn_on(); time.sleep(0.5); drill.start_drilling()"
-
-# 5. Добыть нужное кол-во
+# 4. Добыть нужное кол-во
 python examples/organized/drill_nano/mine_until.py --grid skynet-baza0 --ore Platinum --amount 10000 --check-interval 5
 ```
 
@@ -108,9 +105,9 @@ python examples/organized/drill_nano/set_nanodrill_area.py \
 
 **После изменения позиции корабля — повтори команду!**
 
-### Шаг 3б — Запустить бурение
+### Шаг 3б — Включить сбор руды фильтром
 
-После наведения зоны (или после каждого перелёта) запустить бур:
+После наведения зоны (или после каждого перелёта) включить режим `Collect` с фильтрами. Не вызывать `start_drilling()` после настройки Collect:
 
 ```bash
 python -c "
@@ -124,15 +121,7 @@ from secontrol.devices.nanobot_drill_system_device import NanobotDrillSystemDevi
 grid = Grid.from_name('skynet-baza0')
 drill = grid.find_devices_by_type(NanobotDrillSystemDevice)[0]
 
-drill.send_command({'cmd': 'set', 'payload': {'property': 'Drill.WorkMode', 'value': 2}})
-time.sleep(0.3)
-drill.set_property('ScriptControlled', False)
-time.sleep(0.3)
-drill.set_use_conveyor(True)
-time.sleep(0.2)
-drill.turn_on()
-time.sleep(0.5)
-drill.start_drilling()
+drill.start_drilling_ore(['Nickel'], collect_resources=['Ore'], work_mode='Collect')
 "
 ```
 
@@ -152,7 +141,7 @@ python examples/organized/drill_nano/mine_until.py \
 
 Скрипт:
 1. Фиксирует baseline
-2. Запускает бурение с фильтром на нужную руду
+2. Включает `Collect` с фильтрами `ResourceFilter=Ore` и `OreFilter=<ore>`; `start_drilling()` не вызывается
 3. Мониторит контейнеры каждые N секунд
 4. Останавливает при достижении цели
 5. Показывает rate (ед/сек) и ETA
@@ -209,5 +198,5 @@ grid.find_items_by_subtype("Platinum")
 |---------|-----|
 | targets=0 после наведения | Sweep offsets ±50m; или цель вне зоны reach (>110m от drill) |
 | Нет Nickel в контейнерах | Проверить `surfaceDistance=0` — корабль должен быть на астероиде |
-| Фильтр не работает | `start_drilling_ore(["Nickel"])` — фильтрует камень |
-| Drill state corruption | Полный reset: stop→off→offsets=0→WorkMode=Collect→on→start |
+| Фильтр не работает | `start_drilling_ore(["Nickel"])`; не вызывать `start_drilling()` после настройки Collect |
+| Drill state corruption | Полный reset: stop→off→WorkMode=Collect→ResourceFilter=Ore→OreFilter=<ore>→ScriptControlled=False→on |

@@ -1509,9 +1509,10 @@ async function loadOres(gridId) {
             const distStr = dep.distance_m >= 0 ? `${(dep.distance_m).toFixed(0)} м` : '—';
             const pos = dep.position;
             const posStr = pos ? `${pos[0].toFixed(0)}, ${pos[1].toFixed(0)}, ${pos[2].toFixed(0)}` : '—';
+            const countStr = dep.count ? ` (${dep.count} т.)` : '';
             html += `<div class="ore-item" style="border-left:3px solid ${color};padding:6px 8px;margin-bottom:4px;background:var(--bg-dark);border-radius:3px">
                 <div style="display:flex;justify-content:space-between;align-items:center">
-                    <span style="font-weight:600;color:${color}">${dep.material}</span>
+                    <span style="font-weight:600;color:${color}">${dep.material}${countStr}</span>
                     <span style="color:var(--accent-cyan);font-size:11px;font-family:monospace">${distStr}</span>
                 </div>
                 <div style="font-size:10px;color:#5a6a7a;font-family:monospace;margin-top:2px">
