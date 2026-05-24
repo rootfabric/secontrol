@@ -130,3 +130,19 @@ Refinery and Assembler inventories come from telemetry dict:
 6. **Disabled containers** still report inventory via `get_inventory()` — `enabled=False` doesn't block reads.
 7. **Non-functional armor blocks** are normal — armor always reports `functional=False`. Filter them out when showing "broken" blocks.
 8. **Telemetry keys vary.** Some devices return empty dicts. Always guard with `.get()` and `or {}`.
+
+## Ship flight readiness check
+
+Script: `examples/organized/diagnostics/check_flight_ready.py`
+
+Checks battery charge and hydrogen fuel level. Run from project root:
+
+```bash
+set PYTHONIOENCODING=utf-8; python examples/organized/diagnostics/check_flight_ready.py [grid_name]
+```
+
+Provides:
+- Battery charge per unit and total
+- Hydrogen fuel level (if hydrogen thrusters present)
+- `[OK] READY FOR FLIGHT` or `[FAIL] NOT READY FOR FLIGHT`
+- Warnings for low charge (<20%) and critical hydrogen (<20% with no ion backup)
