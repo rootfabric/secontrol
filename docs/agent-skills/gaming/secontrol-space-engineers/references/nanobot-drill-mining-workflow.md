@@ -237,7 +237,17 @@ drill.start_drilling(); time.sleep(3)
 # Now check targets — should be non-zero if ore is in range
 ```
 
-### Safe distance: ≥50m from ore/asteroid
+### Nanobot Drill radius: 1000m — НЕ подлетай близко!
+
+Nanobot Drill имеет зону действия ~1000m. НЕ нужно подлетать вплотную к руде — это опасно (краш в астероид). Останавливайся минимум в 100-200m от руды и дай буру сделать свою работу.
+
+| Ситуация | Расстояние до руды | Действие |
+|---|---|---|
+| Обычный drill | <50m | Подлететь на 50m |
+| Nanobot Drill | 100-1000m | Остановиться в 100-200m, бурить с расстояния |
+| OreDetector scan | — | Всегда использовать `--radius 1000` |
+
+### Safe distance: ≥50m от ore/asteroid
 
 Ship crashes into asteroid voxels when flying closer than 50m to ore coordinates.
 **Always stop at ≥50m from ore.** The drill area reaches far enough to mine

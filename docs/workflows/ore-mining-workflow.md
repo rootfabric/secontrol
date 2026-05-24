@@ -6,14 +6,19 @@
 # 1. Сканировать руду (1km для полного покрытия)
 python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 --radius 1000
 
-# 2. Долететь до руды (если дальше ~100m)
+# 2. Долететь до руды
 python examples/space_flight/space_navigator_v4.py \
     --grid skynet-baza0 \
     --target="X,Y,Z" \
-    --arrival 50
+    --arrival 150
 
-# 3. Навести зону бура и добыть нужное кол-во
+# 3. Навести зону бура (ПОСЛЕ КАЖДОГО ПЕРЕЛЁТА!)
 python examples/organized/drill_nano/set_nanodrill_area.py --grid skynet-baza0 --target X Y Z --reset-area
+
+# 4. Запустить бурение
+python -c "import sys,time; sys.path.insert(0,'src'); from dotenv import load_dotenv; load_dotenv('.env'); from secontrol import Grid; from secontrol.devices.nanobot_drill_system_device import NanobotDrillSystemDevice; grid=Grid.from_name('skynet-baza0'); drill=grid.find_devices_by_type(NanobotDrillSystemDevice)[0]; drill.send_command({'cmd':'set','payload':{'property':'Drill.WorkMode','value':2}}); time.sleep(0.3); drill.set_property('ScriptControlled',False); time.sleep(0.3); drill.set_use_conveyor(True); time.sleep(0.2); drill.turn_on(); time.sleep(0.5); drill.start_drilling()"
+
+# 5. Добыть нужное кол-во
 python examples/organized/drill_nano/mine_until.py --grid skynet-baza0 --ore Platinum --amount 10000 --check-interval 5
 ```
 
@@ -23,15 +28,41 @@ python examples/organized/drill_nano/mine_until.py --grid skynet-baza0 --ore Pla
 
 ## Пошаговая инструкция для агента
 
+### Шаг 0 — Проверить уже разведанные руды
+
+**Всегда начинать с этого шага.** Не сканировать заново то, что уже известно.
+
+```bash
+# Проверить SharedMapController (или JSON-базу как fallback)
+python examples/organized/radar/shared_map/shared_map_deposits.py \
+    --grid <grid_name> --material Platinum --clusters
+
+# Если нужен полный отчёт по всем рудам
+python examples/organized/radar/shared_map/shared_map_report.py --grid <grid_name>
+```
+
+**Если руда найдена** — перейти к Шагу 2 (полёт), скан не нужен.
+
+**Если SharedMapController пуст / нет нужной руды** — перейти к Шагу 1 (свежий скан).
+
+**Когда обновлять SharedMapController:** после каждого нового скана через `ore_deposit_scanner.py` данные в SharedMap не попадают автоматически. Запустить `shared_map_scan.py` чтобы сохранить:
+
+```bash
+python examples/organized/radar/shared_map/shared_map_scan.py --grid <grid_name>
+```
+
 ### Шаг 1 — Сканировать руду (подлёт к астероиду)
 
-**Когда:** после прилёта к астероиду / месту добычи (ship на астероиде или рядом).
+**Когда:** руда не найдена на шаге 0, либо после прилёта к новому астероиду.
 
 **Важно:** всегда использовать `--radius 1000` (1km) для полного покрытия астероида.
 
 ```bash
 # Стандартный скан (1km — хватает для большинства астероидов)
 python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 --radius 1000
+
+# После скана — сохранить в SharedMapController
+python examples/organized/radar/shared_map/shared_map_scan.py --grid skynet-baza0 --radius 1000
 ```
 
 Результат: GPS координаты рудных кластеров + автоматически записываются в БД. Например:
@@ -58,6 +89,8 @@ python examples/space_flight/space_navigator_v4.py \
 
 ### Шаг 3 — Навести зону бура на руду
 
+**Важно:** Команду нужно запускать каждый раз когда корабль меняет позицию — она вычисляет offsets относительно текущего положения корабля.
+
 ```bash
 python examples/organized/drill_nano/set_nanodrill_area.py \
     --grid skynet-baza0 \
@@ -65,10 +98,43 @@ python examples/organized/drill_nano/set_nanodrill_area.py \
     --reset-area
 ```
 
-- `--target` — координаты из шага 1 (GPS cluster center)
-- `--reset-area` — сбросить offsets перед наведением
+- `--target` — координаты руды (X Y Z через пробел)
+- `--reset-area` — сбросить старые offsets перед применением новых
 
-Скрипт вычисляет `AreaOffsetFrontBack`, `AreaOffsetUpDown`, `AreaOffsetLeftRight` и применяет.
+Скрипт автоматически:
+1. Определяет текущую позицию корабля
+2. Вычисляет `AreaOffsetFrontBack`, `AreaOffsetUpDown`, `AreaOffsetLeftRight`
+3. Применяет offsets через `Drill.AreaOffset*` свойства
+
+**После изменения позиции корабля — повтори команду!**
+
+### Шаг 3б — Запустить бурение
+
+После наведения зоны (или после каждого перелёта) запустить бур:
+
+```bash
+python -c "
+import sys, time
+sys.path.insert(0, 'src')
+from dotenv import load_dotenv
+load_dotenv('.env')
+from secontrol import Grid
+from secontrol.devices.nanobot_drill_system_device import NanobotDrillSystemDevice
+
+grid = Grid.from_name('skynet-baza0')
+drill = grid.find_devices_by_type(NanobotDrillSystemDevice)[0]
+
+drill.send_command({'cmd': 'set', 'payload': {'property': 'Drill.WorkMode', 'value': 2}})
+time.sleep(0.3)
+drill.set_property('ScriptControlled', False)
+time.sleep(0.3)
+drill.set_use_conveyor(True)
+time.sleep(0.2)
+drill.turn_on()
+time.sleep(0.5)
+drill.start_drilling()
+"
+```
 
 ### Шаг 4 — Добыть нужное количество
 
@@ -131,6 +197,7 @@ grid.find_items_by_subtype("Platinum")
 
 ## Важно
 
+- **Nanobot Drill radius: 1000m** — НЕ подлетай близко! Зона бура 75×75×75 достигает руды на расстоянии до ~1km. Подлёт к руде на 50m — это для обычного бура, нанобур работает с расстояния. Останавливайся минимум в 100-200m от руды, чтобы не врезаться в астероид.
 - **Ore фильтр:** `mine_until.py` фильтрует камень автоматически — только запрошенная руда
 - **Drill area reach:** Цель должна быть ≤~110m от drill. Если дальше — нужен полёт ближе
 - **Корабль на месте:** Зона добычи сдвигается через AreaOffset, не через полёт

@@ -22,6 +22,19 @@ Use when the user asks "show all ships", "what's in the containers", "grid statu
 - `.env` with Redis credentials at project root
 - Run all scripts via `terminal` from `/workspace` (not execute_code — secontrol may not be importable in sandbox)
 
+## Quick: single-script report (recommended)
+
+Ready-made script for a full grid status report in **one command**:
+
+```bash
+cd /workspace && python3 docs/agent-skills/gaming/se-grid-status-report/scripts/grid_report.py
+python3 docs/agent-skills/gaming/se-grid-status-report/scripts/grid_report.py "GridName"
+```
+
+Output: block counts, disabled blocks, damage, thrusters, batteries, reactors, hydrogen tanks, container inventories, and flight readiness — all in one call.
+
+This replaces the verbose manual pattern below. Use this unless you need custom field selection.
+
 ## Quick: list all grids
 
 ```python

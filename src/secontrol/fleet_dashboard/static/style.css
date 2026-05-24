@@ -382,3 +382,7 @@ body {
 .inventory-table td.item-name { color: var(--text-primary); }
 .inventory-table td.item-type { color: var(--text-muted); font-size: 10px; }
 .inventory-empty { font-size: 11px; color: var(--text-muted); padding: 4px 0; }
+
+/* ── Ore modal ── */
+.ore-item { transition: background 0.15s; }
+.ore-item:hover { background: var(--bg-panel-hover) !important; }

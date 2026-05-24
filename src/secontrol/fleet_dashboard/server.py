@@ -150,6 +150,51 @@ async def api_voxel_cancel(grid_id: str):
         return {"error": str(e)}
 
 
+# ── Ore endpoints ──
+
+
+@app.get("/api/grid/{grid_id}/ores")
+async def api_grid_ores(grid_id: str, material: str | None = None, limit: int = 30):
+    try:
+        ores = reader.get_nearby_ores(grid_id, material=material, limit=limit)
+        return {"ores": ores}
+    except Exception as e:
+        return {"error": str(e), "ores": []}
+
+
+class OreScanRequest(BaseModel):
+    radius: float = 300
+    cell_size: float = 10.0
+
+
+@app.post("/api/grid/{grid_id}/scan_ores")
+async def api_scan_ores(grid_id: str, body: OreScanRequest):
+    try:
+        return reader.start_ore_scan(grid_id, body.radius, body.cell_size)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/grid/{grid_id}/scan_ores_status")
+async def api_scan_ores_status(grid_id: str):
+    try:
+        status = reader.get_ore_scan_status(grid_id)
+        lightweight = {k: v for k, v in status.items() if k != "result"}
+        lightweight["has_result"] = status.get("result") is not None
+        return lightweight
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/grid/{grid_id}/cancel_ore_scan")
+async def api_cancel_ore_scan(grid_id: str):
+    try:
+        ok = reader.cancel_ore_scan(grid_id)
+        return {"ok": ok}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()

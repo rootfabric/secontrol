@@ -123,6 +123,54 @@
             </div>
         </div>
     </div>
+    <div id="ore-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content" style="width:480px">
+            <div class="modal-header">
+                <div class="modal-title-row">
+                    <span class="modal-device-icon" style="background:rgba(255,184,108,0.12);color:#ffb86c;border:1px solid rgba(255,184,108,0.25)">&#9937;</span>
+                    <div>
+                        <div class="modal-device-name">Руды</div>
+                        <div id="ore-grid-name" class="modal-device-type"></div>
+                    </div>
+                </div>
+                <button id="ore-close" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-section">
+                    <div class="modal-section-title purple">Ближайшие руды</div>
+                    <div id="ore-list" style="font-size:11px;color:var(--text-secondary)">Загрузка...</div>
+                </div>
+                <div class="modal-section">
+                    <div class="modal-section-title yellow">Сканирование</div>
+                    <div class="modal-props" style="grid-template-columns:1fr">
+                        <div class="modal-prop">
+                            <span class="modal-prop-label">Radius (м)</span>
+                            <input id="ore-radius" type="number" value="300" min="50" max="5000" step="50" style="background:var(--bg-dark);border:1px solid var(--border);color:var(--text-primary);padding:5px 8px;border-radius:4px;font-family:inherit;font-size:12px;width:100%">
+                        </div>
+                        <div class="modal-prop">
+                            <span class="modal-prop-label">Cell Size (м)</span>
+                            <input id="ore-cellsize" type="number" value="10" min="1" max="50" step="1" style="background:var(--bg-dark);border:1px solid var(--border);color:var(--text-primary);padding:5px 8px;border-radius:4px;font-family:inherit;font-size:12px;width:100%">
+                        </div>
+                    </div>
+                </div>
+                <div id="ore-scan-progress-section" class="modal-section" style="display:none">
+                    <div class="modal-section-title yellow">Прогресс</div>
+                    <div id="ore-scan-status" style="font-size:11px;color:var(--text-secondary);margin-bottom:4px"></div>
+                    <div class="health-bar-container">
+                        <div id="ore-scan-fill" class="health-bar-fill" style="width:0%;background:#ffb86c"></div>
+                    </div>
+                </div>
+                <div class="modal-section">
+                    <div class="modal-actions">
+                        <button id="ore-scan-start" class="action-btn" style="border-color:#ffb86c;color:#ffb86c;font-weight:600">Scan Ores</button>
+                        <button id="ore-scan-cancel" class="action-btn danger" style="display:none">Cancel</button>
+                        <button id="ore-refresh" class="action-btn" style="border-color:#8be9fd;color:#8be9fd">Обновить</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     <script type="importmap">
     {
         "imports": {

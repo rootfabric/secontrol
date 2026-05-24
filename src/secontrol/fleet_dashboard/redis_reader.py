@@ -779,6 +779,170 @@ class FleetRedisReader:
                 self._scan_states[grid_id]["status"] = "cancelled"
         return ok
 
+    # ── Ores (SharedMap) ──
+
+    _ore_scan_states: Dict[str, Dict[str, Any]] = {}
+    _ore_scan_lock = threading.Lock()
+
+    def get_nearby_ores(
+        self,
+        grid_id: str,
+        material: str | None = None,
+        limit: int = 30,
+    ) -> List[Dict[str, Any]]:
+        info = self.get_grid_info(grid_id)
+        position = self._extract_position(info)
+        if not position:
+            return []
+        from_position = (position["x"], position["y"], position["z"])
+
+        from examples.organized.radar.shared_map.shared_map_deposits import get_deposits_sorted
+        deposits = get_deposits_sorted(
+            owner_id=self.owner_id,
+            from_position=from_position,
+            material=material,
+            storage_backend="redis",
+            order="nearest",
+            cluster=False,
+        )
+        if limit and len(deposits) > limit:
+            deposits = deposits[:limit]
+        return deposits
+
+    def start_ore_scan(self, grid_id: str, radius: float = 300, cell_size: float = 10.0) -> Dict[str, Any]:
+        detector = self._find_ore_detector(grid_id)
+        if not detector:
+            return {"error": "Ore detector not found on grid"}
+        with self._ore_scan_lock:
+            if grid_id in self._ore_scan_states and self._ore_scan_states[grid_id].get("scanning"):
+                return {"error": "Ore scan already in progress"}
+        device_id = detector["device_id"]
+        state = {
+            "scanning": True,
+            "progress": 0.0,
+            "status": "starting",
+            "error": None,
+            "result": None,
+        }
+        with self._ore_scan_lock:
+            self._ore_scan_states[grid_id] = state
+        thread = threading.Thread(
+            target=self._run_ore_scan,
+            args=(grid_id, device_id, radius, cell_size),
+            daemon=True,
+        )
+        thread.start()
+        return {"ok": True}
+
+    def _run_ore_scan(self, grid_id: str, device_id: str, radius: float, cell_size: float):
+        state = self._ore_scan_states[grid_id]
+        try:
+            command = {
+                "cmd": "scan",
+                "targetId": int(device_id),
+                "targetName": "OreDetector",
+                "state": {
+                    "includePlayers": False,
+                    "includeGrids": False,
+                    "includeVoxels": True,
+                    "oreOnly": True,
+                    "radius": radius,
+                    "cellSize": cell_size,
+                    "voxelStep": 1,
+                    "fullSolidScan": False,
+                    "resetActiveScan": True,
+                    "boundingBoxX": radius * 2,
+                    "boundingBoxY": radius * 2,
+                    "boundingBoxZ": radius * 2,
+                },
+            }
+            self.send_device_command(device_id, command)
+            max_wait = 120.0
+            t0 = time.time()
+            got_started = False
+            scan_completed = False
+            while time.time() - t0 < max_wait:
+                time.sleep(0.5)
+                telemetry = self._discover_telemetry(grid_id).get(device_id)
+                if not telemetry:
+                    continue
+                scan_info = telemetry.get("scan", {})
+                progress = scan_info.get("progressPercent", 0)
+                tiles_done = scan_info.get("processedTiles", 0)
+                tiles_total = scan_info.get("totalTiles", 0)
+                in_progress = scan_info.get("inProgress", False)
+                scan_done = scan_info.get("done", False)
+                if tiles_total > 0:
+                    got_started = True
+                    state["progress"] = round(progress, 1)
+                    state["status"] = f"{tiles_done}/{tiles_total} tiles"
+                if not in_progress and (scan_done or (got_started and progress >= 99.9)):
+                    scan_completed = True
+                if scan_completed:
+                    radar = telemetry.get("radar", {})
+                    if isinstance(radar, dict):
+                        raw = radar.get("raw", {})
+                        if not isinstance(raw, dict):
+                            raw = radar
+                        ore_cells = raw.get("oreCells", [])
+                        if not isinstance(ore_cells, list):
+                            ore_cells = []
+                        radar_done = radar.get("done", False)
+                        has_data = len(ore_cells) > 0
+                        if radar_done or has_data or time.time() - t0 > 20:
+                            state["progress"] = 100.0
+                            state["status"] = "done"
+                            state["_ore_cells"] = ore_cells
+                            break
+                    if time.time() - t0 > 20:
+                        state["progress"] = 100.0
+                        state["status"] = "done (timeout)"
+                        break
+            time.sleep(1.0)
+            ore_cells = state.pop("_ore_cells", [])
+            if not ore_cells:
+                telemetry = self._discover_telemetry(grid_id).get(device_id, {})
+                radar = telemetry.get("radar", {})
+                if isinstance(radar, dict):
+                    raw = radar.get("raw", {})
+                    if not isinstance(raw, dict):
+                        raw = radar
+                    ore_cells = raw.get("oreCells", [])
+                    if not isinstance(ore_cells, list):
+                        ore_cells = []
+            if ore_cells:
+                try:
+                    from secontrol.controllers import SharedMapController
+                    ctrl = SharedMapController(owner_id=self.owner_id, storage_backend="redis")
+                    ctrl.add_ore_cells(ore_cells, save=True)
+                except Exception as e:
+                    state["shared_map_error"] = str(e)
+            state["scanning"] = False
+            state["progress"] = 100.0
+            state["status"] = "done"
+            state["result"] = {"ore_cells": ore_cells, "ore_count": len(ore_cells)}
+        except Exception as e:
+            state["scanning"] = False
+            state["error"] = str(e)
+            state["status"] = f"error: {e}"
+
+    def get_ore_scan_status(self, grid_id: str) -> Dict[str, Any]:
+        with self._ore_scan_lock:
+            return dict(self._ore_scan_states.get(grid_id, {}))
+
+    def cancel_ore_scan(self, grid_id: str) -> bool:
+        detector = self._find_ore_detector(grid_id)
+        if not detector:
+            return False
+        device_id = detector["device_id"]
+        command = {"cmd": "scan", "targetId": int(device_id), "cancel": True}
+        ok = self.send_device_command(device_id, command)
+        with self._ore_scan_lock:
+            if grid_id in self._ore_scan_states:
+                self._ore_scan_states[grid_id]["scanning"] = False
+                self._ore_scan_states[grid_id]["status"] = "cancelled"
+        return ok
+
     # ── Helpers ──
 
     @staticmethod

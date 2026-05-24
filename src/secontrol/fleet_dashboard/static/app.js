@@ -554,6 +554,7 @@ function renderGridPanel(data) {
         <button class="action-btn" onclick="window._gridCommand('convert')">${data.is_static ? 'To Ship' : 'To Station'}</button>
         <button class="action-btn" style="border-color:#8be9fd;color:#8be9fd" onclick="window._openContainers('${data.grid_id}')">&#128230; Контейнеры</button>
         <button class="action-btn" style="border-color:#bd93f9;color:#bd93f9" onclick="window._openVoxelScan('${data.grid_id}')">&#128225; Voxels</button>
+        <button class="action-btn" style="border-color:#ffb86c;color:#ffb86c" onclick="window._openOreWindow('${data.grid_id}')">&#9937; Руды</button>
     `;
 
     renderDeviceList(data.device_details || data.devices || []);
@@ -1446,6 +1447,167 @@ window._openContainers = async function(gridId) {
         containersBody.innerHTML = `<div style="font-size:12px;color:#ff5555;padding:12px 0">Ошибка: ${e.message}</div>`;
     }
 };
+
+// ── Ore modal ──
+const oreModal = document.getElementById('ore-modal');
+const oreGridName = document.getElementById('ore-grid-name');
+const oreList = document.getElementById('ore-list');
+const oreRadius = document.getElementById('ore-radius');
+const oreCellSize = document.getElementById('ore-cellsize');
+const oreScanStart = document.getElementById('ore-scan-start');
+const oreScanCancel = document.getElementById('ore-scan-cancel');
+const oreScanRefresh = document.getElementById('ore-refresh');
+const oreScanProgressSection = document.getElementById('ore-scan-progress-section');
+const oreScanStatus = document.getElementById('ore-scan-status');
+const oreScanFill = document.getElementById('ore-scan-fill');
+
+let oreScanPolling = null;
+let currentOreGridId = null;
+
+document.getElementById('ore-close').addEventListener('click', () => oreModal.classList.add('hidden'));
+oreModal.querySelector('.modal-backdrop').addEventListener('click', () => oreModal.classList.add('hidden'));
+
+const ORE_UI_COLORS = {
+    gold: '#ff8800', silver: '#a0a0a0', platinum: '#00ff88',
+    iron: '#ff4444', nickel: '#88aa44', cobalt: '#4444ff',
+    magnesium: '#ffffff', silicon: '#888888', uranium: '#44ff44',
+    ice: '#88ffff', stone: '#808080',
+};
+
+function getOreUIColor(material) {
+    return ORE_UI_COLORS[(material || '').toLowerCase()] || '#ffb86c';
+}
+
+window._openOreWindow = async function(gridId) {
+    currentOreGridId = gridId;
+    oreGridName.textContent = gridData ? gridData.name : gridId;
+    oreScanProgressSection.style.display = 'none';
+    oreScanStart.style.display = '';
+    oreScanCancel.style.display = 'none';
+    oreModal.classList.remove('hidden');
+    stopOreScanPolling();
+    await loadOres(gridId);
+};
+
+async function loadOres(gridId) {
+    oreList.innerHTML = 'Загрузка...';
+    try {
+        const res = await fetch(`/api/grid/${gridId}/ores`);
+        const data = await res.json();
+        if (data.error) {
+            oreList.innerHTML = `<span style="color:#ff5555">Ошибка: ${data.error}</span>`;
+            return;
+        }
+        const ores = data.ores || [];
+        if (ores.length === 0) {
+            oreList.innerHTML = '<span style="color:#5a6a7a">Нет известных руд. Запустите сканирование.</span>';
+            return;
+        }
+        let html = `<div style="font-size:10px;color:#5a6a7a;margin-bottom:6px">Найдено: ${ores.length}</div>`;
+        for (const dep of ores) {
+            const color = getOreUIColor(dep.material);
+            const distStr = dep.distance_m >= 0 ? `${(dep.distance_m).toFixed(0)} м` : '—';
+            const pos = dep.position;
+            const posStr = pos ? `${pos[0].toFixed(0)}, ${pos[1].toFixed(0)}, ${pos[2].toFixed(0)}` : '—';
+            html += `<div class="ore-item" style="border-left:3px solid ${color};padding:6px 8px;margin-bottom:4px;background:var(--bg-dark);border-radius:3px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <span style="font-weight:600;color:${color}">${dep.material}</span>
+                    <span style="color:var(--accent-cyan);font-size:11px;font-family:monospace">${distStr}</span>
+                </div>
+                <div style="font-size:10px;color:#5a6a7a;font-family:monospace;margin-top:2px">
+                    GPS:${dep.material}:${posStr}:${color}:
+                </div>
+            </div>`;
+        }
+        oreList.innerHTML = html;
+    } catch (e) {
+        oreList.innerHTML = `<span style="color:#ff5555">Ошибка: ${e.message}</span>`;
+    }
+}
+
+function showOreScanProgress(data) {
+    oreScanProgressSection.style.display = '';
+    oreScanStatus.textContent = data.status || 'Scanning...';
+    oreScanFill.style.width = (data.progress || 0) + '%';
+    oreScanStart.style.display = 'none';
+    oreScanCancel.style.display = '';
+}
+
+function hideOreScanProgress() {
+    oreScanStart.style.display = '';
+    oreScanCancel.style.display = 'none';
+}
+
+function stopOreScanPolling() {
+    if (oreScanPolling) {
+        clearInterval(oreScanPolling);
+        oreScanPolling = null;
+    }
+}
+
+function startOreScanPolling(gridId) {
+    stopOreScanPolling();
+    oreScanPolling = setInterval(async () => {
+        try {
+            const res = await fetch(`/api/grid/${gridId}/scan_ores_status`);
+            const data = await res.json();
+            if (data.scanning) {
+                showOreScanProgress(data);
+            } else {
+                stopOreScanPolling();
+                hideOreScanProgress();
+                oreScanProgressSection.style.display = '';
+                if (data.error) {
+                    oreScanStatus.textContent = `Ошибка: ${data.error}`;
+                } else {
+                    oreScanStatus.textContent = `Готово: ${data.result?.ore_count || 0} руд найдено`;
+                }
+                await loadOres(gridId);
+                setTimeout(() => { oreScanProgressSection.style.display = 'none'; }, 3000);
+            }
+        } catch (e) {}
+    }, 500);
+}
+
+oreScanStart.addEventListener('click', async () => {
+    if (!currentOreGridId) return;
+    const radius = parseFloat(oreRadius.value) || 300;
+    const cellSize = parseFloat(oreCellSize.value) || 10;
+    try {
+        const res = await fetch(`/api/grid/${currentOreGridId}/scan_ores`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ radius, cell_size: cellSize }),
+        });
+        const data = await res.json();
+        if (data.error) {
+            oreScanStatus.textContent = `Ошибка: ${data.error}`;
+            oreScanProgressSection.style.display = '';
+            return;
+        }
+        showOreScanProgress({ progress: 0, status: 'Starting scan...', scanning: true });
+        startOreScanPolling(currentOreGridId);
+    } catch (e) {
+        oreScanStatus.textContent = `Ошибка: ${e.message}`;
+        oreScanProgressSection.style.display = '';
+    }
+});
+
+oreScanCancel.addEventListener('click', async () => {
+    if (!currentOreGridId) return;
+    try {
+        await fetch(`/api/grid/${currentOreGridId}/cancel_ore_scan`, { method: 'POST' });
+        stopOreScanPolling();
+        hideOreScanProgress();
+        oreScanStatus.textContent = 'Отменено';
+        oreScanProgressSection.style.display = '';
+    } catch (e) {}
+});
+
+oreScanRefresh.addEventListener('click', async () => {
+    if (!currentOreGridId) return;
+    await loadOres(currentOreGridId);
+});
 
 // ── Animate ──
 function animate() {
