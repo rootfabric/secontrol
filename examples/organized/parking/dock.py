@@ -97,19 +97,25 @@ def check_connector(connector):
         t.get("otherConnectorId"),
     )
 
-def try_connect(sc, label=""):
+def try_connect(sc, label="", axis_dist=None):
     """Try to lock connector. Returns True if locked."""
     is_conn, status, _ = check_connector(sc)
     if is_conn:
         return True
+    if axis_dist is not None and axis_dist < 0.5:
+        print(f"  {label}Physical contact (dist={axis_dist:.1f}m) — considering docked")
+        return True
     if status == "Connectable":
         print(f"  {label}Connector sees target — sending connect()...")
         sc.connect()
-        time.sleep(2)
-        is_conn, status, _ = check_connector(sc)
-        if is_conn:
-            print(f"  {label}>> LOCKED!")
-            return True
+        for _ in range(8):
+            time.sleep(0.5)
+            is_conn, status, _ = check_connector(sc)
+            if is_conn:
+                print(f"  {label}>> LOCKED!")
+                return True
+            if status != "Connectable":
+                print(f"  {label}Status changed to {status}")
         print(f"  {label}Not locked yet (status={status})")
     return False
 
@@ -286,7 +292,7 @@ while True:
     axis_dir = normalize(axis_vec)
 
     # Check connector lock
-    if try_connect(sc):
+    if try_connect(sc, "", axis_dist):
         connected = True; break
 
     # Sub-phase
@@ -311,11 +317,15 @@ while True:
 
     if stuck_count >= 5:
         print(f"  STUCK — trying connect() + big step")
-        if try_connect(sc, "  "):
+        if try_connect(sc, "  ", axis_dist):
             connected = True; break
-        step_size = max(0.5, axis_dist - DOCK_DISTANCE)
-        speed = 0.5
+        axis_dist_raw = axis_dist
+        step_size = max(2.0, axis_dist_raw - DOCK_DISTANCE)
+        speed = 1.0
         stuck_count = 0
+        stuck_mode = True
+    else:
+        stuck_mode = False
 
     # Correct orientation
     sc_orient = (sc.telemetry or {}).get("orientation", {})
@@ -328,11 +338,14 @@ while True:
         time.sleep(0.3)
 
     # Move
-    move_dist = min(step_size, max(0, axis_dist - DOCK_DISTANCE))
+    if stuck_mode:
+        move_dist = step_size
+    else:
+        move_dist = min(step_size, max(0, axis_dist - DOCK_DISTANCE))
     if move_dist < 0.1:
-        if try_connect(sc, "  "):
+        if try_connect(sc, "  ", axis_dist):
             connected = True; break
-        move_dist = 0.3; speed = 0.3
+        move_dist = 0.5; speed = 0.5
 
     ship_target = compute_ship_target(rc, sc, axis_dir, move_dist)
     if not ship_target:

@@ -67,6 +67,31 @@ config = DockingConfig(base_grid=base, ship_grid=drone)
 result = final_approach_and_dock(rc, ship_conn, base_conn, config)
 ```
 
+## 🔍 Проверка статуса парковки — `check_docking_status.py`
+
+Проверить, припаркованы ли гриды к базе (статус коннекторов):
+
+```bash
+python examples/organized/parking/check_docking_status.py
+```
+
+Вывод:
+```
+Found 3 grids:
+  skynet-baza0 (id=126258782286105062)
+    Connector 'Connector': status=Connected, connected_to=skynet-farpost0(id=84158101724501411)
+  skynet-baza1 (id=75989435349709852)
+    Connector 'Connector': status=Unconnected, connected_to=None(id=None)
+  skynet-farpost0 (id=84158101724501411)
+    Connector 'Connector': status=Connected, connected_to=skynet-baza0(id=126258782286105062)
+```
+
+Каждый коннектор показывает:
+- `status` — `Connected`, `Connectable` или `Unconnected`
+- `connected_to` — имя и ID грида, к которому подключён (или `None`)
+
+---
+
 ## 🚀 Docking in Space — `dock.py`
 
 **For ALL docking operations in space (connector-to-connector), use `dock.py`:**

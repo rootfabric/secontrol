@@ -389,7 +389,7 @@ function buildScene(data, focusCamera = false) {
         if (isDevice) {
             const label = block.name || block.subtype || block.type || '';
             if (label) {
-                const lbl = addLabel(label, mesh.position.clone().add(new THREE.Vector3(0, 3, 0)), '', false, 120);
+                const lbl = addLabel(label, mesh.position.clone().add(new THREE.Vector3(0, 3, 0)), '', false, 40);
                 if (isDamaged) lbl.style.color = '#ff5555';
             }
         }
@@ -426,7 +426,7 @@ function buildScene(data, focusCamera = false) {
     for (const ng of nearby) {
         if (!ng.position) continue;
         const local = orientLocal(ng.position.x, ng.position.y, ng.position.z);
-        if (local.length() < 1) continue;
+        if (local.length() < 0.5) continue;
 
         const ngGeo = new THREE.BoxGeometry(4, 4, 4);
         const ngMat = new THREE.MeshLambertMaterial({ color: 0x3a4a5a, wireframe: true, transparent: true, opacity: 0.5 });
@@ -444,7 +444,7 @@ function buildScene(data, focusCamera = false) {
     for (const sg of subgrids) {
         if (!sg.position) continue;
         const local = orientLocal(sg.position.x, sg.position.y, sg.position.z);
-        if (local.length() < 1) continue;
+        if (local.length() < 0.5) continue;
 
         const sgGeo = new THREE.BoxGeometry(3, 3, 3);
         const sgMat = new THREE.MeshLambertMaterial({ color: 0xbd93f9, wireframe: true, transparent: true, opacity: 0.6 });

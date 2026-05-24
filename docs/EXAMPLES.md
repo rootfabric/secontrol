@@ -62,6 +62,17 @@ Prerequisites: `pip install -e ".[dev]"`, Redis connection, Space Engineers gate
 
 ---
 
+## Beacons (beacon/)
+
+| Script | What it does |
+|---|---|
+| `set_beacon_to_grid_name.py` | Set beacon content to match grid name — `beacon.send_command({"cmd": "set_name", "name": new_content})` |
+| `rename_beacon_example.py` | Rename beacon content text visible to all players |
+
+**Key patterns:** `grid.find_devices_by_type("beacon")`, `device.send_command({"cmd": "set_name", "name": ...})`.
+
+---
+
 ## Connectors (connector/)
 
 | Script | What it does |
@@ -343,6 +354,7 @@ Prerequisites: `pip install -e ".[dev]"`, Redis connection, Space Engineers gate
 
 | Script | What it does |
 |---|---|
+| `check_docking_status.py` | Показать статус парковки всех гридов (коннектор → Connected/Unconnected/Connectable) |
 | `park_drone.py` | Park drone above base connector: find connector position, fly to coordinates |
 | `park_drone_auto.py` | Automated parking with position feedback |
 | `park_mode.py` | Enter/exit park mode |
@@ -355,6 +367,8 @@ Prerequisites: `pip install -e ".[dev]"`, Redis connection, Space Engineers gate
 | `return_drone_to_base.py` | Navigate drone back to base |
 
 **Key patterns:** `Grid.from_name()`, `connector.telemetry.get("position")`, `connector.telemetry.get("connectorStatus")`, `RemoteControlDevice.goto()`.
+
+**Full documentation:** `examples/organized/parking/README.md`
 
 ---
 

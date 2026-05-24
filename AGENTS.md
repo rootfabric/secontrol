@@ -20,6 +20,8 @@ Quick-nav for AI agents. Two tracks:
 
 | Task | Doc |
 |---|---|
+| **Проверить парковку гридов** | `examples/organized/parking/check_docking_status.py` |
+| **Парковка дронов (полный справочник)** | `examples/organized/parking/README.md` |
 | **Стыковка** (коннектор к коннектору) | `docs/agent-skills/gaming/secontrol-space-engineers/references/space-docking.md` + `docs/workflows/docking.md` |
 | **Sub-meter maneuvers** (парковка, финальное сближение) | `docs/agent-skills/gaming/secontrol-space-engineers/references/navigation-and-flight.md` → low-level `rc.goto()` / `fly_to_point()` |
 
@@ -48,6 +50,7 @@ Quick-nav for AI agents. Two tracks:
 
 | Task | Doc |
 |---|---|
+| **Перемещение ресурсов на базу** | `examples/organized/container/advanced/pull_items_from_docked_grid.py` — выгружает контейнеры, кокпиты, буры, рефини (input/output) на припаркованном гриде |
 | **Production / Assembler** | `docs/agent-skills/gaming/secontrol-space-engineers/SKILL.md` |
 | **Статус грида** (блоки, повреждения, контейнеры) | `docs/agent-skills/gaming/se-grid-status-report/SKILL.md` |
 
@@ -56,6 +59,13 @@ Quick-nav for AI agents. Two tracks:
 | Task | Doc |
 |---|---|
 | **Redis мониторинг, алерты** | `docs/agent-skills/gaming/game-server-automation/SKILL.md` |
+
+### Управление устройствами
+
+| Task | Doc |
+|---|---|
+| **Переименовать маяк** (контент, видный всем) | `examples/organized/beacon/set_beacon_to_grid_name.py` |
+| **Переименовать устройство** | `examples/organized/grid/intermediate/grid_rename_device_example.py` |
 
 ---
 

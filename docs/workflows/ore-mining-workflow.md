@@ -3,23 +3,36 @@
 ## Быстрый цикл добычи (одна команда)
 
 ```bash
-# 1. Сканировать руду (1km для полного покрытия)
-python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 --radius 1000
+# 0. Проверить известные руды (чтобы не сканировать заново)
+python examples/organized/radar/shared_map/shared_map_deposits.py \
+    --grid skynet-baza0 --material Nickel --clusters --gps
 
-# 2. Долететь до руды
+# Если руда не найдена:
+# 1. Сканировать руду
+python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 --radius 500
+#    Если scanner вернул 0 — использовать прямой scan_and_wait() (см. Шаг 1)
+
+# 2. Долететь до руды (навигатор сам облетит астероид)
 python examples/space_flight/space_navigator_v4.py \
     --grid skynet-baza0 \
     --target="X,Y,Z" \
-    --arrival 150
+    --arrival 50
 
-# 3. Навести зону бура (ПОСЛЕ КАЖДОГО ПЕРЕЛЁТА!)
-python examples/organized/drill_nano/set_nanodrill_area.py --grid skynet-baza0 --target X Y Z --reset-area
-
-# 4. Добыть нужное кол-во
-python examples/organized/drill_nano/mine_until.py --grid skynet-baza0 --ore Platinum --amount 10000 --check-interval 5
+# 3. Добыть нужное кол-во (одна команда — mine_until сам наводит бур, включает, мониторит)
+python examples/organized/drill_nano/mine_until.py \
+    --grid skynet-baza0 \
+    --ore Nickel \
+    --target X Y Z \
+    --amount 10000 \
+    --check-interval 5
 ```
 
 Всё — бурение запустится и остановится автоматически при достижении целевого количества.
+
+**⚠️ ВАЖНО:** Не запускать `set_nanodrill_area.py` отдельно перед `mine_until.py`.
+`mine_until.py` сам вычисляет и применяет AreaOffset **в правильном порядке**
+(после WorkMode). Если запустить `set_nanodrill_area.py` до `mine_until.py`,
+WorkMode внутри `mine_until.py` сбросит эти офсеты.
 
 ---
 
@@ -48,31 +61,60 @@ python examples/organized/radar/shared_map/shared_map_report.py --grid <grid_nam
 python examples/organized/radar/shared_map/shared_map_scan.py --grid <grid_name>
 ```
 
-### Шаг 1 — Сканировать руду (подлёт к астероиду)
+### Шаг 1 — Сканировать руду
 
-**Когда:** руда не найдена на шаге 0, либо после прилёта к новому астероиду.
+**Когда:** руда не найдена на шаге 0.
 
-**Важно:** всегда использовать `--radius 1000` (1km) для полного покрытия астероида.
+**⚠️ ВАЖНО:** `ore_deposit_scanner.py` может вернуть 0 ore cells
+(stale scan data — навигатор мог уже сканировать эту область без ore_only).
+В таком случае — использовать прямой `scan_and_wait()` на `OreDetectorDevice`.
 
 ```bash
-# Стандартный скан (1km — хватает для большинства астероидов)
-python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 --radius 1000
+# Стандартный скан (начинать с 500м — сервер ограничивает до 300м эффективно)
+python examples/organized/radar/ore_deposit_scanner.py --grid skynet-baza0 --radius 500
 
 # После скана — сохранить в SharedMapController
-python examples/organized/radar/shared_map/shared_map_scan.py --grid skynet-baza0 --radius 1000
+python examples/organized/radar/shared_map/shared_map_scan.py --grid skynet-baza0 --radius 500
 ```
 
-Результат: GPS координаты рудных кластеров + автоматически записываются в БД. Например:
+Если `ore_deposit_scanner.py` вернул 0 ценных руд — форсировать свежий скан:
+
+```bash
+python -c "
+import time
+from secontrol import Grid
+from secontrol.devices.ore_detector_device import OreDetectorDevice
+
+grid = Grid.from_name('skynet-baza0')
+det = grid.find_devices_by_type(OreDetectorDevice)[0]
+det.scan_and_wait(radius=500, ore_only=True, timeout=30)
+time.sleep(1)
+cells = det.ore_cells()
+print(f'Найдено ячеек руды: {len(cells)}')
+ores = {}
+for c in cells:
+    t = c['ore']
+    ores[t] = ores.get(t, 0) + 1
+for t, n in sorted(ores.items(), key=lambda x: -x[1]):
+    print(f'  {t}: {n} жил')
+    for c in cells:
+        if c['ore'] == t:
+            print(f'    {c[\"position\"]} content={c[\"content\"]}')
+            break
+"
 ```
-Nickel: 37 deposits, closest: 93m
-GPS:Nickel_1:-50626.3:146646.9:-137739.8:#FF8800:
-Silicon: 3 deposits, closest: 298m
-GPS:Silicon_3:-50473.4:146686.4:-137884.5:#FF8800:
+
+Результат: мировые координаты ячеек руды. Например:
 ```
+Nickel: 31 deposits
+    [-50626.734, 146646.403, -137736.175] content=255
+Silicon: 2 deposits
+    [-50476.734, 146686.403, -137886.175] content=255
+```
+
+**Координаты любой никелевой ячейки можно использовать как `--target` в mine_until.py.**
 
 ### Шаг 2 — Долететь до руды (космос)
-
-**Если руда дальше ~300m от drill** —  Нужно долететь на расстояние которое позволяет space_navigator_v4:
 
 ```bash
 python examples/space_flight/space_navigator_v4.py \
@@ -81,70 +123,53 @@ python examples/space_flight/space_navigator_v4.py \
     --arrival 50
 ```
 
-- `--target` — координаты рудного кластера из шага 1
-- `--arrival 50` — остановиться в 50m от цели (безопасное расстояние)
+- `--target` — координаты рудного кластера или ячейки из шага 1
+- `--arrival 50` — остановиться в 50m от цели (навигатор сам облетит астероид)
+- В результате корабль оказывается ~100-200м от руды
 
-### Шаг 3 — Навести зону бура на руду
+### Шаг 3 — Добыть руду (одна команда)
 
-**Важно:** Команду нужно запускать каждый раз когда корабль меняет позицию — она вычисляет offsets относительно текущего положения корабля.
-
-```bash
-python examples/organized/drill_nano/set_nanodrill_area.py \
-    --grid skynet-baza0 \
-    --target X Y Z \
-    --reset-area
-```
-
-- `--target` — координаты руды (X Y Z через пробел)
-- `--reset-area` — сбросить старые offsets перед применением новых
-
-Скрипт автоматически:
-1. Определяет текущую позицию корабля
-2. Вычисляет `AreaOffsetFrontBack`, `AreaOffsetUpDown`, `AreaOffsetLeftRight`
-3. Применяет offsets через `Drill.AreaOffset*` свойства
-
-**После изменения позиции корабля — повтори команду!**
-
-### Шаг 3б — Включить сбор руды фильтром
-
-После наведения зоны (или после каждого перелёта) включить режим `Collect` с фильтрами. Не вызывать `start_drilling()` после настройки Collect:
-
-```bash
-python -c "
-import sys, time
-sys.path.insert(0, 'src')
-from dotenv import load_dotenv
-load_dotenv('.env')
-from secontrol import Grid
-from secontrol.devices.nanobot_drill_system_device import NanobotDrillSystemDevice
-
-grid = Grid.from_name('skynet-baza0')
-drill = grid.find_devices_by_type(NanobotDrillSystemDevice)[0]
-
-drill.start_drilling_ore(['Nickel'], collect_resources=['Ore'], work_mode='Collect')
-"
-```
-
-### Шаг 4 — Добыть нужное количество
+**⚠️ ВАЖНО:** Не использовать `set_nanodrill_area.py` + ручной конфиг бура отдельно.
+`mine_until.py` сам делает всё в правильном порядке:
 
 ```bash
 python examples/organized/drill_nano/mine_until.py \
     --grid skynet-baza0 \
-    --ore Platinum \
+    --ore Nickel \
+    --target X Y Z \
     --amount 10000 \
     --check-interval 5
 ```
 
+- `--target` — мировые координаты руды (X Y Z через пробел, из шага 1)
 - `--amount` — сколько добыть (delta от текущего)
 - `--check-interval` — как часто проверять (сек)
 - `--ore` — тип руды (Nickel, Gold, Platinum, Silicon, Uranium, Iron и т.д.)
 
-Скрипт:
-1. Фиксирует baseline
-2. Включает `Collect` с фильтрами `ResourceFilter=Ore` и `OreFilter=<ore>`; `start_drilling()` не вызывается
-3. Мониторит контейнеры каждые N секунд
-4. Останавливает при достижении цели
-5. Показывает rate (ед/сек) и ETA
+**Что делает mine_until.py внутри (правильный порядок):**
+
+```
+1. Выключает бур
+2. ScriptControlled=True
+3. CollectFilter = ["Ore"]
+4. OreFilter = [Nickel]
+5. WorkMode = Collect    ← СБРАСЫВАЕТ AreaOffset!
+6. ScriptControlled = False
+7. WorkMode = Collect    ← ещё раз, для надёжности
+8. AreaOffset = FB=+161.3, UD=+21.8, LR=-14.3   ← ПОСЛЕ WorkMode!
+9. ShowArea = True
+10. OnOff = True (ждёт ~10с для авто-старта)
+11. Мониторит контейнеры каждые N секунд
+12. Показывает rate (ед/сек) и ETA
+13. Останавливает при достижении цели
+```
+
+**Почему нельзя запускать set_nanodrill_area.py перед mine_until.py:**
+- `set_nanodrill_area.py` ставит AreaOffset (шаг 8)
+- `mine_until.py` при запуске ставит WorkMode (шаг 5,7) — **это сбрасывает AreaOffset в 0!**
+- В результате offsets теряются, бур не видит цели
+
+**Решение:** `mine_until.py` вычисляет AreaOffset сам и применяет его ПОСЛЕ WorkMode.
 
 ### Шаг 5 — Проверить результат
 
@@ -186,17 +211,21 @@ grid.find_items_by_subtype("Platinum")
 
 ## Важно
 
-- **Nanobot Drill radius: 1000m** — НЕ подлетай близко! Зона бура 75×75×75 достигает руды на расстоянии до ~1km. Подлёт к руде на 50m — это для обычного бура, нанобур работает с расстояния. Останавливайся минимум в 100-200m от руды, чтобы не врезаться в астероид.
-- **Ore фильтр:** `mine_until.py` фильтрует камень автоматически — только запрошенная руда
-- **Drill area reach:** Цель должна быть ≤~110m от drill. Если дальше — нужен полёт ближе
-- **Корабль на месте:** Зона добычи сдвигается через AreaOffset, не через полёт
-- **Остановка бура:** `drill.stop_drilling()` + `drill.turn_off()`
+- **WorkMode сбрасывает AreaOffset!** AreaOffset нужно ставить ПОСЛЕ WorkMode.
+  `mine_until.py` делает это правильно. `set_nanodrill_area.py` — нет.
+- **Nanobot Drill radius: 1000m** — не подлетай близко! Останавливайся в 100-200m.
+- **Сканер может вернуть 0** — `ore_deposit_scanner.py` использует stale data.
+  Используй `det.scan_and_wait()` для свежего скана.
+- **Drill reach:** 75×75×75м со сдвигом до ±1000м по каждой оси. 163м от бура — работает.
+- **Корабль на месте:** Зона добычи сдвигается через AreaOffset, не через полёт.
+- **Остановка бура:** `mine_until.py` сам останавливает бур при достижении цели.
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---------|-----|
-| targets=0 после наведения | Sweep offsets ±50m; или цель вне зоны reach (>110m от drill) |
-| Нет Nickel в контейнерах | Проверить `surfaceDistance=0` — корабль должен быть на астероиде |
-| Фильтр не работает | `start_drilling_ore(["Nickel"])`; не вызывать `start_drilling()` после настройки Collect |
-| Drill state corruption | Полный reset: stop→off→WorkMode=Collect→ResourceFilter=Ore→OreFilter=<ore>→ScriptControlled=False→on |
+| Симптом | Причина | Фикс |
+|---------|---------|------|
+| targets=0 | WorkMode сбросил AreaOffset | Использовать mine_until.py (ставит Offset после WorkMode) |
+| 0 ore cells в scanner | Stale scan data | Использовать `det.scan_and_wait()` напрямую |
+| Нет Nickel в контейнерах | Корабль не на астероиде | Проверить surfaceDistance=0 |
+| Фильтр не работает | Вызван start_drilling() после Collect | Не вызывать start_drilling() |
+| Drill state corruption | Много изменений конфига | Полный reset (off→WorkMode→AreaOffset→on) |
