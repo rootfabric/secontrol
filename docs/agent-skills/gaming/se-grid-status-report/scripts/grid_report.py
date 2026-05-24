@@ -148,51 +148,54 @@ def report_grid(gid, gname):
     elif has_hydrogen_thrusters:
         print(f'  Hydrogen: [WARN] no hydrogen tanks found')
 
-    containers_found = False
+    all_inventory_items = []
     total_inventory_mass = 0.0
-    inventory_items_count = 0
+
     for did, dev in grid.devices.items():
         t = telemetry_map.get(did, dev.telemetry or {})
         dtype = dev.device_type
+        name = t.get('CustomName', t.get('displayName', dtype))
         if dtype == 'container':
-            if not containers_found:
-                print(f'  Containers:')
-                containers_found = True
             inv = dev.get_inventory()
-            name = t.get('CustomName', 'Container')
-            enabled = t.get('enabled', True)
-            icon = '[ON]' if enabled else '[OFF]'
             mass = inv.current_mass if inv else 0.0
             total_inventory_mass += mass
-            print(f'    {icon} {name}: {mass:,.0f} kg')
             if inv and inv.items:
                 for item in inv.items:
-                    inventory_items_count += 1
-                    print(f'      {item.display_name}: {format_amount(item.amount)}')
-            else:
-                print(f'      (empty)')
+                    all_inventory_items.append({'name': item.display_name, 'amount': item.amount, 'source': name})
         elif dtype == 'reactor':
             inv = dev.get_inventory()
             if inv:
                 total_inventory_mass += inv.current_mass if inv.current_mass else 0.0
                 if inv.items:
-                    inventory_items_count += len(inv.items)
+                    for item in inv.items:
+                        all_inventory_items.append({'name': item.display_name, 'amount': item.amount, 'source': name})
         elif dtype in ('refinery', 'assembler'):
-            t = telemetry_map.get(did, dev.telemetry or {})
-            name = t.get('CustomName', t.get('displayName', dev.device_type))
             for label, key in [('INPUT', 'inputInventory'), ('OUTPUT', 'outputInventory')]:
-                inv = t.get(key, {})
-                if not isinstance(inv, dict):
+                inv_data = t.get(key, {})
+                if not isinstance(inv_data, dict):
                     continue
-                items = inv.get('items', [])
-                mass = inv.get('currentMass', 0)
+                items = inv_data.get('items', [])
+                mass = inv_data.get('currentMass', 0)
                 if items:
                     total_inventory_mass += mass
-                    inventory_items_count += len(items)
-                    print(f'  [{name}] {label} ({mass:,.0f} kg):')
                     for item in items:
-                        dn = item.get('displayName', item.get('subtype', '?'))
-                        print(f'      {dn}: {format_amount(item.get("amount", 0))}')
+                        all_inventory_items.append({'name': item.get('displayName', item.get('subtype', '?')), 'amount': item.get('amount', 0), 'source': name + ' ' + label})
+
+    from collections import defaultdict
+    aggregated = defaultdict(lambda: {'amount': 0.0, 'sources': []})
+    for item in all_inventory_items:
+        key = item['name']
+        aggregated[key]['amount'] += item['amount']
+        if item['source'] not in aggregated[key]['sources']:
+            aggregated[key]['sources'].append(item['source'])
+
+    if aggregated:
+        print('  Containers:')
+        for name, data in sorted(aggregated.items()):
+            sources_str = ', '.join(data['sources']) if len(data['sources']) <= 2 else ', '.join(data['sources'][:2]) + '...'
+            print(f'    {name}: {format_amount(data["amount"])} ({sources_str})')
+    else:
+        print('  Containers: (empty)')
 
     hydrogen_warning = None
     flight_ready = True
@@ -201,29 +204,44 @@ def report_grid(gid, gname):
         if total_h_pct < 20:
             if not has_ion_thrusters and thruster_atmospheric == 0:
                 flight_ready = False
-                hydrogen_warning = f'CRITICAL: No hydrogen fuel ({total_h_pct:.0f}%) and no electric backup!'
+                hydrogen_warning = f'CRITICAL: No hydrogen fuel ({total_h_pct:.0f}%) and no thrust backup!'
+            elif len(reactors) == 0 and (not batteries or all(b['pct'] < 20 for b in batteries)):
+                flight_ready = False
+                hydrogen_warning = f'CRITICAL: No hydrogen ({total_h_pct:.0f}%), no reactor, battery low!'
             else:
-                hydrogen_warning = f'WARNING: Low hydrogen ({total_h_pct:.0f}%), electric thrusters available'
+                hydrogen_warning = f'WARNING: Low hydrogen ({total_h_pct:.0f}%), ion/electric available'
         elif total_h_pct < 50:
             hydrogen_warning = f'Low hydrogen: {total_h_pct:.0f}%'
         else:
             hydrogen_warning = f'OK: {total_h_pct:.0f}%'
+    elif has_hydrogen_thrusters and not hydrogen_tanks:
+        flight_ready = False
+        hydrogen_warning = f'CRITICAL: Hydrogen thrusters present but no tank found!'
 
     if hydrogen_warning:
         icon = '[OK]' if 'OK' in hydrogen_warning else ('[WARN]' if 'WARNING' in hydrogen_warning else '[FAIL]')
         print(f'  Fuel Status: {icon} {hydrogen_warning}')
 
     if batteries:
-        for bat in batteries:
-            if bat['pct'] < 20:
-                flight_ready = False
+        low_battery = all(b['pct'] < 20 for b in batteries)
+        if low_battery and len(reactors) == 0:
+            flight_ready = False
+            print(f'  [FAIL] CRITICAL: Battery low (<20%) and no reactor!')
+        elif low_battery:
+            flight_ready = False
+            print(f'  [FAIL] Battery low (<20%)')
+        elif any(b['pct'] < 30 for b in batteries) and len(reactors) == 0:
+            flight_ready = False
+            print(f'  [FAIL] Battery <30% and no reactor - no power backup!')
+        elif any(b['pct'] < 30 for b in batteries):
+            print(f'  [WARN] Battery low (<30%)')
 
     if flight_ready:
         print(f'  [OK] READY FOR FLIGHT')
     else:
         print(f'  [FAIL] NOT READY FOR FLIGHT')
 
-    print(f'  Total inventory mass: {total_inventory_mass:,.0f} kg ({inventory_items_count} items)')
+    print(f'  Total inventory mass: {total_inventory_mass:,.0f} kg ({len(aggregated)} types)')
 
 
 def main():
