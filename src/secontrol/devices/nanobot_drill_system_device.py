@@ -47,20 +47,20 @@ class NanobotDrillSystemDevice(BaseDevice):
     _PROPERTY_PREFIX = "DrillSystem"
 
     _WORK_MODE_VALUES: Dict[str, int] = {
-        "Fill": 0,
-        "Collect": 1,
-        "Drill": 2,
+        "Drill": 1,
+        "Collect": 2,
+        "Fill": 4,
     }
 
     _WORK_MODE_ALIASES: Dict[str, str] = {
-        "fill": "Fill",
-        "0": "Fill",
-        "collect": "Collect",
-        "collection": "Collect",
-        "1": "Collect",
         "drill": "Drill",
         "mining": "Drill",
-        "2": "Drill",
+        "1": "Drill",
+        "collect": "Collect",
+        "collection": "Collect",
+        "2": "Collect",
+        "fill": "Fill",
+        "4": "Fill",
     }
 
     _COLLECT_RESOURCE_ALIASES: Dict[str, str] = {
@@ -448,9 +448,9 @@ class NanobotDrillSystemDevice(BaseDevice):
             return None
 
         mode_map = {
-            0: "Fill",
-            1: "Collect",
-            2: "Drill",
+            1: "Drill",
+            2: "Collect",
+            4: "Fill",
         }
 
         if isinstance(mode_raw, int):

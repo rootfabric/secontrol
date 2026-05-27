@@ -6,15 +6,18 @@ Quick-nav for AI agents. Two tracks:
 
 ## Space Survival (космос — полёты, парковка, майнинг)
 
-Для любых действий в космосе — агент должен начинать отсюда.
+**⚡ ПЕРВОЕ — посмотри готовые скрипты:**
+👉 `docs/agent-skills/gaming/secontrol-space-engineers/OPERATIONS.md`
+
+Там все готовые решения: навигация, докинг, добыча, диагностика.
 
 ### Перелёты
 
 | Task | Doc |
 |---|---|
-| **Полёт в космосе** (между астероидами, к базе) | `docs/agent-skills/gaming/secontrol-space-engineers/references/navigation-and-flight.md` → `SpaceNavigatorController` |
-| **Полёт к астероиду** (готовый скилл) | `docs/agent-skills/gaming/se-asteroid-approach/SKILL.md` |
-| **Примеры** | `examples/space_flight/space_navigator_v4.py` |
+|| **Полёт в космосе** (между астероидами, к базе) | `docs/agent-skills/gaming/secontrol-space-engineers/references/navigation-and-flight.md` → `SpaceNavigatorController` |
+|| **Полёт к астероиду** (готовый скилл) | `docs/agent-skills/gaming/se-asteroid-approach/SKILL.md` |
+|| **Примеры полётов** | `scripts/space_navigator_v4.py`, `scripts/test_flight_10km.py` |
 
 ### Парковка / точные перемещения
 
