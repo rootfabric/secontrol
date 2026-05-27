@@ -33,7 +33,7 @@ Quick-nav for AI agents. Two tracks:
 | Task | Doc |
 |---|---|
 | **Проверить разведанные руды** (SharedMapController / JSON) | `examples/organized/radar/shared_map/AGENTS.md` → `shared_map_deposits.py` / `shared_map_report.py` |
-| **Бурение наносборщиком** | `docs/agent-skills/gaming/secontrol-space-engineers/references/nanobot-drill-mining-workflow.md` |
+| **Бурение наносборщиком** | `examples/organized/drill_nano/nanodrill_agent.md` — полная инструкция по Nanobot Drill (мод Outenemy) + рабочие скрипты |
 | **Скан руды** (Voxel / OreDetector) | `docs/agent-skills/gaming/secontrol-space-engineers/references/asteroid-scanning.md` + `ore_deposit_scanner.py` |
 | **Скан месторождений** (готовый скрипт) | `examples/organized/radar/ore_deposit_scanner.py` |
 
