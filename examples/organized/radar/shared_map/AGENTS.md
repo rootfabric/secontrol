@@ -58,9 +58,28 @@ python examples/organized/radar/shared_map/shared_map_report.py --grid skynet-ba
 python examples/organized/radar/shared_map/shared_map_memory.py --grid skynet-baza0
 ```
 
+### 5. `clear_ore_data.py` — очистка данных руд после рестарта
+
+Удаляет все ore-чанки из Redis и чистит индекс. Нужно после рестарта сервера, когда координаты руд устарели.
+
+```bash
+python examples/organized/radar/shared_map/clear_ore_data.py                # dry-run — показать что будет удалено
+python examples/organized/radar/shared_map/clear_ore_data.py --apply         # удалить все ore-данные
+python examples/organized/radar/shared_map/clear_ore_data.py --apply --keep-index  # удалить ключи, но оставить индекс
+```
+
+Параметры:
+- `--apply` — реально удалить (по умолчанию dry-run)
+- `--keep-index` — не очищать список ore-чанков из индекса
+- `--owner-id` — Owner ID (по умолчанию из .env)
+
 ## Типовой пайплайн для агента
 
 ```
+0. После рестарта сервера — очистить устаревшие данные:
+→ clear_ore_data.py --apply
+→ shared_map_scan.py --grid <grid>   # свежий скан
+
 1. Запрос: "найди платину"
 → shared_map_deposits.py --grid <grid> --material Platinum --clusters
 
@@ -89,3 +108,4 @@ for d in deps:
 | `shared_map_deposits.py --clusters` | SharedMap → fallback `ore_database.jsonl` |
 | `shared_map_deposits.py` (без --clusters) | SharedMap → fallback `ore_latest.json` + `all_deposits` |
 | `shared_map_scan.py` | Новый скан → сохраняет в SharedMap |
+| `clear_ore_data.py` | Удалить все ore-данные из Redis (после рестарта) |
