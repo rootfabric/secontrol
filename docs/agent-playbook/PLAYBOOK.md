@@ -1,6 +1,33 @@
 # Agent Playbook — Готовые команды для работы в игре
 
-Агент работает в игре? Начни здесь. Все команды — копировать и запускать. Никакого кодирования.
+Агент работает в игре? Начни здесь. Все команды — копировать и запускать. Никакого кодирования без крайней необходимости нестандартных задач.
+
+
+
+### Быстрые команды
+
+```bash
+# Проверить состояние корабля (все гриды)
+python docs/agent-skills/gaming/se-grid-status-report/scripts/grid_report.py
+
+# Проверить конкретный грид (например, agent0)
+python docs/agent-skills/gaming/se-grid-status-report/scripts/grid_report.py agent0
+
+# Проверить готовность к полёту (батареи, водород)
+python examples/organized/diagnostics/check_flight_ready.py agent0
+
+# Обзор пространства (астероиды в радиусе 50км)
+python examples/organized/radar/space_survey.py --grid agent0
+
+# Сканировать руды
+python examples/organized/radar/ore_scanner.py --grid agent0
+
+# Синхронизировать данные в Redis
+python examples/organized/radar/shared_map/shared_map_sync.py --grid agent0
+
+# Лететь к ближайшему астероиду
+python examples/space_flight/space_navigator_v4.py --grid agent0 --nearest-asteroid
+```
 
 ---
 
@@ -25,11 +52,35 @@ python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1
 
 ---
 
+## Как узнать имя грида
+
+Параметр `--grid` поддерживает **неполное имя** (регистронезависимый поиск). Если не знаете точное имя:
+
+```bash
+# Список всех гридов
+python -c "from secontrol.common import get_all_grids; [print(f'{name} (ID: {gid})') for gid, name in get_all_grids()]"
+
+# Или через готовый скрипт
+python examples/organized/grid/basic/list_grids.py
+```
+
+После этого можно использовать любую уникальную часть имени:
+```bash
+python examples/organized/radar/space_survey.py --grid Mining
+```
+
+Если совпадений несколько — скрипт покажет все варианты и попросит уточнить.
+
+---
+
 ## Навигация
 
 ### Обзор пространства
 
 ```bash
+# Сканировать гриды и игроков вокруг (радар, без вокселей)
+python examples/organized/radar/basic/scan_contacts.py --grid agent1
+
 # Все астероиды в радиусе 20км + какие разведаны
 python examples/organized/radar/space_survey.py --grid agent1
 

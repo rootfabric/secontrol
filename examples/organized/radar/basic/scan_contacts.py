@@ -95,7 +95,7 @@ def main() -> None:
         if grids:
             print(f"\n  GRIDS:")
             print(f"  {'Name':<30} {'Distance':>10}  {'Position'}")
-            print(f"  {'─'*30} {'─'*10}  {'─'*40}")
+            print(f"  {'-'*30} {'-'*10}  {'-'*40}")
             for g in grids:
                 pos = contact_position(g)
                 name = contact_name(g)
@@ -110,7 +110,7 @@ def main() -> None:
         if players:
             print(f"\n  PLAYERS:")
             print(f"  {'Name':<30} {'Distance':>10}  {'Position'}")
-            print(f"  {'─'*30} {'─'*10}  {'─'*40}")
+            print(f"  {'-'*30} {'-'*10}  {'-'*40}")
             for p in players:
                 pos = contact_position(p)
                 name = contact_name(p)

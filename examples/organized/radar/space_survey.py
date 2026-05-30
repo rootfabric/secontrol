@@ -38,7 +38,7 @@ from secontrol.controllers.shared_map_controller import OreHit
 from secontrol.devices.ore_detector_device import OreDetectorDevice
 from secontrol.tools.navigation_tools import get_world_position
 
-DEFAULT_RADIUS = 20_000
+DEFAULT_RADIUS = 50_000
 
 
 def request_asteroids(
