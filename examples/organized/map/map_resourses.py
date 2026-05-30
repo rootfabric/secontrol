@@ -1,7 +1,7 @@
 from secontrol.controllers.surface_flight_controller import SurfaceFlightController
 
 def main():
-    controller = SurfaceFlightController("taburet")
+    controller = SurfaceFlightController("agent1")
 
     # 1) Загружаем карту из Redis вокруг текущей позиции
     controller.load_map_region(radius=1500.0)

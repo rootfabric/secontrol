@@ -181,7 +181,7 @@ class App:
 
 
 def main() -> None:
-    app = App("taburet")
+    app = App("agent1")
     try:
         while True:
             app.patrol_step()

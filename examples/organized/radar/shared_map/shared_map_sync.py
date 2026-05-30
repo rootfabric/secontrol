@@ -11,11 +11,11 @@ SharedMap Sync — загрузка локальных данных в Redis.
   - После ручного копирования JSON-файлов с другого ПК
 
 Usage:
-    python shared_map_sync.py --grid agent1                    # из ore_latest.json
-    python shared_map_sync.py --grid agent1 --source jsonl     # из ore_database.jsonl (все сканы)
-    python shared_map_sync.py --grid agent1 --source all       # latest + jsonl
-    python shared_map_sync.py --grid agent1 --dry-run          # без сохранения
-    python shared_map_sync.py --grid agent1 --storage sqlite   # SQLite вместо Redis
+    python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1                    # из ore_latest.json
+    python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1 --source jsonl     # из ore_database.jsonl (все сканы)
+    python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1 --source all       # latest + jsonl
+    python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1 --dry-run          # без сохранения
+    python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1 --storage sqlite   # SQLite вместо Redis
 """
 
 import argparse
@@ -93,7 +93,7 @@ def load_cells_from_jsonl() -> list[dict]:
 
 def main():
     parser = argparse.ArgumentParser(description="Sync local ore data to SharedMap (Redis/SQLite)")
-    parser.add_argument("--grid", default="skynet-baza0", help="Grid name or ID (for owner_id)")
+    parser.add_argument("--grid", default="agent0", help="Grid name or ID (for owner_id)")
     parser.add_argument("--source", default="latest", choices=["latest", "jsonl", "all"],
                         help="Data source: latest=ore_latest.json, jsonl=ore_database.jsonl, all=both")
     parser.add_argument("--storage", default="redis", choices=["redis", "sqlite"], help="Storage backend")

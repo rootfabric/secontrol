@@ -11,12 +11,12 @@ Ore Scanner — универсальный сканер руд.
   - SharedMap:       Redis (или SQLite с --storage sqlite)
 
 Usage:
-    python ore_scanner.py --grid agent1
-    python ore_scanner.py --grid agent1 --radius 500
-    python ore_scanner.py --grid agent1 --no-redis          # только файл
-    python ore_scanner.py --grid agent1 --storage sqlite     # SQLite вместо Redis
-    python ore_scanner.py --grid agent1 --full_scan          # + полная геометрия
-    python ore_scanner.py --find Platinum                    # поиск в последнем скане
+    python examples/organized/radar/ore_scanner.py --grid agent1
+    python examples/organized/radar/ore_scanner.py --grid agent1 --radius 500
+    python examples/organized/radar/ore_scanner.py --grid agent1 --no-redis          # только файл
+    python examples/organized/radar/ore_scanner.py --grid agent1 --storage sqlite     # SQLite вместо Redis
+    python examples/organized/radar/ore_scanner.py --grid agent1 --full_scan          # + полная геометрия
+    python examples/organized/radar/ore_scanner.py --find Platinum                    # поиск в последнем скане
 """
 
 import argparse
