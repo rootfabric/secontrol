@@ -50,6 +50,19 @@ PHASE3_SPEED_FAST = 3.0     # m/s
 PHASE3_SPEED_SLOW = 1.0
 PHASE3_SPEED_CREEP = 0.5
 
+# Safety guard for final docking. If the ship is already close but the
+# connector angle becomes too large, continuing forward usually makes the
+# ship scrape/overshoot. In that case we back away, stop, realign, and retry.
+SAFE_NEAR_DISTANCE = 12.0
+SAFE_ANGLE_JUMP_DEG = 20.0
+SAFE_PANIC_ANGLE_DEG = 85.0
+SAFE_BACKOFF_DISTANCE = 10.0
+SAFE_BACKOFF_SPEED = 1.5
+SAFE_BACKOFF_TIMEOUT = 22.0
+SAFE_MAX_BACKOFFS = 4
+APPROACH_RC_REACHED_DIST = 2.0
+APPROACH_CONNECTOR_ACCEPT_DIST = 16.0
+
 # =====================================================================
 # Utility functions
 # =====================================================================
@@ -160,6 +173,120 @@ def compute_ship_target(rc, sc, axis_dir, move_dist):
     if not rc_pos or not sc_pos: return None
     offset = vec_sub(sc_pos, rc_pos)
     return vec_sub(vec_add(sc_pos, move_dist, axis_dir), offset)
+
+def refresh_devices(*devices, delay=0.1):
+    for device in devices:
+        try:
+            device.update()
+        except Exception:
+            pass
+    if delay > 0:
+        time.sleep(delay)
+
+def get_connector_forward(sc):
+    sc_orient = (sc.telemetry or {}).get("orientation", {})
+    return normalize(get_vec3(sc_orient.get("forward")) or (0,0,0))
+
+def get_connector_angle(sc, axis_dir):
+    sc_fwd = get_connector_forward(sc)
+    return math.acos(max(-1.0, min(1.0, dot(sc_fwd, axis_dir))))
+
+def fly_connector_offset(rc, sc, axis_dir, move_dist, speed, gps_name, timeout):
+    """Move ship so the ship connector shifts by move_dist along axis_dir."""
+    ship_target = compute_ship_target(rc, sc, axis_dir, move_dist)
+    if not ship_target:
+        return False
+
+    gps = f"GPS:{gps_name}:{ship_target[0]:.1f}:{ship_target[1]:.1f}:{ship_target[2]:.1f}:"
+    rc.goto(gps, speed=speed, gps_name=gps_name)
+    time.sleep(0.2)
+    rc.enable()
+
+    start = time.time()
+    while time.time() - start < timeout:
+        time.sleep(0.5)
+        refresh_devices(rc, sc, delay=0)
+
+        cur = get_pos(rc.telemetry or {})
+        if cur:
+            target_dist = dist3(cur, ship_target)
+            autopilot_enabled = (rc.telemetry or {}).get("autopilotEnabled", False)
+            if target_dist < 1.5 or (not autopilot_enabled and target_dist < 4.0):
+                return True
+
+    return False
+
+def backoff_from_connector(rc, sc, tc, distance=SAFE_BACKOFF_DISTANCE):
+    """Back away from target connector along the current connector-to-connector line."""
+    print(f"  SAFETY: backing away {distance:.1f}m before retry")
+
+    for g in gyros:
+        g.clear_override()
+
+    try:
+        rc.disable()
+    except Exception:
+        pass
+    rc.dampeners_on()
+    time.sleep(0.3)
+
+    refresh_devices(rc, sc, tc, delay=0.1)
+    sc_pos = get_pos(sc.telemetry or {})
+    tc_pos = get_pos(tc.telemetry or {})
+    if not sc_pos or not tc_pos:
+        print("  SAFETY: cannot back off, connector positions are missing")
+        return False
+
+    away_dir = normalize(vec_sub(sc_pos, tc_pos))
+    if away_dir == (0, 0, 0):
+        print("  SAFETY: cannot back off, connector axis is zero")
+        return False
+
+    ok = fly_connector_offset(
+        rc=rc,
+        sc=sc,
+        axis_dir=away_dir,
+        move_dist=distance,
+        speed=SAFE_BACKOFF_SPEED,
+        gps_name="Backoff",
+        timeout=SAFE_BACKOFF_TIMEOUT,
+    )
+
+    try:
+        rc.disable()
+    except Exception:
+        pass
+    rc.dampeners_on()
+    time.sleep(0.5)
+    refresh_devices(rc, sc, tc, delay=0.1)
+
+    if ok:
+        print("  SAFETY: backoff complete")
+    else:
+        print("  SAFETY: backoff command timed out, continuing with caution")
+    return ok
+
+def should_backoff(axis_dist, angle_deg, previous_angle_deg):
+    """Back off only in Phase 3, only close to connector, only on a sharp angle jump."""
+    if axis_dist > SAFE_NEAR_DISTANCE:
+        return False, ""
+
+    if previous_angle_deg is None:
+        if angle_deg >= SAFE_PANIC_ANGLE_DEG:
+            return True, f"panic angle near connector: dist={axis_dist:.1f}m angle={angle_deg:.1f}°"
+        return False, ""
+
+    angle_jump = abs(angle_deg - previous_angle_deg)
+    if angle_jump >= SAFE_ANGLE_JUMP_DEG:
+        return True, (
+            f"sharp angle change near connector: dist={axis_dist:.1f}m "
+            f"angle={previous_angle_deg:.1f}° -> {angle_deg:.1f}°"
+        )
+
+    if angle_deg >= SAFE_PANIC_ANGLE_DEG:
+        return True, f"panic angle near connector: dist={axis_dist:.1f}m angle={angle_deg:.1f}°"
+
+    return False, ""
 
 # =====================================================================
 # MAIN
@@ -302,8 +429,11 @@ while time.time() - start < 120:
         break
 
     if not ap:
-        if sc_dist < 8.0:
-            print("  Autopilot stopped at approach area")
+        if rc_dist < APPROACH_RC_REACHED_DIST and sc_dist < APPROACH_CONNECTOR_ACCEPT_DIST:
+            print(
+                f"  Remote reached approach target; connector residual {sc_dist:.1f}m "
+                "will be handled in Phase 2/3"
+            )
             break
 
         print(f"  Autopilot stopped too early at {sc_dist:.1f}m — retrying approach")
@@ -321,8 +451,10 @@ while time.time() - start < 120:
     prev_d = d
 
     if stuck_count >= 4:
-        if sc_dist < 8.0:
-            print(f"  Approach reached with small residual distance: {sc_dist:.1f}m")
+        if rc_dist < APPROACH_RC_REACHED_DIST and sc_dist < APPROACH_CONNECTOR_ACCEPT_DIST:
+            print(
+                f"  Approach stabilized with rc_dist={rc_dist:.1f}m, sc_dist={sc_dist:.1f}m — continuing"
+            )
             break
 
         print(f"  WARNING: approach stuck at {sc_dist:.1f}m — retrying approach")
@@ -383,15 +515,15 @@ rc.set_collision_avoidance(False)
 step = 0
 stuck_count = 0
 prev_dist = float('inf')
+previous_angle_deg = None
+backoff_count = 0
 connected = False
+aborted = False
 
 while True:
     step += 1
 
-    rc.update()
-    sc.update()
-    tc.update()
-    time.sleep(0.1)
+    refresh_devices(rc, sc, tc, delay=0.1)
 
     sc_pos = get_pos(sc.telemetry or {})
     tc_pos = get_pos(tc.telemetry or {})
@@ -418,7 +550,25 @@ while True:
         step_size, speed, timeout = PHASE3_STEP_CREEP, PHASE3_SPEED_CREEP, 15
         phase = "CREEP"
 
-    print(f"\n  [Step {step}] {phase} | dist={axis_dist:.1f}m")
+    angle_err = get_connector_angle(sc, axis_dir)
+    angle_deg = math.degrees(angle_err)
+    print(f"\n  [Step {step}] {phase} | dist={axis_dist:.1f}m angle={angle_deg:.1f}°")
+
+    need_backoff, backoff_reason = should_backoff(axis_dist, angle_deg, previous_angle_deg)
+    if need_backoff:
+        backoff_count += 1
+        print(f"  SAFETY: {backoff_reason}")
+
+        if backoff_count > SAFE_MAX_BACKOFFS:
+            print(f"  SAFETY: too many backoffs ({SAFE_MAX_BACKOFFS}), aborting docking")
+            aborted = True
+            break
+
+        backoff_from_connector(rc, sc, tc, distance=SAFE_BACKOFF_DISTANCE)
+        stuck_count = 0
+        prev_dist = float('inf')
+        previous_angle_deg = None
+        continue
 
     # Stuck detection
     if abs(axis_dist - prev_dist) < 0.3:
@@ -430,35 +580,59 @@ while True:
     if stuck_count >= 5:
         print(f"  STUCK — trying connect() + big step")
         if try_connect(sc, "  ", axis_dist):
-            connected = True; break
+            connected = True
+            break
         step_size = max(2.5, axis_dist - DOCK_DISTANCE + 0.5)
         stuck_mode = True
     else:
         stuck_mode = False
 
     # Correct orientation
-    sc_orient = (sc.telemetry or {}).get("orientation", {})
-    sc_fwd = normalize(get_vec3(sc_orient.get("forward")) or (0,0,0))
-    angle_err = math.acos(max(-1.0, min(1.0, dot(sc_fwd, axis_dir))))
     if angle_err > ALIGN_TOLERANCE:
-        print(f"  Correcting: {math.degrees(angle_err):.1f}°")
-        correct_orientation(rc, sc, gyros, axis_dir, timeout=5)
+        print(f"  Correcting: {angle_deg:.1f}°")
+        final_angle = correct_orientation(rc, sc, gyros, axis_dir, timeout=5)
         for g in gyros: g.clear_override()
         time.sleep(0.3)
 
-    # Move
+        final_angle_deg = math.degrees(final_angle)
+        need_backoff, backoff_reason = should_backoff(axis_dist, final_angle_deg, previous_angle_deg)
+        if need_backoff:
+            backoff_count += 1
+            print(f"  SAFETY after correction: {backoff_reason}")
+
+            if backoff_count > SAFE_MAX_BACKOFFS:
+                print(f"  SAFETY: too many backoffs ({SAFE_MAX_BACKOFFS}), aborting docking")
+                aborted = True
+                break
+
+            backoff_from_connector(rc, sc, tc, distance=SAFE_BACKOFF_DISTANCE)
+            stuck_count = 0
+            prev_dist = float('inf')
+            previous_angle_deg = None
+            continue
+
+    # Move. Near the connector, never make a large push: this prevents
+    # passing through the target plane and flipping the approach axis.
     if stuck_mode:
         move_dist = step_size
     else:
         move_dist = min(step_size, max(0, axis_dist - DOCK_DISTANCE + 0.5))
+
+    if axis_dist <= SAFE_NEAR_DISTANCE:
+        move_dist = min(move_dist, PHASE3_STEP_CREEP)
+        speed = min(speed, PHASE3_SPEED_CREEP)
+
     if move_dist < 0.1:
         if try_connect(sc, "  ", axis_dist):
-            connected = True; break
-        move_dist = 0.5; speed = 0.5
+            connected = True
+            break
+        move_dist = 0.5
+        speed = 0.5
 
     ship_target = compute_ship_target(rc, sc, axis_dir, move_dist)
     if not ship_target:
-        time.sleep(1); continue
+        time.sleep(1)
+        continue
 
     gps = f"GPS:D{step}:{ship_target[0]:.1f}:{ship_target[1]:.1f}:{ship_target[2]:.1f}:"
     rc.goto(gps, speed=speed, gps_name=f"D{step}")
@@ -474,9 +648,7 @@ while True:
     step_start = time.time()
     while time.time() - step_start < timeout:
         time.sleep(1)
-
-        rc.update()
-        sc.update()
+        refresh_devices(rc, sc, tc, delay=0)
 
         if check_connector(sc)[0]:
             print(f"  >> CONNECTED IN FLIGHT!")
@@ -490,10 +662,12 @@ while True:
             if d < 2.0 or (not ap and d < 5.0):
                 break
 
-    if connected: break
+    if connected:
+        break
 
     rc.disable()
     rc.dampeners_on()
+    previous_angle_deg = angle_deg
     time.sleep(0.3)
 
 # =====================================================================
@@ -520,6 +694,8 @@ print(f"  Other connector: {other_id}")
 
 if is_conn:
     print("\n✅ DOCKING COMPLETE")
+elif aborted:
+    print("\n❌ DOCKING ABORTED BY SAFETY GUARD")
 else:
     print("\n❌ DOCKING INCOMPLETE")
 

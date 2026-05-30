@@ -34,7 +34,7 @@ ORE_COLORS = {
 }
 DEFAULT_ORE_COLOR = (200, 80, 200)  # magenta for unknown ores
 
-GRID_NAME = "skynet-baza1"
+GRID_NAME = "skynet-agent1"
 # GRID_NAME = "taburet3"
 SCAN_RADIUS = 1000
 CELL_SIZE = 10
