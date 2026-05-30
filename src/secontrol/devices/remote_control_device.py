@@ -307,6 +307,14 @@ class RemoteControlDevice(BaseDevice):
         if options:
             return coords + ";" + ";".join(options)
         return coords
-
+    
+    def set_precision_mode(self, enabled: bool) -> int:
+        return self.send_command({
+            "cmd": "precision_mode",
+            "enabled": enabled,
+            "targetId": int(self.device_id),
+            "targetName": self.name or "Remote Control",
+        })
+    
 
 DEVICE_TYPE_MAP[RemoteControlDevice.device_type] = RemoteControlDevice

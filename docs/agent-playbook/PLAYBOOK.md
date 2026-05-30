@@ -118,12 +118,27 @@ python examples/space_flight/space_navigator_v4.py --grid agent1 --target="X,Y,Z
 
 ### Парковка и стыковка
 
+Автоматическая стыковка в 3 фазы:
+
+| Фаза | Что делает |
+|---|---|
+| **1. Approach** | Летит к точке за 100м перед целевым коннектором |
+| **2. Rotate** | Поворачивает корабль коннектором к цели |
+| **3. Lock** | Подлёт по оси коннектора (fast → slow → creep) + автоблокировка |
+
 ```bash
+# Стыковка корабля к базе
+python examples/organized/parking/dock.py [ship_id] [target_id] [approach_distance]
+
+# Примеры:
+python examples/organized/parking/dock.py skynet-baza2 skynet-farpost0
+python examples/organized/parking/dock.py 104571351454649539 84360909276756422 80
+
 # Проверить статус стыковки
 python examples/organized/parking/check_docking_status.py --grid agent1
 
-# Документация по стыковке
-# docs/agent-skills/gaming/secontrol-space-engineers/references/space-docking.md
+# Расстыковка
+python examples/organized/parking/smooth_undock.py [ship_id] [base_id] [distance]
 ```
 
 ---

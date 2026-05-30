@@ -204,35 +204,140 @@ if not t_pos:
     print("ERROR: no target connector position"); sys.exit(1)
 
 target_point = vec_add(t_pos, APPROACH_DIST, t_fwd)
-print(f"  Target connector: ({t_pos[0]:.1f}, {t_pos[1]:.1f}, {t_pos[2]:.1f})")
-print(f"  Approach point ({APPROACH_DIST}m): ({target_point[0]:.1f}, {target_point[1]:.1f}, {target_point[2]:.1f})")
 
-rc.enable()
+rc_pos = get_pos(rc.telemetry or {})
+sc_pos = get_pos(sc.telemetry or {})
+
+if not rc_pos:
+    print("ERROR: no ship remote control position")
+    sys.exit(1)
+
+if not sc_pos:
+    print("ERROR: no ship connector position")
+    sys.exit(1)
+
+connector_offset = vec_sub(sc_pos, rc_pos)
+ship_target = vec_sub(target_point, connector_offset)
+
+print(f"  Target connector: ({t_pos[0]:.1f}, {t_pos[1]:.1f}, {t_pos[2]:.1f})")
+print(f"  Connector approach point ({APPROACH_DIST}m): ({target_point[0]:.1f}, {target_point[1]:.1f}, {target_point[2]:.1f})")
+print(f"  Remote target point: ({ship_target[0]:.1f}, {ship_target[1]:.1f}, {ship_target[2]:.1f})")
+
+if (rc.telemetry or {}).get("autopilotEnabled"):
+    rc.disable()
+    time.sleep(0.5)
+    rc.update()
+
+try:
+    rc.handbrake_off()
+except Exception:
+    pass
+
 rc.thrusters_on()
 rc.dampeners_on()
-time.sleep(1)
+rc.set_mode("oneway")
+rc.set_collision_avoidance(False)
 
-gps = f"GPS:Approach:{target_point[0]:.1f}:{target_point[1]:.1f}:{target_point[2]:.1f}:"
-print(f"  Flying to approach point...")
+time.sleep(0.5)
+
+gps = f"GPS:Approach:{ship_target[0]:.1f}:{ship_target[1]:.1f}:{ship_target[2]:.1f}:"
+
+print("  Flying to approach point...")
 rc.goto(gps, speed=10.0, gps_name="Approach")
-time.sleep(2)
+time.sleep(0.3)
+rc.enable()
+
+engaged = False
+
+for attempt in range(5):
+    for _ in range(15):
+        time.sleep(0.2)
+        rc.update()
+
+        if (rc.telemetry or {}).get("autopilotEnabled"):
+            engaged = True
+            break
+
+    if engaged:
+        break
+
+    print(f"  Autopilot did not engage, retry {attempt + 1}/5")
+    rc.goto(gps, speed=10.0, gps_name="Approach")
+    time.sleep(0.3)
+    rc.enable()
+    time.sleep(0.5)
+
+if not engaged:
+    print("  WARNING: autopilot did not engage, proceeding anyway")
 
 start = time.time()
-while time.time() - start < 300:
+prev_d = None
+stuck_count = 0
+
+while time.time() - start < 120:
     time.sleep(3)
-    cur = get_pos(rc.telemetry or {})
-    if not cur: continue
-    d = dist3(cur, target_point)
+
+    rc.update()
+    sc.update()
+
+    cur_rc = get_pos(rc.telemetry or {})
+    cur_sc = get_pos(sc.telemetry or {})
+
+    if not cur_rc or not cur_sc:
+        continue
+
+    rc_dist = dist3(cur_rc, ship_target)
+    sc_dist = dist3(cur_sc, target_point)
     ap = (rc.telemetry or {}).get("autopilotEnabled", False)
-    print(f"  [{time.time()-start:.0f}s] dist={d:.1f}m")
-    if d < 5.0: break
-    if not ap and d < 20.0: break
-    if not ap and time.time() - start > 15 and d > 20.0: break
+
+    d = sc_dist
+
+    print(
+        f"  [{time.time() - start:.0f}s] "
+        f"rc_dist={rc_dist:.1f}m sc_dist={sc_dist:.1f}m autopilot={ap}"
+    )
+
+    if sc_dist < 8.0:
+        print("  Ship connector reached approach area")
+        break
+
+    if not ap:
+        if sc_dist < 8.0:
+            print("  Autopilot stopped at approach area")
+            break
+
+        print(f"  Autopilot stopped too early at {sc_dist:.1f}m — retrying approach")
+        rc.goto(gps, speed=10.0, gps_name="Approach")
+        time.sleep(0.3)
+        rc.enable()
+        time.sleep(1.0)
+        continue
+
+    if prev_d is not None and abs(prev_d - d) < 0.5:
+        stuck_count += 1
+    else:
+        stuck_count = 0
+
+    prev_d = d
+
+    if stuck_count >= 4:
+        if sc_dist < 8.0:
+            print(f"  Approach reached with small residual distance: {sc_dist:.1f}m")
+            break
+
+        print(f"  WARNING: approach stuck at {sc_dist:.1f}m — retrying approach")
+        rc.goto(gps, speed=7.0, gps_name="ApproachRetry")
+        time.sleep(0.3)
+        rc.enable()
+        stuck_count = 0
+        time.sleep(1.0)
+        continue
 
 rc.disable()
 rc.dampeners_on()
 time.sleep(1)
-print(f"  Phase 1 complete.")
+
+print("  Phase 1 complete.")
 
 # =====================================================================
 # PHASE 2: Rotate connector to target
@@ -274,6 +379,7 @@ print("\n" + "=" * 60)
 print("PHASE 3: CONNECTOR APPROACH + LOCK")
 print("=" * 60)
 
+rc.set_collision_avoidance(False)
 step = 0
 stuck_count = 0
 prev_dist = float('inf')
@@ -282,10 +388,16 @@ connected = False
 while True:
     step += 1
 
+    rc.update()
+    sc.update()
+    tc.update()
+    time.sleep(0.1)
+
     sc_pos = get_pos(sc.telemetry or {})
     tc_pos = get_pos(tc.telemetry or {})
     if not sc_pos or not tc_pos:
-        time.sleep(1); continue
+        time.sleep(1)
+        continue
 
     axis_vec = vec_sub(tc_pos, sc_pos)
     axis_dist = math.sqrt(axis_vec[0]**2 + axis_vec[1]**2 + axis_vec[2]**2)
@@ -350,19 +462,33 @@ while True:
 
     gps = f"GPS:D{step}:{ship_target[0]:.1f}:{ship_target[1]:.1f}:{ship_target[2]:.1f}:"
     rc.goto(gps, speed=speed, gps_name=f"D{step}")
-    time.sleep(1)
+    rc.enable()
+    time.sleep(0.5)
+
+    for _ in range(8):
+        rc.update()
+        if (rc.telemetry or {}).get("autopilotEnabled"):
+            break
+        time.sleep(0.2)
 
     step_start = time.time()
     while time.time() - step_start < timeout:
         time.sleep(1)
+
+        rc.update()
+        sc.update()
+
         if check_connector(sc)[0]:
             print(f"  >> CONNECTED IN FLIGHT!")
-            connected = True; break
+            connected = True
+            break
+
         cur = get_pos(rc.telemetry or {})
         if cur:
             d = dist3(cur, ship_target)
             ap = (rc.telemetry or {}).get("autopilotEnabled", False)
-            if d < 2.0 or (not ap and d < 5.0): break
+            if d < 2.0 or (not ap and d < 5.0):
+                break
 
     if connected: break
 
