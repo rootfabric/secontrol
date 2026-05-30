@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Space Engineers Monitoring Pipeline
 
 Continuous surveillance system for detecting players and foreign grids near owned grids.
@@ -11,34 +13,34 @@ SE Scanner (every 5 min)
     └─ scans all grids via OreDetector telemetry
        ├─ players: t['players'] (needs includePlayers=True)
        ├─ foreign_grids: t['detectedgrids'] minus own grid IDs
-       └─ writes: logs/active_alert.json
+       └─ writes: <logs>/active_alert.json (runtime)
 
 Alert Watcher (every 1 min)
     ↓ se_alert_watcher.py
     └─ reads active_alert.json
        ├─ detects new threat (hash deduplication)
        ├─ creates Kanban card via hermes kanban create
-       └─ writes: logs/processed_alerts.json (dedup)
+       └─ writes: <logs>/processed_alerts.json (runtime, dedup)
 
 Alert Agent (on card dispatch)
     └─ se_alert_agent.py
        ├─ reads alert state
        ├─ collects our grid positions
        ├─ assesses risk (CRITICAL/HIGH/LOW)
-       └─ writes: logs/journal.jsonl (permanent log)
+       └─ writes: <logs>/journal.jsonl (runtime, permanent log)
 ```
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `~/.hermes/scripts/se_player_scan.py` | Scanner — polls all grids every 5 min |
-| `~/.hermes/scripts/se_alert_watcher.py` | Watcher — checks alerts, creates Kanban cards |
-| `~/.hermes/scripts/se_alert_agent.py` | Agent — assesses threats, writes journal |
-| `~/.hermes/scripts/logs/active_alert.json` | Current alert state (players, foreign_grids) |
-| `~/.hermes/scripts/logs/processed_alerts.json` | Dedup: alert hash → task_id |
-| `~/.hermes/scripts/logs/scan_YYYY-MM-DD.jsonl` | All scan results |
-| `~/.hermes/scripts/logs/journal.jsonl` | All threat events (permanent) |
+| `~/.hermes/scripts/se_player_scan.py` | Scanner — polls all grids every 5 min (runtime path) |
+| `~/.hermes/scripts/se_alert_watcher.py` | Watcher — checks alerts, creates Kanban cards (runtime path) |
+| `~/.hermes/scripts/se_alert_agent.py` | Agent — assesses threats, writes journal (runtime path) |
+| `~/.hermes/scripts/logs/active_alert.json` | Current alert state — players, foreign_grids (runtime path) |
+| `~/.hermes/scripts/logs/processed_alerts.json` | Dedup: alert hash → task_id (runtime path) |
+| `~/.hermes/scripts/logs/scan_YYYY-MM-DD.jsonl` | All scan results (runtime path) |
+| `~/.hermes/scripts/logs/journal.jsonl` | All threat events — permanent (runtime path) |
 
 ## Known grid IDs (us)
 

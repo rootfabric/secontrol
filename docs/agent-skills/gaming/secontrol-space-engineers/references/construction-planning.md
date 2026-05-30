@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Construction Planning in Space Engineers
 
 ## Component costs for common blocks

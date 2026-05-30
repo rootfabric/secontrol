@@ -134,12 +134,14 @@ print(result.stdout)
 
 ## Parking / Docking System
 
-Space Engineers servers often run a separate **parking subsystem** (found at `parking/` in the workspace). This handles automatic docking/station-keeping:
-- `parking/parking.py` — main entry
-- `parking/docking.py` — docking logic
-- `parking/final_park.py` — final approach
-- `parking/calc_point.py` — point calculation
-- `parking/helpers.py` — utilities
+Space Engineers servers often run a separate **parking subsystem** (found at `<workspace>/parking/` on the game server). This handles automatic docking/station-keeping:
+- `parking/<name>.py` — main entry (example pattern)
+- `parking/<name>.py` — docking logic (example pattern)
+- `parking/<name>.py` — final approach (example pattern)
+- `parking/<name>.py` — point calculation (example pattern)
+- `parking/<name>.py` — utilities (example pattern)
+
+> Actual parking scripts in this repo: `examples/organized/parking/` (see `final_park.py`, `dock.py`, etc.)
 
 ## Known Grids (this installation)
 

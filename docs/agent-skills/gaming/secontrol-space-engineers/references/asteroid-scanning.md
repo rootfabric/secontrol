@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Asteroid & Ore Scanning via Ore Detector
 
 ## Overview
@@ -185,6 +187,51 @@ solid, metadata, contacts, ore_cells = controller.scan_voxels()
 `RadarController` has `filter_no_stone=True` by default — Stone ore cells are excluded. To include stone:
 ```python
 ctrl = RadarController(radar, ore_only=True, filter_no_stone=False)
+```
+
+---
+
+## Contacts Scanning (grids + players)
+
+Fast scan for nearby grids and players — skips voxel geometry entirely.
+
+### Via RadarController
+
+```python
+from secontrol.controllers.radar_controller import RadarController
+
+controller = RadarController(radar, radius=500, cell_size=10, ore_only=False)
+contacts = controller.scan_contacts()
+
+grids = [c for c in contacts if c.get("type") == "grid"]
+players = [c for c in contacts if c.get("type") == "player"]
+```
+
+### Via OreDetectorDevice
+
+```python
+radar.scan(include_players=True, include_grids=True, include_voxels=False, radius=500)
+contacts = radar.contacts()
+```
+
+### Ready-to-run script
+
+```
+python examples/organized/radar/basic/scan_contacts.py
+python examples/organized/radar/basic/scan_contacts.py --grid skynet-baza1 --radius 1000
+```
+
+### Contact structure
+
+```python
+{
+    "type": "grid",              # or "player"
+    "name": "skynet-farpost0",
+    "id": 80828718952705651,
+    "position": [x, y, z],      # world coordinates
+    "distance": 1234.5,          # meters from scanner (if available)
+    "velocity": [vx, vy, vz],   # m/s (if available)
+}
 ```
 
 ---

@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # SE Monitoring Pipeline — scripts
 
 Location: `~/.hermes/scripts/` (symlinked or actual path).

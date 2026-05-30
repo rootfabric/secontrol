@@ -1,5 +1,7 @@
 # Сбор руды — полный цикл добычи
 
+> Index: `AGENTS.md` — Добыча ресурсов
+
 ## Быстрый цикл добычи (одна команда)
 
 ```bash
@@ -18,8 +20,9 @@ python examples/space_flight/space_navigator_v4.py \
     --target="X,Y,Z" \
     --arrival 50
 
-# 3. Добыть нужное кол-во (одна команда — mine_until сам наводит бур, включает, мониторит)
-python examples/organized/drill_nano/mine_until.py \
+# 3. Добыть нужное кол-во (одна команда — скрипт сам наводит бур, включает, мониторит)
+# Паттерн скрипта добычи:
+python examples/organized/drill_nano/<mine_script>.py \
     --grid skynet-baza0 \
     --ore Nickel \
     --target X Y Z \
@@ -133,7 +136,7 @@ python examples/space_flight/space_navigator_v4.py \
 `mine_until.py` сам делает всё в правильном порядке:
 
 ```bash
-python examples/organized/drill_nano/mine_until.py \
+python examples/organized/drill_nano/<mine_script>.py \
     --grid skynet-baza0 \
     --ore Nickel \
     --target X Y Z \
@@ -187,7 +190,7 @@ grid.find_items_by_subtype("Platinum")
 |--------|------------|
 | `ore_deposit_scanner.py` | Сканировать руду на астероиде, автоматически пишет в БД |
 | `set_nanodrill_area.py` | Навести зону бура на координаты |
-| `mine_until.py` | Добыть нужное кол-во и остановиться |
+| `<mine_script>.py` | Добыть нужное кол-во и остановиться (паттерн, см. ниже) |
 
 ---
 

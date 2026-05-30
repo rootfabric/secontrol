@@ -1,0 +1,14 @@
+{
+  "ignore": [
+    "examples/organized/parking/README.md",
+    "docs/API_REFERENCE.md",
+    "docs/exec-plans/tech-debt-tracker.md",
+    "docs/design-docs/index.md"
+  ],
+  "classification": {
+    "examples/organized/parking/README.md": "product_doc",
+    "docs/API_REFERENCE.md": "product_doc",
+    "docs/exec-plans/tech-debt-tracker.md": "product_doc",
+    "docs/design-docs/index.md": "product_doc"
+  }
+}

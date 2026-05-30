@@ -5,9 +5,9 @@ tags: [space-engineers, secontrol, projector, blueprint, welder]
 related_skills: []
 linked_files:
   references:
-    - references/color-conversion.md
-    - references/grind-mode-detail.md
-    - references/grind-color-investigation.md
+    - docs/agent-skills/gaming/se-projection-builder/references/color-conversion.md
+    - docs/agent-skills/gaming/se-projection-builder/references/grind-mode-detail.md
+    - docs/agent-skills/gaming/se-projection-builder/references/grind-color-investigation.md
 ---
 
 # Projection Builder — строительство блоков через проектор
@@ -192,7 +192,7 @@ min_z = round(local_pos[2] / 2.5)
 ## Покраска блоков (paint_block)
 
 Для покраски блоков используется `g.paint_block(block_id, hsv=[H, S, V])`.
-Подробная таблица конвертации: см. `references/color-conversion.md`.
+Подробная таблица конвертации: см. `docs/agent-skills/gaming/se-projection-builder/references/color-conversion.md`.
 
 **Краткая формула** (из ColorMaskHSV целевого блока в paint_block):
 ```python

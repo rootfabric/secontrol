@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Voxel Distance Diagnostics — measuring distances to radar voxels
 
 Diagnostic patterns for understanding what the radar scanner sees and how far away it is.

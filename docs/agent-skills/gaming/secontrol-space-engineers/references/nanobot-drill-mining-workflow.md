@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Nanobot Drill — Complete Mining Workflow
 
 Tested and verified on skynet-baza0 (large grid, Mars orbit/asteroid field).
@@ -35,7 +37,8 @@ python examples/space_flight/space_navigator_v4.py \
     --arrival 50
 
 # 3. Добыть 10 000 единиц (mine_until.py сам наводит AreaOffset, включает, мониторит)
-python examples/organized/drill_nano/mine_until.py \
+# Пример скрипта добычи (паттерн):
+python examples/organized/drill_nano/<mine_script>.py \
     --grid skynet-baza0 \
     --ore Nickel \
     --target -50626.734 146646.403 -137736.175 \
@@ -102,7 +105,7 @@ python examples/space_flight/space_navigator_v4.py \
 - Навигатор сам найдёт путь вокруг астероида
 - Не пытаться лететь вплотную к руде — краш в астероид
 
-### Шаг 3 — Добыть руду (mine_until.py — одна команда)
+### Шаг 3 — Добыть руду (одна команда)
 
 **Это единственная команда, которая реально нужна.** Она делает всё:
 
@@ -115,7 +118,8 @@ python examples/space_flight/space_navigator_v4.py \
 7. Останавливает бур при достижении целевого количества
 
 ```bash
-python examples/organized/drill_nano/mine_until.py \
+# Паттерн скрипта добычи:
+python examples/organized/drill_nano/<mine_script>.py \
     --grid skynet-baza0 \
     --ore Nickel \
     --target -50626.734 146646.403 -137736.175 \

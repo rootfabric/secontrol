@@ -1,5 +1,7 @@
 # Nanobot Drill & Fill — Полный анализ API и возможностей
 
+> Index: `AGENTS.md` — Добыча ресурсов | Quick start: `docs/agent-skills/gaming/secontrol-space-engineers/references/nanobot-drill-quickstart.md`
+
 ## Обзор
 
 Nanobot Drill & Fill — это мод для Space Engineers, доступный через secontrol как 

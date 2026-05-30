@@ -1,5 +1,7 @@
 # Space Navigator v4
 
+> Index: `AGENTS.md` — Перелёты
+
 ## Overview
 
 `SpaceNavigatorController` is the reusable base controller for moving ships in

@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Projection Alignment Reference
 
 ## ⚠️ Blueprint XML Bloat Problem (discovered 2026-05-14)

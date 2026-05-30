@@ -1,5 +1,7 @@
 # Рекомендуемый набор скриптов Nanobot Drill Automation Fix v12
 
+> Index: `AGENTS.md` — Добыча ресурсов | Agent instructions: `nanodrill_agent.md`
+
 Основной набор:
 
 - `mine_ore_robot_safe_live_move.py` — основной универсальный добывающий скрипт.

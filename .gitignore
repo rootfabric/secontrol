@@ -14,3 +14,4 @@ dist/
 .idea/
 .vscode/
 tmp/
+opencode.json 

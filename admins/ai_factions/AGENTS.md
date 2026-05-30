@@ -1,6 +1,12 @@
 # AI Factions — Agent Instructions
 
+> Back to main index: `AGENTS.md`
+
 AI/NPC-фракции в Space Engineers с управлением через Redis и Python.
+
+See also:
+- `docs/agent-skills/gaming/game-server-automation/SKILL.md` — Redis monitoring and keyspace notifications
+- `docs/agent-skills/gaming/secontrol-space-engineers/SKILL.md` — full secontrol SDK reference
 
 ## Архитектура
 

@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Space Engineers Block Types Reference
 
 ## Registered in DEVICE_TYPE_MAP (31 types)

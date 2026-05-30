@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Blueprint XML Editing — Adding Blocks
 
 ## Adding a block to an existing blueprint
@@ -116,7 +118,7 @@ for block in list(cubes): ...
 When `load_blueprint_xml` doesn't work (see pitfall in SKILL.md), save to file:
 
 ```python
-output_path = "/workspace/gridname_with_block.xml"
+output_path = "/workspace/<gridname>_with_block.xml"  # runtime path
 with open(output_path, 'w', encoding='utf-8') as f:
     f.write(new_xml)
 print(f"Saved: {output_path} ({len(new_xml)} bytes, {len(cube_blocks)} blocks)")

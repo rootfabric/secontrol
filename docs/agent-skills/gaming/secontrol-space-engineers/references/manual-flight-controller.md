@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Manual Flight Controller — gyro + thruster without RemoteControl
 
 When a grid has no `RemoteControlDevice`, use `CockpitDevice` for telemetry + `GyroDevice` for orientation + `ThrusterDevice` for propulsion. The cockpit provides the same position/velocity/orientation telemetry as RC.

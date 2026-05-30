@@ -4,26 +4,56 @@
 
 ## Когда использовать
 
-Любой запрос "найди руду", "покажи месторождения", "где платина", "что насканировано" — сначала проверять SharedMapController. Если данных нет — запускать `shared_map_scan.py`.
+Любой запрос "найди руду", "покажи месторождения", "где платина", "что насканировано" — сначала проверять SharedMapController. Если данных нет — запускать `ore_scanner.py`.
 
 ## Скрипты
 
-### 1. `shared_map_scan.py` — сканировать и сохранить
+### 1. `ore_scanner.py` — универсальный сканер (ФАЙЛ + REDIS) ⭐
 
-Один вызов: сканирует руды в радиусе 1 км (ore-only), сохраняет в SharedMap.
+**Основной скрипт для сканирования руд.** Сохраняет одновременно в JSON-файл и SharedMap (Redis/SQLite).
 
 ```bash
-python examples/organized/radar/shared_map/shared_map_scan.py --grid skynet-baza0
-python examples/organized/radar/shared_map/shared_map_scan.py --grid skynet-baza0 --radius 300 --no-save
+python examples/organized/radar/ore_scanner.py --grid agent1
+python examples/organized/radar/ore_scanner.py --grid agent1 --radius 500
+python examples/organized/radar/ore_scanner.py --grid agent1 --no-redis    # только файл
+python examples/organized/radar/ore_scanner.py --grid agent1 --storage sqlite
+python examples/organized/radar/ore_scanner.py --find Platinum              # поиск в последнем скане
 ```
 
 Параметры:
 - `--grid` — имя грида (по умолч. skynet-baza0)
 - `--radius` — радиус скана в метрах (по умолч. 1000)
-- `--no-save` — сухой прогон без сохранения
+- `--no-redis` — пропустить SharedMap, сохранить только в файл
 - `--storage sqlite` — использовать SQLite вместо Redis
+- `--full_scan` — дополнительно сделать полный воксельный скан
+- `--find ORE` — найти ближайшее месторождение ORE в последнем скане
+- `--output` — свой путь для JSON-файла
 
-### 2. `shared_map_deposits.py` — найти руду по расстоянию
+Результат сохраняется в:
+- `~/hermeswebui/se-data/scans/ore_scan_<timestamp>.json` — конкретный скан
+- `~/hermeswebui/se-data/scans/ore_latest.json` — последний скан
+- `~/hermeswebui/se-data/ore_database.jsonl` — база всех сканов
+- SharedMap (Redis) — для доступа других гридов/агентов
+
+### 2. `shared_map_sync.py` — синхронизация локальных данных в Redis
+
+Загружает данные из локальных JSON-файлов в SharedMap. Когда уже есть сканы от `ore_scanner.py`, но нужно обновить Redis для других агентов.
+
+```bash
+python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1                    # из ore_latest.json
+python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1 --source jsonl     # из ore_database.jsonl (все сканы)
+python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1 --source all       # latest + jsonl
+python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1 --dry-run          # без сохранения
+```
+
+Параметры:
+- `--source latest` — только последний скан (ore_latest.json)
+- `--source jsonl` — все сканы из ore_database.jsonl (дедупликация)
+- `--source all` — оба источника
+- `--dry-run` — показать что будет загружено, без сохранения
+- `--storage sqlite` — SQLite вместо Redis
+
+### 3. `shared_map_deposits.py` — найти руду по расстоянию
 
 Показывает месторождения отфильтрованные по типу, сортированные по дистанции от корабля.
 
@@ -40,7 +70,7 @@ python examples/organized/radar/shared_map/shared_map_deposits.py --grid skynet-
 
 Если в SharedMap пусто — автоматически ищет в `ore_database.jsonl` / `ore_latest.json`.
 
-### 3. `shared_map_report.py` — полный отчёт
+### 4. `shared_map_report.py` — полный отчёт
 
 Агрегированная статистика по всем известным рудам, кластерам и чанкам.
 
@@ -50,7 +80,7 @@ python examples/organized/radar/shared_map/shared_map_report.py --material Plati
 python examples/organized/radar/shared_map/shared_map_report.py --grid skynet-baza0
 ```
 
-### 4. `shared_map_memory.py` — пример работы с SharedMapController
+### 5. `shared_map_memory.py` — пример работы с SharedMapController
 
 Демонстрация: скан → запись → регион вокруг корабля → индекс. Для изучения API.
 
@@ -58,7 +88,7 @@ python examples/organized/radar/shared_map/shared_map_report.py --grid skynet-ba
 python examples/organized/radar/shared_map/shared_map_memory.py --grid skynet-baza0
 ```
 
-### 5. `clear_ore_data.py` — очистка данных руд после рестарта
+### 6. `clear_ore_data.py` — очистка данных руд после рестарта
 
 Удаляет все ore-чанки из Redis и чистит индекс. Нужно после рестарта сервера, когда координаты руд устарели.
 
@@ -78,13 +108,13 @@ python examples/organized/radar/shared_map/clear_ore_data.py --apply --keep-inde
 ```
 0. После рестарта сервера — очистить устаревшие данные:
 → clear_ore_data.py --apply
-→ shared_map_scan.py --grid <grid>   # свежий скан
+→ ore_scanner.py --grid <grid>   # свежий скан (файл + Redis)
 
 1. Запрос: "найди платину"
 → shared_map_deposits.py --grid <grid> --material Platinum --clusters
 
 2. Если пусто:
-→ shared_map_scan.py --grid <grid> --radius 300
+→ ore_scanner.py --grid <grid> --radius 300
 → shared_map_deposits.py --grid <grid> --material Platinum --clusters
 
 3. Если пусто даже после скана → ответить "Платина не найдена в радиусе скана, нужно лететь к другому астероиду"
@@ -104,8 +134,9 @@ for d in deps:
 
 | Команда | Что смотрит |
 |---|---|
+| `ore_scanner.py` | Новый скан → сохраняет в файл + SharedMap |
+| `shared_map_sync.py` | Локальные файлы → загрузка в SharedMap |
 | `shared_map_report.py` | SharedMap (Redis/SQLite) |
 | `shared_map_deposits.py --clusters` | SharedMap → fallback `ore_database.jsonl` |
 | `shared_map_deposits.py` (без --clusters) | SharedMap → fallback `ore_latest.json` + `all_deposits` |
-| `shared_map_scan.py` | Новый скан → сохраняет в SharedMap |
 | `clear_ore_data.py` | Удалить все ore-данные из Redis (после рестарта) |

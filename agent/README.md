@@ -13,18 +13,7 @@ agent/
 
 ## Sync with Hermes
 
-Skills are installed to `~/.hermes/skills/<category>/<name>/SKILL.md` by Hermes. To sync from git to Hermes:
-
-```bash
-# From workspace root
-cp agent/skills/se-projection-builder.md ~/.hermes/skills/gaming/se-projection-builder/SKILL.md
-```
-
-To export from Hermes back to git:
-
-```bash
-cp ~/.hermes/skills/gaming/se-projection-builder/SKILL.md agent/skills/se-projection-builder.md
-```
+Skills are installed to the Hermes runtime directory at `~/.hermes/skills/` (not in repo). To sync from git to Hermes, copy the file to the appropriate category/name subdirectory. To export from Hermes back to git, copy the SKILL.md back to `agent/skills/`.
 
 ## Adding new skills
 

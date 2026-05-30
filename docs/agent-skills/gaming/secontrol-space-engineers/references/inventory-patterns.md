@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Inventory Reading Patterns (verified working)
 
 ## Container inventory — use `get_inventory()` (NOT telemetry)

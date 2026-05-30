@@ -7,11 +7,11 @@ Hermes agent skills для работы с Space Engineers через secontrol.
 
 | Скилл | Описание | Когда использовать |
 |---|---|---|
-| [secontrol-space-engineers](secontrol-space-engineers/SKILL.md) | **Основной** — полный SDK: гриды, устройства, инвентарь, блюпринты, производство, навигация | Любая работа с SE через secontrol |
-| [se-grid-status-report](se-grid-status-report/SKILL.md) | Статус-репорт: блоки, повреждения, устройства, содержимое контейнеров | «Покажи все корабли», «что в контейнерах», «есть ли повреждения» |
-| [se-projection-builder](se-projection-builder/SKILL.md) | Проекционный цикл: загрузка XML → варка → проверка → BARS покраска | Строительство по блюпринтам, покраска блоков |
-| [se-asteroid-approach](se-asteroid-approach/SKILL.md) | Полёт к астероиду: скан → навигация → подход | Добыча руды, исследование астероидов |
-| [game-server-automation](game-server-automation/SKILL.md) | Redis pub/sub, keyspace notifications, мониторинг | Мониторинг событий, алерты |
+| [secontrol-space-engineers](gaming/secontrol-space-engineers/SKILL.md) | **Основной** — полный SDK: гриды, устройства, инвентарь, блюпринты, производство, навигация | Любая работа с SE через secontrol |
+| [se-grid-status-report](gaming/se-grid-status-report/SKILL.md) | Статус-репорт: блоки, повреждения, устройства, содержимое контейнеров | «Покажи все корабли», «что в контейнерах», «есть ли повреждения» |
+| [se-projection-builder](gaming/se-projection-builder/SKILL.md) | Проекционный цикл: загрузка XML → варка → проверка → BARS покраска | Строительство по блюпринтам, покраска блоков |
+| [se-asteroid-approach](gaming/se-asteroid-approach/SKILL.md) | Полёт к астероиду: скан → навигация → подход | Добыча руды, исследование астероидов |
+| [game-server-automation](gaming/game-server-automation/SKILL.md) | Redis pub/sub, keyspace notifications, мониторинг | Мониторинг событий, алерты |
 
 ## Скрипты
 

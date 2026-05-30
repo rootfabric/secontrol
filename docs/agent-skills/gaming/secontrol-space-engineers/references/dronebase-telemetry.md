@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # DroneBase Telemetry Snapshot (May 2026)
 
 ## Grid IDs

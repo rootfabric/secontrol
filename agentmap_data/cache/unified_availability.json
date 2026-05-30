@@ -1,0 +1,138 @@
+{
+  "cache_version": "2.0",
+  "created_at": "2026-05-29T12:41:34.938790+00:00",
+  "last_updated": "2026-05-29T12:41:36.388564+00:00",
+  "environment_hash": "cef4fabf76a09806",
+  "availability": {
+    "dependency.llm.openai": {
+      "validation_passed": true,
+      "enabled": true,
+      "last_error": null,
+      "checked_at": "2026-05-29T12:41:36.364720+00:00",
+      "dependencies_checked": [
+        "langchain_openai"
+      ],
+      "missing_dependencies": [],
+      "cached_at": "2026-05-29T12:41:36.364720+00:00",
+      "cache_key": "dependency.llm.openai",
+      "environment_hash": "cef4fabf76a09806"
+    },
+    "dependency.llm.anthropic": {
+      "validation_passed": false,
+      "enabled": false,
+      "last_error": "langchain_anthropic",
+      "checked_at": "2026-05-29T12:41:36.366718+00:00",
+      "dependencies_checked": [
+        "langchain_anthropic"
+      ],
+      "missing_dependencies": [
+        "langchain_anthropic"
+      ],
+      "cached_at": "2026-05-29T12:41:36.366718+00:00",
+      "cache_key": "dependency.llm.anthropic",
+      "environment_hash": "cef4fabf76a09806"
+    },
+    "dependency.llm.google": {
+      "validation_passed": false,
+      "enabled": false,
+      "last_error": "langchain_google_genai",
+      "checked_at": "2026-05-29T12:41:36.369717+00:00",
+      "dependencies_checked": [
+        "langchain_google_genai"
+      ],
+      "missing_dependencies": [
+        "langchain_google_genai"
+      ],
+      "cached_at": "2026-05-29T12:41:36.369717+00:00",
+      "cache_key": "dependency.llm.google",
+      "environment_hash": "cef4fabf76a09806"
+    },
+    "dependency.storage.csv": {
+      "validation_passed": true,
+      "enabled": true,
+      "last_error": null,
+      "checked_at": "2026-05-29T12:41:36.372975+00:00",
+      "dependencies_checked": [
+        "pandas"
+      ],
+      "missing_dependencies": [],
+      "cached_at": "2026-05-29T12:41:36.372975+00:00",
+      "cache_key": "dependency.storage.csv",
+      "environment_hash": "cef4fabf76a09806"
+    },
+    "dependency.storage.vector": {
+      "validation_passed": true,
+      "enabled": true,
+      "last_error": null,
+      "checked_at": "2026-05-29T12:41:36.374961+00:00",
+      "dependencies_checked": [
+        "langchain",
+        "chromadb"
+      ],
+      "missing_dependencies": [],
+      "cached_at": "2026-05-29T12:41:36.374961+00:00",
+      "cache_key": "dependency.storage.vector",
+      "environment_hash": "cef4fabf76a09806"
+    },
+    "dependency.storage.firebase": {
+      "validation_passed": false,
+      "enabled": false,
+      "last_error": "firebase_admin",
+      "checked_at": "2026-05-29T12:41:36.376963+00:00",
+      "dependencies_checked": [
+        "firebase_admin"
+      ],
+      "missing_dependencies": [
+        "firebase_admin"
+      ],
+      "cached_at": "2026-05-29T12:41:36.376963+00:00",
+      "cache_key": "dependency.storage.firebase",
+      "environment_hash": "cef4fabf76a09806"
+    },
+    "dependency.storage.azure_blob": {
+      "validation_passed": false,
+      "enabled": false,
+      "last_error": "azure-storage-blob",
+      "checked_at": "2026-05-29T12:41:36.380564+00:00",
+      "dependencies_checked": [
+        "azure-storage-blob"
+      ],
+      "missing_dependencies": [
+        "azure-storage-blob"
+      ],
+      "cached_at": "2026-05-29T12:41:36.380564+00:00",
+      "cache_key": "dependency.storage.azure_blob",
+      "environment_hash": "cef4fabf76a09806"
+    },
+    "dependency.storage.aws_s3": {
+      "validation_passed": false,
+      "enabled": false,
+      "last_error": "boto3",
+      "checked_at": "2026-05-29T12:41:36.384565+00:00",
+      "dependencies_checked": [
+        "boto3"
+      ],
+      "missing_dependencies": [
+        "boto3"
+      ],
+      "cached_at": "2026-05-29T12:41:36.384565+00:00",
+      "cache_key": "dependency.storage.aws_s3",
+      "environment_hash": "cef4fabf76a09806"
+    },
+    "dependency.storage.gcp_storage": {
+      "validation_passed": false,
+      "enabled": false,
+      "last_error": "google-cloud-storage",
+      "checked_at": "2026-05-29T12:41:36.388564+00:00",
+      "dependencies_checked": [
+        "google-cloud-storage"
+      ],
+      "missing_dependencies": [
+        "google-cloud-storage"
+      ],
+      "cached_at": "2026-05-29T12:41:36.388564+00:00",
+      "cache_key": "dependency.storage.gcp_storage",
+      "environment_hash": "cef4fabf76a09806"
+    }
+  }
+}

@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Asteroid Flight Pattern — proven working code
 
 Fly a grid to the nearest asteroid using `fly_to_point()` + asteroid discovery.

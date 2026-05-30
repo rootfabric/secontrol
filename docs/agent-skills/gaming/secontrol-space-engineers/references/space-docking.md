@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Space Docking — Zero-G Connector-to-Connector Approach
 
 Universal workflow for docking a ship to a base via connectors in space (zero gravity).
@@ -166,10 +168,10 @@ while True:
 
 ## Full script
 
-Reusable script at `/home/hermeswebui/se-data/scripts/space_docker.py`:
+Reusable script at `scripts/space_docker.py`:
 
 ```bash
-python space_docker.py \
+python scripts/space_docker.py \
   --base skynet-farpost0 \
   --base-connector 84716854740522554 \
   --ship skynet-baza2 \

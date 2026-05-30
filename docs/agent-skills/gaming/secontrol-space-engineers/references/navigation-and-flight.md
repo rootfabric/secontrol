@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Navigation & Flight Control — secontrol API Reference
 
 **⚠️ IMPORTANT — Choose the right flight method:**
@@ -547,7 +549,7 @@ rc.disable(); rc.dampeners_on(); rc.handbrake_close()
 
 **Key**: The `compute_approach_point` formula `center + direction * (radius + stop_distance)` gives
 the FINAL stop position, not an intermediate waypoint. The ship stops at exactly `stop_distance`
-from the asteroid surface regardless of starting position. See `references/asteroid-flight-pattern.md`
+from the asteroid surface regardless of starting position. See `asteroid-flight-pattern.md`
 for the full tested implementation.
 
 ## Manual flight vs autopilot — when to use which

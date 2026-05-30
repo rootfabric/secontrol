@@ -11,10 +11,10 @@ approaches along connector axis, auto-locks when in range.
 
 | Artifact | Path | Status |
 |----------|------|--------|
-| Combined script | `se-data/scripts/docking/dock.py` | ✅ production |
-| Phase 1+2 script | `se-data/scripts/docking/01_approach_point.py` | ✅ working |
-| Phase 3 script | `se-data/scripts/docking/03_connector_approach.py` | ✅ working |
-| Skill | `~/.hermes/skills/gaming/se-docking/SKILL.md` | ✅ created |
+| Combined script | `se-data/scripts/docking/dock.py` (runtime) | ✅ production |
+| Phase 1+2 script | `se-data/scripts/docking/01_approach_point.py` (runtime) | ✅ working |
+| Phase 3 script | `se-data/scripts/docking/03_connector_approach.py` (runtime) | ✅ working |
+| Skill | Hermes runtime directory (not in repo) | ✅ created |
 
 ### Known grid IDs
 

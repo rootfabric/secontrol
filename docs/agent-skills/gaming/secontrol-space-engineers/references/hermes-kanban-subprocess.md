@@ -1,3 +1,5 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # hermes kanban create — subprocess invocation pattern
 
 When cron scripts (no_agent=True) need to create kanban cards, they shell out to `hermes kanban create` via `subprocess.run()`.

@@ -7,7 +7,7 @@ Quick-nav for AI agents. Two tracks:
 ## Space Survival (космос — полёты, парковка, майнинг)
 
 **⚡ ПЕРВОЕ — посмотри готовые скрипты:**
-👉 `docs/agent-skills/gaming/secontrol-space-engineers/OPERATIONS.md`
+👉 `docs/agent-skills/gaming/secontrol-space-engineers/SKILL.md`
 
 Там все готовые решения: навигация, докинг, добыча, диагностика.
 
@@ -17,6 +17,7 @@ Quick-nav for AI agents. Two tracks:
 |---|---|
 || **Полёт в космосе** (между астероидами, к базе) | `docs/agent-skills/gaming/secontrol-space-engineers/references/navigation-and-flight.md` → `SpaceNavigatorController` |
 || **Полёт к астероиду** (готовый скилл) | `docs/agent-skills/gaming/se-asteroid-approach/SKILL.md` |
+|| **Space Navigator v4** (A* pathfinding, obstacle avoidance) | `docs/workflows/space-navigator-v4.md` |
 || **Примеры полётов** | `scripts/space_navigator_v4.py`, `scripts/test_flight_10km.py` |
 
 ### Парковка / точные перемещения
@@ -32,10 +33,14 @@ Quick-nav for AI agents. Two tracks:
 
 | Task | Doc |
 |---|---|
+| **Скан руд** (основной скрипт — файл + Redis) | `examples/organized/radar/ore_scanner.py` |
 | **Проверить разведанные руды** (SharedMapController / JSON) | `examples/organized/radar/shared_map/AGENTS.md` → `shared_map_deposits.py` / `shared_map_report.py` |
+| **Найти неисследованный астероид** | `examples/organized/radar/find_unlooted_asteroid.py` |
 | **Бурение наносборщиком** | `examples/organized/drill_nano/nanodrill_agent.md` — полная инструкция по Nanobot Drill (мод Outenemy) + рабочие скрипты |
-| **Скан руды** (Voxel / OreDetector) | `docs/agent-skills/gaming/secontrol-space-engineers/references/asteroid-scanning.md` + `ore_deposit_scanner.py` |
-| **Скан месторождений** (готовый скрипт) | `examples/organized/radar/ore_deposit_scanner.py` |
+| **Nanobot Drill скрипты** (набор рекомендуемых скриптов) | `examples/organized/drill_nano/README_SCRIPTS.md` |
+| **Nanobot Drill быстрый старт** | `docs/agent-skills/gaming/secontrol-space-engineers/references/nanobot-drill-quickstart.md` |
+| **Nanobot Drill полный анализ** | `docs/NANOBOT_DRILL_ANALYSIS.md` |
+| **Полный цикл добычи руды** (скан → навигация → бурение) | `docs/workflows/ore-mining-workflow.md` |
 
 ---
 
@@ -75,6 +80,7 @@ Quick-nav for AI agents. Two tracks:
 ## Library development (adding devices, fixing bugs, extending)
 
 **Start here:** `agent/REPO_GUIDE.md` — full developer reference
+**Agent skills:** `agent/README.md` — skill structure and sync with Hermes
 
 | Task | Doc |
 |---|---|
@@ -101,6 +107,9 @@ SE_PLAYER_ID       # Player ID (falls back to owner)
 
 Place in `.env` at project root.
 
+
+скилы: 
+docs/agent-skills/README.md
 ---
 
 ## Временные файлы

@@ -1,4 +1,8 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Nanobot Drill — быстрый старт для агента
+
+> Part of: `docs/agent-skills/gaming/secontrol-space-engineers/SKILL.md` | Index: `AGENTS.md`
 
 ## Одной строкой (рекомендуется)
 

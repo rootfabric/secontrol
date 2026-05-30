@@ -1,6 +1,8 @@
+[← Parent skill: secontrol-space-engineers](../SKILL.md)
+
 # Nanobot Drill System — Debugging Reference
 
-> **See also**: `references/nanobot-drill-mining-workflow.md` for the complete mining workflow (navigate → configure → mine).
+> **See also**: `nanobot-drill-mining-workflow.md` for the complete mining workflow (navigate → configure → mine).
 
 ## Critical: ScriptControlled setting
 
