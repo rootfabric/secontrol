@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-=== DOCKING: Full automated docking sequence ===
+=== DOCKING: Direct connector approach v8 legacy gyro ===
 
 One script to dock a ship to a target grid's connector:
   Phase 1: Fly to approach point (100m in front of target connector)
@@ -16,19 +16,21 @@ Examples:
   python dock.py 104571351454649539 84360909276756422
   python dock.py skynet-baza2 skynet-farpost0 80
 """
-import sys, os, time, math
+import sys, os, time, math, json
 
-# --- Load .env (handles \r\n) ---
-env_path = '/workspace/.env'
-if os.path.exists(env_path):
-    with open(env_path) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                k, v = line.split('=', 1)
-                os.environ[k.strip()] = v.strip()
+# --- Load .env and source path for both Windows and container runs ---
+for env_path in ("C:/secontrol/.env", "/workspace/.env", ".env"):
+    if os.path.exists(env_path):
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip())
 
-sys.path.insert(0, "/workspace/src")
+for src_path in ("C:/secontrol/src", "/workspace/src"):
+    if os.path.isdir(src_path) and src_path not in sys.path:
+        sys.path.insert(0, src_path)
 from secontrol.common import prepare_grid
 from secontrol.devices.remote_control_device import RemoteControlDevice
 from secontrol.devices.connector_device import ConnectorDevice
@@ -40,16 +42,16 @@ TARGET = sys.argv[2] if len(sys.argv) > 2 else "84360909276756422"
 APPROACH_DIST = float(sys.argv[3]) if len(sys.argv) > 3 else 100.0
 
 # Settings
-GYRO_GAIN = 0.3
-MAX_RATE = 0.3
-ALIGN_TOLERANCE = 0.1      # radians (~5.7°)
+GYRO_GAIN = float(os.getenv("SE_DOCK_GYRO_GAIN", "0.08"))
+MAX_RATE = float(os.getenv("SE_DOCK_MAX_GYRO_RATE", "0.045"))
+ALIGN_TOLERANCE = math.radians(float(os.getenv("SE_DOCK_ALIGN_TOLERANCE_DEG", "1.5")))
 DOCK_DISTANCE = 3.0         # try connect() when closer than this
-PHASE3_STEP_FAST = 15.0     # meters per step when far
-PHASE3_STEP_SLOW = 5.0      # meters per step medium
-PHASE3_STEP_CREEP = 1.0     # meters per step close
-PHASE3_SPEED_FAST = 3.0     # m/s
-PHASE3_SPEED_SLOW = 1.0
-PHASE3_SPEED_CREEP = 0.5
+PHASE3_STEP_FAST = float(os.getenv("SE_DOCK_PHASE3_STEP_FAST", "2.0"))      # direct mode: small connector steps
+PHASE3_STEP_SLOW = float(os.getenv("SE_DOCK_PHASE3_STEP_SLOW", "0.7"))
+PHASE3_STEP_CREEP = float(os.getenv("SE_DOCK_PHASE3_STEP_CREEP", "0.2"))
+PHASE3_SPEED_FAST = float(os.getenv("SE_DOCK_PHASE3_SPEED_FAST", "0.30"))    # about 10x slower than old direct mode
+PHASE3_SPEED_SLOW = float(os.getenv("SE_DOCK_PHASE3_SPEED_SLOW", "0.12"))
+PHASE3_SPEED_CREEP = float(os.getenv("SE_DOCK_PHASE3_SPEED_CREEP", "0.05"))
 
 # Safety guard for final docking. If the ship is already close but the
 # connector angle becomes too large, continuing forward usually makes the
@@ -59,9 +61,32 @@ SAFE_NEAR_DISTANCE = float(os.getenv("SE_DOCK_SAFE_NEAR_DISTANCE", "12.0"))
 SAFE_ANGLE_JUMP_DEG = float(os.getenv("SE_DOCK_SAFE_ANGLE_JUMP_DEG", "20.0"))
 SAFE_PANIC_ANGLE_DEG = float(os.getenv("SE_DOCK_SAFE_PANIC_ANGLE_DEG", "85.0"))
 SAFE_BACKOFF_DISTANCE = float(os.getenv("SE_DOCK_SAFE_BACKOFF_DISTANCE", "10.0"))
-SAFE_BACKOFF_SPEED = float(os.getenv("SE_DOCK_SAFE_BACKOFF_SPEED", "1.5"))
+SAFE_BACKOFF_SPEED = float(os.getenv("SE_DOCK_SAFE_BACKOFF_SPEED", "0.30"))
 SAFE_BACKOFF_TIMEOUT = float(os.getenv("SE_DOCK_SAFE_BACKOFF_TIMEOUT", "22.0"))
 SAFE_MAX_BACKOFFS = int(os.getenv("SE_DOCK_SAFE_MAX_BACKOFFS", "4"))
+
+# Phase 1 handoff: RC autopilot often stops early because it rotates the grid
+# while the target was computed from the connector offset at the start. For direct
+# Phase 3 this is acceptable; once we are reasonably close to the approach line,
+# hand off to connector-relative direct control instead of retrying forever.
+APPROACH_HANDOFF_DIST = float(os.getenv("SE_DOCK_APPROACH_HANDOFF_DIST", "45.0"))
+APPROACH_HANDOFF_RETRIES = int(os.getenv("SE_DOCK_APPROACH_HANDOFF_RETRIES", "4"))
+APPROACH_SPEED = float(os.getenv("SE_DOCK_APPROACH_SPEED", "35.0"))
+APPROACH_DIRECT_FALLBACK_DIST = float(os.getenv("SE_DOCK_APPROACH_DIRECT_FALLBACK_DIST", "12.0"))
+APPROACH_DIRECT_SPEED = float(os.getenv("SE_DOCK_APPROACH_DIRECT_SPEED", "12.0"))
+APPROACH_DIRECT_MAX_THRUST = float(os.getenv("SE_DOCK_APPROACH_DIRECT_MAX_THRUST", "18.0"))
+APPROACH_DIRECT_TOLERANCE = float(os.getenv("SE_DOCK_APPROACH_DIRECT_TOLERANCE", "5.0"))
+APPROACH_DIRECT_SPEED_TOLERANCE = float(os.getenv("SE_DOCK_APPROACH_DIRECT_SPEED_TOLERANCE", "0.8"))
+APPROACH_DIRECT_MAX_DIST = float(os.getenv("SE_DOCK_APPROACH_DIRECT_MAX_DIST", "350.0"))
+
+# Connector-frame alignment: align ship connector to the target connector frame,
+# not to the noisy live line between connectors. Desired ship connector forward
+# is opposite to the target connector forward; desired up follows target up.
+CONNECTOR_ROLL_WEIGHT = float(os.getenv("SE_DOCK_CONNECTOR_ROLL_WEIGHT", "0.0"))
+GYRO_AXIS_SIGN = float(os.getenv("SE_DOCK_GYRO_AXIS_SIGN", "1"))
+GYRO_PITCH_SIGN = float(os.getenv("SE_DOCK_GYRO_SIGN_PITCH", str(GYRO_AXIS_SIGN)))
+GYRO_YAW_SIGN = float(os.getenv("SE_DOCK_GYRO_SIGN_YAW", str(GYRO_AXIS_SIGN)))
+GYRO_ROLL_SIGN = float(os.getenv("SE_DOCK_GYRO_SIGN_ROLL", str(GYRO_AXIS_SIGN)))
 
 # =====================================================================
 # Utility functions
@@ -72,6 +97,21 @@ def dist3(a, b):
 def normalize(v):
     l = math.sqrt(v[0]**2 + v[1]**2 + v[2]**2)
     return (v[0]/l, v[1]/l, v[2]/l) if l > 1e-10 else (0, 0, 0)
+
+def angle_between_vec(a, b):
+    an = normalize(a)
+    bn = normalize(b)
+    return math.acos(max(-1.0, min(1.0, dot(an, bn))))
+
+def vec_scale(v, k):
+    return (v[0] * k, v[1] * k, v[2] * k)
+
+def vec_add3(a, b):
+    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
+
+def vec_reject(v, axis):
+    unit = normalize(axis)
+    return vec_sub(v, vec_scale(unit, dot(v, unit)))
 
 def dot(a, b):
     return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
@@ -123,6 +163,7 @@ def try_connect(sc, label="", axis_dist=None):
         sc.connect()
         for _ in range(8):
             time.sleep(0.5)
+            refresh_device(sc, wait=0.05)
             is_conn, status, _ = check_connector(sc)
             if is_conn:
                 print(f"  {label}>> LOCKED!")
@@ -132,38 +173,186 @@ def try_connect(sc, label="", axis_dist=None):
         print(f"  {label}Not locked yet (status={status})")
     return False
 
+def get_connector_frame(connector):
+    orient = (connector.telemetry or {}).get("orientation", {})
+    fwd = normalize(get_vec3(orient.get("forward")) or (0, 0, 0))
+    up = normalize(get_vec3(orient.get("up")) or (0, 0, 0))
+    if dot(fwd, fwd) <= 1e-8 or dot(up, up) <= 1e-8:
+        return None
+    right = normalize(cross(up, fwd))
+    up = normalize(cross(fwd, right))
+    return fwd, up, right
+
+def desired_ship_connector_frame_from_target(tc):
+    frame = get_connector_frame(tc)
+    if frame is None:
+        return None
+    target_fwd, target_up, _ = frame
+    desired_fwd = normalize(vec_scale(target_fwd, -1.0))
+    # Keep roll stable: project target up onto the plane perpendicular to desired forward.
+    desired_up = vec_reject(target_up, desired_fwd)
+    if dot(desired_up, desired_up) <= 1e-8:
+        desired_up = target_up
+    desired_up = normalize(desired_up)
+    desired_right = normalize(cross(desired_up, desired_fwd))
+    desired_up = normalize(cross(desired_fwd, desired_right))
+    return desired_fwd, desired_up, desired_right
+
+def connector_frame_error(sc, tc=None, fallback_axis=None):
+    sc_frame = get_connector_frame(sc)
+    if sc_frame is None:
+        return None
+    sc_fwd, sc_up, _ = sc_frame
+
+    desired = desired_ship_connector_frame_from_target(tc) if tc is not None else None
+    if desired is not None:
+        desired_fwd, desired_up, _ = desired
+    elif fallback_axis is not None and dot(fallback_axis, fallback_axis) > 1e-8:
+        desired_fwd = normalize(fallback_axis)
+        desired_up = sc_up
+    else:
+        return None
+
+    fwd_err = angle_between_vec(sc_fwd, desired_fwd)
+
+    # Roll error is measured after removing the forward component, otherwise it
+    # pollutes forward alignment when the connector is still far from target.
+    sc_up_proj = normalize(vec_reject(sc_up, desired_fwd))
+    des_up_proj = normalize(vec_reject(desired_up, desired_fwd))
+    if dot(sc_up_proj, sc_up_proj) <= 1e-8 or dot(des_up_proj, des_up_proj) <= 1e-8:
+        roll_err = 0.0
+    else:
+        roll_err = angle_between_vec(sc_up_proj, des_up_proj)
+
+    error_world = cross(sc_fwd, desired_fwd)
+    if roll_err > math.radians(2.0):
+        error_world = vec_add3(error_world, vec_scale(cross(sc_up_proj, des_up_proj), CONNECTOR_ROLL_WEIGHT))
+
+    total_err = max(fwd_err, roll_err * CONNECTOR_ROLL_WEIGHT)
+    return total_err, fwd_err, roll_err, error_world, desired_fwd, desired_up
+
 # =====================================================================
 # Gyro orientation correction
 # =====================================================================
-def correct_orientation(rc, sc, gyros, axis_dir, timeout=8):
-    """Rotate ship so connector forward aligns with axis_dir."""
+def correct_orientation(rc, sc, gyros, axis_dir, timeout=8, tc=None):
+    """Legacy stable connector-forward alignment.
+
+    This intentionally does NOT use rotate_world and does NOT try to align roll.
+    It matches the working dock.py idea: align only ship connector forward to the
+    stable docking axis using pitch/yaw in the ship body frame. Roll is not needed
+    for Space Engineers connector lock and was the reason previous direct versions
+    started spinning on some grids.
+    """
     start = time.time()
+    last_print = 0.0
+    stable_ticks = 0
+    stagnant_ticks = 0
+    previous_angle = None
+    best_angle = float("inf")
+
+    gain = float(os.getenv("SE_DOCK_LEGACY_GYRO_GAIN", "0.28"))
+    max_rate = float(os.getenv("SE_DOCK_LEGACY_MAX_RATE", "0.22"))
+    pitch_sign = float(os.getenv("SE_DOCK_GYRO_SIGN_PITCH", os.getenv("SE_DOCK_GYRO_AXIS_SIGN", "1")))
+    yaw_sign = float(os.getenv("SE_DOCK_GYRO_SIGN_YAW", os.getenv("SE_DOCK_GYRO_AXIS_SIGN", "1")))
+    slew = float(os.getenv("SE_DOCK_LEGACY_GYRO_SLEW", "0.040"))
+    prev_pitch = 0.0
+    prev_yaw = 0.0
+
+    try:
+        rc.disable()
+    except Exception:
+        pass
+    try:
+        rc.dampeners_on()
+    except Exception:
+        pass
+
+    for g in gyros:
+        try:
+            g.enable()
+        except Exception:
+            pass
+
+    axis_dir = normalize(axis_dir or (0.0, 0.0, 0.0))
+    if axis_dir == (0.0, 0.0, 0.0):
+        clear_gyro_overrides(gyros)
+        return float("inf")
+
     while time.time() - start < timeout:
-        time.sleep(0.3)
+        refresh_devices(rc, sc, delay=0.08)
+
         sc_orient = (sc.telemetry or {}).get("orientation", {})
-        sc_fwd = normalize(get_vec3(sc_orient.get("forward")) or (0,0,0))
+        sc_fwd = normalize(get_vec3(sc_orient.get("forward")) or (0.0, 0.0, 0.0))
+        if sc_fwd == (0.0, 0.0, 0.0):
+            time.sleep(0.1)
+            continue
+
         angle_err = math.acos(max(-1.0, min(1.0, dot(sc_fwd, axis_dir))))
+        best_angle = min(best_angle, angle_err)
+
         if angle_err < ALIGN_TOLERANCE:
-            for g in gyros: g.clear_override()
-            return angle_err
+            stable_ticks += 1
+            if stable_ticks >= 5:
+                clear_gyro_overrides(gyros)
+                return angle_err
+        else:
+            stable_ticks = 0
 
         ship_fwd, ship_up, ship_right = get_body_frame(rc)
+        if ship_fwd == (0.0, 0.0, 0.0) or ship_up == (0.0, 0.0, 0.0) or ship_right == (0.0, 0.0, 0.0):
+            time.sleep(0.1)
+            continue
+
         conn_pitch = math.atan2(dot(sc_fwd, ship_up), dot(sc_fwd, ship_fwd))
         des_pitch = math.atan2(dot(axis_dir, ship_up), dot(axis_dir, ship_fwd))
-        pitch_err = (des_pitch - conn_pitch + math.pi) % (2*math.pi) - math.pi
+        pitch_err = (des_pitch - conn_pitch + math.pi) % (2 * math.pi) - math.pi
 
         conn_yaw = math.atan2(dot(sc_fwd, ship_right), dot(sc_fwd, ship_fwd))
         des_yaw = math.atan2(dot(axis_dir, ship_right), dot(axis_dir, ship_fwd))
-        yaw_err = (des_yaw - conn_yaw + math.pi) % (2*math.pi) - math.pi
+        yaw_err = (des_yaw - conn_yaw + math.pi) % (2 * math.pi) - math.pi
 
-        rate = min(MAX_RATE, angle_err * GYRO_GAIN)
-        pitch_cmd = max(-rate, min(rate, -pitch_err * GYRO_GAIN))
-        yaw_cmd = max(-rate, min(rate, -yaw_err * GYRO_GAIN))
-        for g in gyros: g.set_override(pitch=pitch_cmd, yaw=yaw_cmd, roll=0.0)
+        rate = min(max_rate, max(0.010, angle_err * gain))
+        raw_pitch = max(-rate, min(rate, -pitch_err * gain * pitch_sign))
+        raw_yaw = max(-rate, min(rate, -yaw_err * gain * yaw_sign))
 
-    for g in gyros: g.clear_override()
-    sc_orient = (sc.telemetry or {}).get("orientation", {})
-    sc_fwd = normalize(get_vec3(sc_orient.get("forward")) or (0,0,0))
+        # Slew limit prevents +command/-command twitching.
+        pitch_cmd = prev_pitch + max(-slew, min(slew, raw_pitch - prev_pitch))
+        yaw_cmd = prev_yaw + max(-slew, min(slew, raw_yaw - prev_yaw))
+        prev_pitch, prev_yaw = pitch_cmd, yaw_cmd
+
+        for g in gyros:
+            try:
+                g.set_override(pitch=pitch_cmd, yaw=yaw_cmd, roll=0.0)
+            except Exception as exc:
+                print(f"    WARN: gyro command failed {g.name or g.device_id}: {exc}")
+
+        if previous_angle is not None and abs(previous_angle - angle_err) < math.radians(0.06):
+            stagnant_ticks += 1
+        else:
+            stagnant_ticks = max(0, stagnant_ticks - 1)
+        previous_angle = angle_err
+
+        elapsed = time.time() - start
+        if elapsed - last_print >= 1.5:
+            print(
+                f"    align-legacy: angle={math.degrees(angle_err):.2f}° "
+                f"pitch={pitch_cmd:+.3f} yaw={yaw_cmd:+.3f}"
+            )
+            if stagnant_ticks >= 10:
+                print("    WARN: gyro angle is almost not changing; check gyro enabled/power/override command")
+                # Do not spin forever if gyros do not affect the grid.
+                if elapsed > 8.0:
+                    break
+                stagnant_ticks = 0
+            last_print = elapsed
+
+        time.sleep(0.15)
+
+    clear_gyro_overrides(gyros)
+    refresh_devices(rc, sc, delay=0.1)
+    sc_fwd = get_connector_forward(sc)
+    if sc_fwd == (0.0, 0.0, 0.0):
+        return best_angle
     return math.acos(max(-1.0, min(1.0, dot(sc_fwd, axis_dir))))
 
 def compute_ship_target(rc, sc, axis_dir, move_dist):
@@ -175,6 +364,109 @@ def compute_ship_target(rc, sc, axis_dir, move_dist):
     return vec_sub(vec_add(sc_pos, move_dist, axis_dir), offset)
 
 
+def read_json_from_redis(redis_client, key):
+    try:
+        if hasattr(redis_client, "get_json"):
+            data = redis_client.get_json(key)
+            if isinstance(data, dict) and data:
+                return data
+    except Exception:
+        pass
+
+    try:
+        client = getattr(redis_client, "client", None)
+        if client is None:
+            return None
+        raw = client.get(key)
+        if raw is None:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", "replace")
+        if isinstance(raw, str):
+            return json.loads(raw)
+        if isinstance(raw, dict):
+            return raw
+    except Exception:
+        return None
+    return None
+
+
+def scan_existing_telemetry(device):
+    """Read live telemetry even when BaseDevice.telemetry_key is stale/wrong."""
+    redis_client = getattr(device, "redis", None)
+    if redis_client is None:
+        return None
+
+    grid = getattr(device, "grid", None)
+    owner_id = getattr(grid, "owner_id", None)
+    grid_id = getattr(device, "grid_id", None) or getattr(grid, "grid_id", None)
+    device_id = str(getattr(device, "device_id", ""))
+
+    candidates = []
+    telemetry_key = getattr(device, "telemetry_key", None)
+    if telemetry_key:
+        candidates.append(str(telemetry_key))
+
+    try:
+        resolved = device._resolve_existing_telemetry_key()
+        if resolved:
+            candidates.append(str(resolved))
+    except Exception:
+        pass
+
+    patterns = []
+    if owner_id and grid_id and device_id:
+        patterns.append(f"se:{owner_id}:grid:{grid_id}:*:{device_id}:telemetry")
+    if owner_id and device_id:
+        patterns.append(f"se:{owner_id}:grid:*:*:{device_id}:telemetry")
+    if device_id:
+        patterns.append(f"*:{device_id}:telemetry")
+
+    try:
+        client = getattr(redis_client, "client", None)
+        if client is not None:
+            for pattern in patterns:
+                for key in client.scan_iter(match=pattern, count=200):
+                    if isinstance(key, bytes):
+                        key = key.decode("utf-8", "replace")
+                    candidates.append(str(key))
+    except Exception:
+        pass
+
+    seen = set()
+    for key in candidates:
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        data = read_json_from_redis(redis_client, key)
+        if isinstance(data, dict) and data:
+            try:
+                device.telemetry = data
+            except Exception:
+                pass
+            return data
+
+    return None
+
+
+def refresh_device(device, wait=0.08):
+    try:
+        device.update()
+    except Exception:
+        pass
+    if wait > 0:
+        time.sleep(wait)
+
+    data = scan_existing_telemetry(device)
+    if isinstance(data, dict) and data:
+        return data
+
+    try:
+        return device.telemetry or {}
+    except Exception:
+        return {}
+
+
 def refresh_devices(*devices, delay=0.1):
     for device in devices:
         try:
@@ -183,6 +475,8 @@ def refresh_devices(*devices, delay=0.1):
             pass
     if delay > 0:
         time.sleep(delay)
+    for device in devices:
+        scan_existing_telemetry(device)
 
 
 def get_connector_forward(sc):
@@ -221,22 +515,24 @@ def should_backoff(axis_dist, angle_deg, previous_angle_deg):
 # =====================================================================
 # Direct vector flight helpers for Phase 3
 # =====================================================================
-DIRECT_TICK = float(os.getenv("SE_DOCK_DIRECT_TICK", "0.30"))
-DIRECT_MAX_THRUST_FAST = float(os.getenv("SE_DOCK_DIRECT_THRUST_FAST", "18.0"))
-DIRECT_MAX_THRUST_SLOW = float(os.getenv("SE_DOCK_DIRECT_THRUST_SLOW", "12.0"))
-DIRECT_MAX_THRUST_CREEP = float(os.getenv("SE_DOCK_DIRECT_THRUST_CREEP", "7.0"))
+DIRECT_TICK = float(os.getenv("SE_DOCK_DIRECT_TICK", "0.40"))
+DIRECT_MAX_THRUST_FAST = float(os.getenv("SE_DOCK_DIRECT_THRUST_FAST", "6.0"))
+DIRECT_MAX_THRUST_SLOW = float(os.getenv("SE_DOCK_DIRECT_THRUST_SLOW", "4.0"))
+DIRECT_MAX_THRUST_CREEP = float(os.getenv("SE_DOCK_DIRECT_THRUST_CREEP", "2.0"))
 DIRECT_MIN_THRUST_DOT = float(os.getenv("SE_DOCK_DIRECT_MIN_THRUST_DOT", "0.10"))
-DIRECT_THRUST_EXPONENT = float(os.getenv("SE_DOCK_DIRECT_THRUST_EXPONENT", "1.35"))
-DIRECT_VEL_GAIN = float(os.getenv("SE_DOCK_DIRECT_VEL_GAIN", "0.24"))
-DIRECT_GYRO_GAIN = float(os.getenv("SE_DOCK_DIRECT_GYRO_GAIN", "1.45"))
-DIRECT_MAX_GYRO = float(os.getenv("SE_DOCK_DIRECT_MAX_GYRO", "0.30"))
-DIRECT_PITCH_SIGN = float(os.getenv("SE_GYRO_SIGN_PITCH", "-1"))
-DIRECT_YAW_SIGN = float(os.getenv("SE_GYRO_SIGN_YAW", "-1"))
-DIRECT_ROLL_SIGN = float(os.getenv("SE_GYRO_SIGN_ROLL", "-1"))
+DIRECT_THRUST_EXPONENT = float(os.getenv("SE_DOCK_DIRECT_THRUST_EXPONENT", "1.7"))
+DIRECT_VEL_GAIN = float(os.getenv("SE_DOCK_DIRECT_VEL_GAIN", "0.08"))
+DIRECT_GYRO_GAIN = float(os.getenv("SE_DOCK_DIRECT_GYRO_GAIN", "0.28"))
+DIRECT_MAX_GYRO = float(os.getenv("SE_DOCK_DIRECT_MAX_GYRO", "0.025"))
+DIRECT_PITCH_SIGN = float(os.getenv("SE_GYRO_SIGN_PITCH", "1"))
+DIRECT_YAW_SIGN = float(os.getenv("SE_GYRO_SIGN_YAW", "1"))
+DIRECT_ROLL_SIGN = float(os.getenv("SE_GYRO_SIGN_ROLL", "1"))
 DIRECT_POS_TOLERANCE = float(os.getenv("SE_DOCK_DIRECT_POS_TOLERANCE", "0.75"))
-DIRECT_SPEED_TOLERANCE = float(os.getenv("SE_DOCK_DIRECT_SPEED_TOLERANCE", "0.35"))
-DIRECT_ANGLE_TOL_DEG = float(os.getenv("SE_DOCK_DIRECT_ANGLE_TOL_DEG", "4.0"))
+DIRECT_SPEED_TOLERANCE = float(os.getenv("SE_DOCK_DIRECT_SPEED_TOLERANCE", "0.15"))
+DIRECT_ANGLE_TOL_DEG = float(os.getenv("SE_DOCK_DIRECT_ANGLE_TOL_DEG", "2.0"))
 DIRECT_TELEMETRY_WAIT = float(os.getenv("SE_DOCK_DIRECT_TELEMETRY_WAIT", "1.5"))
+DIRECT_MOVE_MAX_ANGLE_DEG = float(os.getenv("SE_DOCK_DIRECT_MOVE_MAX_ANGLE_DEG", "5.0"))
+PHASE3_REQUIRED_ALIGN_DEG = float(os.getenv("SE_DOCK_PHASE3_REQUIRED_ALIGN_DEG", "5.0"))
 
 
 def dv_len(v):
@@ -300,7 +596,7 @@ def dv_vec_from_obj(value):
 
 
 def dv_get_thruster_direction(thruster):
-    t = thruster.telemetry or {}
+    t = refresh_device(thruster, wait=0.02)
 
     direction = dv_vec_from_obj(t.get("thrustDirection"))
     if direction and dv_len(direction) > 1e-8:
@@ -326,7 +622,7 @@ def dv_get_max_thrust(thruster):
     return 1.0
 
 
-def dv_build_thruster_infos(thrusters):
+def dv_build_thruster_infos(thrusters, reference_dir=None):
     refresh_devices(*thrusters, delay=DIRECT_TELEMETRY_WAIT)
 
     infos = []
@@ -348,6 +644,18 @@ def dv_build_thruster_infos(thrusters):
         "  Thruster direction sources: "
         + ", ".join(f"{key}={value}" for key, value in sorted(source_count.items()))
     )
+
+    if infos and reference_dir is not None and dot(reference_dir, reference_dir) > 1e-8:
+        ref = normalize(reference_dir)
+        print("  Top docking thruster candidates:")
+        for info in sorted(infos, key=lambda item: dot(item["direction"], ref), reverse=True)[:10]:
+            direction = info["direction"]
+            print(
+                f"    score={dot(direction, ref):+.3f} source={info['source']:>20} "
+                f"id={info['device'].device_id} name={info['device'].name or ''} "
+                f"dir=({direction[0]:+.3f},{direction[1]:+.3f},{direction[2]:+.3f})"
+            )
+
     return infos
 
 
@@ -651,22 +959,30 @@ def dv_direct_move_connector_offset(
                 target_dist = max(0.0, live_axis_dist - target_axis_dist)
                 speed_limit = min(speed_limit, PHASE3_SPEED_CREEP)
 
-            desired_velocity = dv_mul(target_dir, speed_limit)
+            _move_frame_err = connector_frame_error(sc, tc=tc) if docking_mode else None
+            connector_angle_err = _move_frame_err[1] if _move_frame_err is not None else (get_connector_angle(sc, live_axis_dir) if docking_mode else 0.0)
+
+            # Do not translate aggressively while the connector is misaligned.
+            # This prevents the ship from scraping/passing the target while gyros are still settling.
+            if docking_mode and math.degrees(connector_angle_err) > DIRECT_MOVE_MAX_ANGLE_DEG:
+                desired_velocity = (0.0, 0.0, 0.0)  # brake only
+            else:
+                desired_velocity = dv_mul(target_dir, speed_limit)
+
             velocity_error = dv_sub(desired_velocity, connector_velocity)
             force_vector = dv_limit(dv_mul(velocity_error, DIRECT_VEL_GAIN), 1.0)
 
             active, max_sent = dv_apply_force_vector(thruster_infos, force_vector, max_thrust_pct)
 
-            if docking_mode:
-                angle_err, pitch, yaw, roll = dv_apply_connector_axis_control(
-                    gyros, rc, sc, target_axis_for_gyro
-                )
-            else:
-                frame = get_body_frame(rc)
-                if frame and hold_frame:
-                    angle_err, pitch, yaw, roll = dv_apply_orientation_control(gyros, frame, hold_frame)
-                else:
-                    angle_err, pitch, yaw, roll = 0.0, 0.0, 0.0, 0.0
+            # During translation, keep the angle reached in Phase 2 instead of chasing
+            # the noisy live connector axis. If the angle becomes bad, velocity is set
+            # to zero above and the next outer step will realign slowly.
+            # Do not run continuous gyro PID during translation: it caused on-place spinning
+            # on this grid. Phase 2 aligns first; during the tiny translation step we only
+            # clear overrides and brake/translate with thrusters.
+            dv_clear_gyros(gyros)
+            pitch = yaw = roll = 0.0
+            angle_err = connector_angle_err if docking_mode else 0.0
 
             speed_now = dv_len(connector_velocity)
             elapsed = now - started
@@ -715,11 +1031,149 @@ def dv_direct_backoff(rc, sc, tc, gyros, thrusters, thruster_infos, distance=Non
     )
     return ok
 
+
+def dv_refresh_thruster_info_directions(thruster_infos):
+    """Update thruster world directions in-place after the grid rotates."""
+    for info in thruster_infos:
+        direction, source = dv_get_thruster_direction(info["device"])
+        if direction is not None:
+            info["direction"] = direction
+            info["source"] = source
+
+
+def dv_direct_move_connector_to_point(
+    rc,
+    sc,
+    gyros,
+    thrusters,
+    thruster_infos,
+    connector_target,
+    *,
+    speed,
+    max_thrust_pct,
+    tolerance,
+    speed_tolerance,
+    timeout,
+    label,
+):
+    """Move the ship connector to an absolute world point by direct thruster control.
+
+    This is used as a Phase 1 fallback when RC autopilot is alive but does not
+    actually reduce distance to the approach point. It intentionally does not
+    command gyro rotation, because an uncalibrated gyro PID was the source of
+    the on-place spinning.
+    """
+    refresh_devices(rc, sc, delay=0.1)
+    sc_start = get_pos(sc.telemetry or {})
+    if not sc_start:
+        print("  DIRECT APPROACH: missing ship connector position")
+        return False
+
+    start_dist = dv_len(dv_sub(connector_target, sc_start))
+    print(
+        f"  DIRECT {label}: moving ship connector to approach point, "
+        f"dist={start_dist:.1f}m speed={speed:.1f}m/s maxThrust={max_thrust_pct:.1f}%"
+    )
+
+    try:
+        rc.disable()
+    except Exception:
+        pass
+    try:
+        rc.gyro_control_off()
+    except Exception:
+        pass
+    try:
+        rc.thrusters_on()
+    except Exception:
+        pass
+    try:
+        rc.dampeners_off()
+    except Exception:
+        pass
+
+    # Clear gyro overrides and do not hold orientation during long approach.
+    # This avoids the spin observed with aggressive gyro control.
+    dv_clear_gyros(gyros)
+    dv_clear_thrusters(thrusters)
+
+    previous_pos = sc_start
+    previous_time = time.time()
+    velocity = (0.0, 0.0, 0.0)
+    started = time.time()
+    last_print = 0.0
+    last_dir_refresh = 0.0
+
+    try:
+        while time.time() - started < timeout:
+            loop_started = time.time()
+            refresh_devices(rc, sc, delay=0.02)
+            sc_pos = get_pos(sc.telemetry or {})
+            if not sc_pos:
+                time.sleep(DIRECT_TICK)
+                continue
+
+            now = time.time()
+            if now - last_dir_refresh >= 2.0:
+                dv_refresh_thruster_info_directions(thruster_infos)
+                last_dir_refresh = now
+
+            velocity = dv_filtered_velocity(sc_pos, previous_pos, previous_time, velocity)
+            previous_pos = sc_pos
+            previous_time = now
+
+            to_target = dv_sub(connector_target, sc_pos)
+            dist = dv_len(to_target)
+            target_dir = normalize(to_target) if dist > 1e-8 else (0.0, 0.0, 0.0)
+
+            # Far away we may move faster, but we always slow down before the approach point.
+            slow_radius = max(25.0, min(150.0, start_dist * 0.15))
+            speed_limit = speed * dv_clamp(dist / slow_radius, 0.10, 1.0)
+            desired_velocity = dv_mul(target_dir, speed_limit)
+
+            # Low gain prevents overshoot and runaway speed. Reverse thrusters brake automatically.
+            velocity_error = dv_sub(desired_velocity, velocity)
+            force_vector = dv_limit(dv_mul(velocity_error, 0.045), 1.0)
+            active, max_sent = dv_apply_force_vector(thruster_infos, force_vector, max_thrust_pct)
+
+            current_speed = dv_len(velocity)
+            elapsed = now - started
+            if elapsed - last_print >= 2.0:
+                print(
+                    f"    [{elapsed:6.1f}s] approach_dist={dist:7.1f}m "
+                    f"speed={current_speed:5.2f}m/s thr={active:2d}/{len(thruster_infos)} pct={max_sent:4.1f}"
+                )
+                last_print = elapsed
+
+            if dist <= tolerance and current_speed <= speed_tolerance:
+                print("  DIRECT APPROACH: reached approach point")
+                return True
+
+            spent = time.time() - loop_started
+            time.sleep(max(0.02, DIRECT_TICK - spent))
+
+        print("  DIRECT APPROACH: timeout; continuing with current position")
+        return False
+
+    finally:
+        dv_clear_thrusters(thrusters)
+        dv_clear_gyros(gyros)
+        try:
+            rc.dampeners_on()
+        except Exception:
+            pass
+        try:
+            rc.disable()
+        except Exception:
+            pass
+        time.sleep(0.3)
+        refresh_devices(rc, sc, delay=0.1)
+
 # =====================================================================
 # MAIN
 # =====================================================================
 print("=" * 60)
-print("AUTOMATED DOCKING SEQUENCE")
+print("AUTOMATED DOCKING SEQUENCE V8 LEGACY-GYRO")
 print("=" * 60)
 
 # --- Load grids ---
@@ -733,6 +1187,7 @@ rc = ship.get_first_device(RemoteControlDevice)
 sc = ship.find_devices_by_type(ConnectorDevice)[0]
 tc = target_grid.find_devices_by_type(ConnectorDevice)[0]
 gyros = ship.find_devices_by_type(GyroDevice)
+thrusters = ship.find_devices_by_type(ThrusterDevice)
 
 if not rc:
     print("ERROR: no RemoteControl on ship"); sys.exit(1)
@@ -742,6 +1197,7 @@ print(f"  Target: {target_grid.name} (ID: {target_grid.grid_id})")
 print(f"  Ship connector: {sc.device_id}")
 print(f"  Target connector: {tc.device_id}")
 print(f"  Gyros: {len(gyros)}")
+print(f"  Thrusters: {len(thrusters)}")
 
 # =====================================================================
 # PHASE 1: Fly to approach point
@@ -777,6 +1233,21 @@ print(f"  Target connector: ({t_pos[0]:.1f}, {t_pos[1]:.1f}, {t_pos[2]:.1f})")
 print(f"  Connector approach point ({APPROACH_DIST}m): ({target_point[0]:.1f}, {target_point[1]:.1f}, {target_point[2]:.1f})")
 print(f"  Remote target point: ({ship_target[0]:.1f}, {ship_target[1]:.1f}, {ship_target[2]:.1f})")
 
+initial_rc_dist = dist3(rc_pos, ship_target)
+initial_sc_dist = dist3(sc_pos, target_point)
+_timeout_env = os.getenv("SE_DOCK_APPROACH_RC_TIMEOUT")
+if _timeout_env:
+    phase1_rc_timeout = float(_timeout_env)
+else:
+    # Long-range approach must be allowed to actually reach the approach point.
+    # At 2-3 km even a working RC autopilot can need several minutes.
+    estimated_speed = max(3.0, APPROACH_SPEED * 0.35)
+    phase1_rc_timeout = min(1200.0, max(120.0, initial_sc_dist / estimated_speed * 1.6 + 45.0))
+print(f"  Initial RC distance: {initial_rc_dist:.1f}m")
+print(f"  Initial connector distance to approach point: {initial_sc_dist:.1f}m")
+print(f"  Approach speed command: {APPROACH_SPEED:.1f}m/s")
+print(f"  Phase 1 timeout: {phase1_rc_timeout:.0f}s")
+
 if (rc.telemetry or {}).get("autopilotEnabled"):
     rc.disable()
     time.sleep(0.5)
@@ -797,7 +1268,7 @@ time.sleep(0.5)
 gps = f"GPS:Approach:{ship_target[0]:.1f}:{ship_target[1]:.1f}:{ship_target[2]:.1f}:"
 
 print("  Flying to approach point...")
-rc.goto(gps, speed=10.0, gps_name="Approach")
+rc.goto(gps, speed=APPROACH_SPEED, gps_name="Approach")
 time.sleep(0.3)
 rc.enable()
 
@@ -816,7 +1287,7 @@ for attempt in range(5):
         break
 
     print(f"  Autopilot did not engage, retry {attempt + 1}/5")
-    rc.goto(gps, speed=10.0, gps_name="Approach")
+    rc.goto(gps, speed=APPROACH_SPEED, gps_name="Approach")
     time.sleep(0.3)
     rc.enable()
     time.sleep(0.5)
@@ -827,8 +1298,9 @@ if not engaged:
 start = time.time()
 prev_d = None
 stuck_count = 0
+early_stop_count = 0
 
-while time.time() - start < 120:
+while time.time() - start < phase1_rc_timeout:
     time.sleep(3)
 
     rc.update()
@@ -845,19 +1317,45 @@ while time.time() - start < 120:
     ap = (rc.telemetry or {}).get("autopilotEnabled", False)
 
     d = sc_dist
+    elapsed = time.time() - start
+    closed = initial_sc_dist - sc_dist
+    avg_rate = closed / max(1.0, elapsed)
+    eta = sc_dist / avg_rate if avg_rate > 0.2 else float("inf")
+    eta_text = f" eta={eta:.0f}s" if eta != float("inf") else " eta=unknown"
 
     print(
-        f"  [{time.time() - start:.0f}s] "
-        f"rc_dist={rc_dist:.1f}m sc_dist={sc_dist:.1f}m autopilot={ap}"
+        f"  [{elapsed:.0f}s] "
+        f"rc_dist={rc_dist:.1f}m sc_dist={sc_dist:.1f}m "
+        f"closed={closed:.1f}m avg={avg_rate:.1f}m/s{eta_text} autopilot={ap}"
     )
 
     if sc_dist < 8.0:
         print("  Ship connector reached approach area")
         break
 
-    if not ap and sc_dist < 40.0:
-        print("  Autopilot stopped near approach area — continuing")
-        break
+    if not ap:
+        early_stop_count += 1
+
+        if rc_dist < 2.0 and sc_dist < 16.0:
+            print(
+                f"  Remote reached approach target; connector residual {sc_dist:.1f}m "
+                "will be handled in Phase 2/3"
+            )
+            break
+
+        if sc_dist <= APPROACH_HANDOFF_DIST and early_stop_count >= APPROACH_HANDOFF_RETRIES:
+            print(
+                f"  RC stopped early {early_stop_count} times, but connector is {sc_dist:.1f}m from approach area. "
+                "Handing off to direct connector controller."
+            )
+            break
+
+        print(f"  Autopilot stopped too early at sc_dist={sc_dist:.1f}m rc_dist={rc_dist:.1f}m — retrying approach")
+        rc.goto(gps, speed=APPROACH_SPEED, gps_name="Approach")
+        time.sleep(0.3)
+        rc.enable()
+        time.sleep(1.0)
+        continue
 
     if prev_d is not None and abs(prev_d - d) < 0.5:
         stuck_count += 1
@@ -866,13 +1364,71 @@ while time.time() - start < 120:
 
     prev_d = d
 
-    if stuck_count >= 4 and sc_dist < 50.0:
-        print(f"  WARNING: approach stuck at {sc_dist:.1f}m — continuing to connector alignment")
-        break
+    if stuck_count >= 4:
+        if rc_dist < 2.0 and sc_dist < 16.0:
+            print(
+                f"  Approach stabilized with rc_dist={rc_dist:.1f}m, sc_dist={sc_dist:.1f}m — continuing"
+            )
+            break
+
+        if sc_dist <= APPROACH_HANDOFF_DIST:
+            print(
+                f"  Approach no longer improves at sc_dist={sc_dist:.1f}m. "
+                "Handing off to direct connector controller."
+            )
+            break
+
+        print(f"  WARNING: approach stuck at {sc_dist:.1f}m — retrying approach")
+        rc.goto(gps, speed=max(3.0, APPROACH_SPEED * 0.7), gps_name="ApproachRetry")
+        time.sleep(0.3)
+        rc.enable()
+        stuck_count = 0
+        time.sleep(1.0)
+        continue
 
 rc.disable()
 rc.dampeners_on()
 time.sleep(1)
+
+# If RC autopilot did not bring the ship connector close enough to the approach
+# point, finish Phase 1 with the same direct-thruster controller used for docking.
+refresh_devices(rc, sc, tc, delay=0.1)
+cur_sc = get_pos(sc.telemetry or {})
+phase1_sc_dist = dist3(cur_sc, target_point) if cur_sc else float("inf")
+if phase1_sc_dist > APPROACH_DIRECT_FALLBACK_DIST:
+    if phase1_sc_dist > APPROACH_DIRECT_MAX_DIST:
+        print(
+            f"ERROR: Phase 1 ended while still {phase1_sc_dist:.1f}m from approach point. "
+            f"This is too far for safe direct connector control (limit {APPROACH_DIRECT_MAX_DIST:.1f}m)."
+        )
+        print(
+            "TIP: for long-range approach increase SE_DOCK_APPROACH_RC_TIMEOUT or "
+            "SE_DOCK_APPROACH_SPEED, or move the ship closer before docking."
+        )
+        sys.exit(1)
+
+    print(
+        f"  Phase 1 RC residual is {phase1_sc_dist:.1f}m; "
+        "switching to direct connector approach"
+    )
+    if not thrusters:
+        print("ERROR: no thrusters on ship for direct approach")
+        sys.exit(1)
+    direct_ref_dir = normalize(vec_sub(target_point, cur_sc)) if cur_sc else None
+    thruster_infos_phase1 = dv_build_thruster_infos(thrusters, reference_dir=direct_ref_dir)
+    if not thruster_infos_phase1:
+        print("ERROR: no thruster direction telemetry found for direct approach")
+        sys.exit(1)
+    timeout = max(60.0, min(900.0, phase1_sc_dist / max(0.1, APPROACH_DIRECT_SPEED) * 2.5))
+    dv_direct_move_connector_to_point(
+        rc, sc, gyros, thrusters, thruster_infos_phase1, target_point,
+        speed=APPROACH_DIRECT_SPEED,
+        max_thrust_pct=APPROACH_DIRECT_MAX_THRUST,
+        tolerance=APPROACH_DIRECT_TOLERANCE,
+        speed_tolerance=APPROACH_DIRECT_SPEED_TOLERANCE,
+        timeout=timeout,
+        label="APPROACH",
+    )
 
 print("  Phase 1 complete.")
 
@@ -886,6 +1442,7 @@ print("=" * 60)
 for g in gyros: g.enable()
 time.sleep(0.3)
 
+refresh_devices(rc, sc, tc, delay=0.2)
 sc_pos = get_pos(sc.telemetry or {})
 tc_pos = get_pos(tc.telemetry or {})
 if sc_pos and tc_pos:
@@ -893,15 +1450,25 @@ if sc_pos and tc_pos:
 else:
     print("ERROR: cannot compute axis"); sys.exit(1)
 
-sc_orient = (sc.telemetry or {}).get("orientation", {})
-sc_fwd = normalize(get_vec3(sc_orient.get("forward")) or (0,0,0))
-init_angle = math.acos(max(-1.0, min(1.0, dot(sc_fwd, axis_dir))))
-print(f"  Initial angle: {math.degrees(init_angle):.1f}°")
+init_angle = get_connector_angle(sc, axis_dir)
+print(f"  Initial connector angle to docking axis: {math.degrees(init_angle):.1f}°")
 
 if init_angle > ALIGN_TOLERANCE:
-    final_angle = correct_orientation(rc, sc, gyros, axis_dir, timeout=30)
+    final_angle = correct_orientation(rc, sc, gyros, axis_dir, timeout=75)
     print(f"  Final angle: {math.degrees(final_angle):.1f}°")
+    if final_angle > ALIGN_TOLERANCE:
+        print("  Second precision alignment pass...")
+        final_angle = correct_orientation(rc, sc, gyros, axis_dir, timeout=45)
+        print(f"  Final angle after second pass: {math.degrees(final_angle):.1f}°")
+    if final_angle > math.radians(PHASE3_REQUIRED_ALIGN_DEG):
+        print(
+            f"ERROR: connector angle is still {math.degrees(final_angle):.1f}°. "
+            f"Direct docking requires <= {PHASE3_REQUIRED_ALIGN_DEG:.1f}°."
+        )
+        print("TIP: try $env:SE_DOCK_GYRO_AXIS_SIGN='-1' or use the old dock.py alignment for this grid.")
+        sys.exit(1)
 else:
+    final_angle = init_angle
     print(f"  Already aligned ({math.degrees(init_angle):.1f}°)")
 
 # Clear overrides but keep gyros enabled
@@ -913,20 +1480,30 @@ print(f"  Phase 2 complete.")
 # PHASE 3: Direct vector connector-axis approach + auto-lock
 # =====================================================================
 print("\n" + "=" * 60)
-print("PHASE 3: DIRECT VECTOR CONNECTOR APPROACH + LOCK")
+print("PHASE 3: DIRECT VECTOR CONNECTOR-RELATIVE APPROACH + LOCK")
 print("=" * 60)
 
-thrusters = ship.find_devices_by_type(ThrusterDevice)
+# Reuse thrusters collected at load time; do not reacquire stale generic objects.
 if not thrusters:
     print("ERROR: no thrusters on ship for direct Phase 3 control")
     sys.exit(1)
 
 print(f"  Thrusters: {len(thrusters)}")
 print("  Updating thruster telemetry...")
-thruster_infos = dv_build_thruster_infos(thrusters)
+refresh_devices(sc, tc, delay=0.1)
+_initial_sc_pos = get_pos(sc.telemetry or {})
+_initial_tc_pos = get_pos(tc.telemetry or {})
+_initial_axis_dir = normalize(vec_sub(_initial_tc_pos, _initial_sc_pos)) if _initial_sc_pos and _initial_tc_pos else None
+thruster_infos = dv_build_thruster_infos(thrusters, reference_dir=_initial_axis_dir)
+if not thruster_infos:
+    print("  First telemetry read did not include thruster vectors; retrying with Redis scan...")
+    time.sleep(1.0)
+    thruster_infos = dv_build_thruster_infos(thrusters, reference_dir=_initial_axis_dir)
+
 if not thruster_infos:
     print("ERROR: no thruster direction telemetry found")
     print("Need thruster telemetry with thrustDirection or orientation.forward")
+    print("Diagnostic: undock script finds these vectors, so this usually means stale telemetry keys; Redis scan fallback also failed here.")
     sys.exit(1)
 
 try:
@@ -981,9 +1558,10 @@ while True:
         step_size, speed, timeout, max_thrust = PHASE3_STEP_CREEP, PHASE3_SPEED_CREEP, 22, DIRECT_MAX_THRUST_CREEP
         phase = "CREEP"
 
-    angle_err = get_connector_angle(sc, axis_dir)
+    _frame_err = connector_frame_error(sc, tc=tc)
+    angle_err = _frame_err[1] if _frame_err is not None else get_connector_angle(sc, axis_dir)
     angle_deg = math.degrees(angle_err)
-    print(f"\n  [Step {step}] DIRECT {phase} | dist={axis_dist:.2f}m angle={angle_deg:.1f}°")
+    print(f"\n  [Step {step}] DIRECT {phase} | dist={axis_dist:.2f}m connector_angle={angle_deg:.1f}°")
 
     need_backoff, backoff_reason = should_backoff(axis_dist, angle_deg, previous_angle_deg)
     if need_backoff:
@@ -1024,13 +1602,21 @@ while True:
     # Direct movement then holds this exact body angle during translation.
     if angle_err > ALIGN_TOLERANCE:
         print(f"  Correcting connector angle before direct move: {angle_deg:.1f}°")
-        final_angle = correct_orientation(rc, sc, gyros, axis_dir, timeout=5)
+        final_angle = correct_orientation(rc, sc, gyros, axis_dir, timeout=45)
         for g in gyros:
             g.clear_override()
         time.sleep(0.3)
         refresh_devices(rc, sc, tc, delay=0.1)
 
         final_angle_deg = math.degrees(final_angle)
+        if final_angle_deg > PHASE3_REQUIRED_ALIGN_DEG:
+            print(
+                f"  Alignment still {final_angle_deg:.1f}°; skipping movement and retrying slow alignment"
+            )
+            previous_angle_deg = None
+            time.sleep(1.0)
+            continue
+
         need_backoff, backoff_reason = should_backoff(axis_dist, final_angle_deg, previous_angle_deg)
         if need_backoff:
             backoff_count += 1

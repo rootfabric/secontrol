@@ -100,6 +100,20 @@ python examples/organized/radar/space_survey.py --grid agent1 --gps
 python examples/organized/radar/space_survey.py --grid agent1 --json
 ```
 
+### Проверка перед полётом: припаркован ли грид
+
+**Перед любым полётом** проверь, припаркован ли грид. Если да — отстыкуйся перед движением.
+
+```bash
+# 1. Проверить статус стыковки
+python examples/organized/parking/check_docking_status.py --grid agent1
+
+# 2. Если припаркован — отстыковаться
+python examples/organized/parking/smooth_undock.py [ship_id] [base_id] [distance]
+```
+
+> **Важно:** `space_navigator_v4.py` не сможет двигать припаркованный грид. Всегда проверяй статус стыковки перед полётом.
+
 ### Полёты
 
 ```bash
@@ -130,6 +144,7 @@ python examples/space_flight/space_navigator_v4.py --grid agent1 --target="X,Y,Z
 # Стыковка корабля к базе
 python examples/organized/parking/dock.py [ship_id] [target_id] [approach_distance]
 
+
 # Примеры:
 python examples/organized/parking/dock.py skynet-baza2 skynet-farpost0
 python examples/organized/parking/dock.py 104571351454649539 84360909276756422 80
@@ -150,15 +165,6 @@ python examples/organized/parking/smooth_undock.py [ship_id] [base_id] [distance
 ```bash
 # Универсальный скан (файл + Redis)
 python examples/organized/radar/ore_scanner.py --grid agent1
-
-# Скан с меньшим радиусом
-python examples/organized/radar/ore_scanner.py --grid agent1 --radius 500
-
-# Только файл, без Redis
-python examples/organized/radar/ore_scanner.py --grid agent1 --no-redis
-
-# Поиск руды в последнем скане
-python examples/organized/radar/ore_scanner.py --find Platinum
 ```
 
 ### Проверка данных
@@ -170,9 +176,6 @@ python examples/organized/radar/shared_map/shared_map_report.py --grid agent1
 # Найти конкретную руду
 python examples/organized/radar/shared_map/shared_map_deposits.py --grid agent1 --material Platinum --clusters --gps
 
-# Синхронизация локальных файлов в Redis
-python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1
-```
 
 ### Найти неисследованный астероид
 
@@ -184,10 +187,19 @@ python examples/organized/radar/find_unlooted_asteroid.py --grid agent1 --gps
 ### Бурение (Nanobot Drill)
 
 ```bash
-# Документация: examples/organized/drill_nano/nanodrill_agent.md
-# Быстрый старт: docs/agent-skills/gaming/secontrol-space-engineers/references/nanobot-drill-quickstart.md
+# Бурение руды (безопасный режим)
+python examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid agent1 --ore Platinum --amount 5000
 ```
 
+```bash
+# С увеличенным радиусом сканирования
+python examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid agent1 --ore Uranium --amount 3000 --scan-radius 1000
+```
+
+```bash
+# Добыть руду (Nanobot Drill) — автоматически скан + бур + сбор с игрой в параметры если не добывает сходу
+python examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid skynet-agent0 --ore Ice --amount 500000 --scan-radius 1500 --area-size 75 --density-radius 20 --max-points 120 --startup-timeout 90 --no-progress-timeout 60 --working-point-min-seconds 180 --check-interval 0.5 --stone-safety-delta 20 --inventory-delta-threshold 10 --max-stone-per-ore-ratio 0.05
+```
 ---
 
 ## Строительство
@@ -205,17 +217,27 @@ python examples/organized/radar/find_unlooted_asteroid.py --grid agent1 --gps
 ## Производство и инвентарь
 
 ```bash
-# Перемещение ресурсов на базу
-python examples/organized/container/advanced/pull_items_from_docked_grid.py --grid agent1
+# Показать содержимое контейнеров грида
+python examples/organized/container/basic/containers_show.py --grid farpost0
+
+# В JSON-формате
+python examples/organized/container/basic/containers_show.py --grid farpost0 --json
+
+# Перегрузить ресурсы с корабля на базу (корабль должен быть пристыкован)
+python examples/organized/container/advanced/pull_items_from_docked_grid.py --source-grid skynet-agent0 --target-grid skynet-farpost0
 ```
+
 
 ---
 
 ## Управление устройствами
 
 ```bash
-# Переименовать маяк
+# Переименовать маяк на одном корабле
 python examples/organized/beacon/set_beacon_to_grid_name.py --grid agent1
+
+# Переименовать ВСЕ маяки на ВСЕХ кораблях (под названия кораблей)
+python examples/organized/beacon/set_all_beacons_to_grid_name.py
 
 # Переименовать устройство
 python examples/organized/grid/intermediate/grid_rename_device_example.py --grid agent1
@@ -237,6 +259,8 @@ python examples/organized/grid/intermediate/grid_rename_device_example.py --grid
 ### Пайплайн: Разведка нового астероида
 
 ```
+0. Проверить парковку: check_docking_status.py --grid agent1
+   → если припаркован: smooth_undock.py [ship_id] [base_id] [distance]
 1. Обзор:        space_survey.py --grid agent1 --unexplored --gps
 2. Навигация:    space_navigator_v4.py --grid agent1 --target="X,Y,Z"
 3. Скан:         ore_scanner.py --grid agent1
@@ -246,9 +270,11 @@ python examples/organized/grid/intermediate/grid_rename_device_example.py --grid
 ### Пайплайн: Добыча руды
 
 ```
+0. Проверить парковку: check_docking_status.py --grid agent1
+   → если припаркован: smooth_undock.py [ship_id] [base_id] [distance]
 1. Найти руду:   shared_map_deposits.py --grid agent1 --material Platinum --clusters
 2. Навигация:    space_navigator_v4.py --grid agent1 --target="X,Y,Z"
-3. Бурение:      nanodrill scripts (docs/organized/drill_nano/nanodrill_agent.md)
+3. Бурение:      mine_ore_robot_safe_live_move.py --grid agent1 --ore Platinum --amount 5000
 ```
 
 ### Пайплайн: После рестарта сервера
@@ -263,6 +289,7 @@ python examples/organized/grid/intermediate/grid_rename_device_example.py --grid
 
 ## Важно
 
+- **Перед полётом** — проверяй статус стыковки (`check_docking_status.py`). Припаркованный грид не летит.
 - **Все пути** — от корня проекта `C:\secontrol\`
 - **Временные файлы** — только в `tmp/`
 - **Скрипт по умолчанию для скана руд** — `ore_scanner.py` (файл + Redis)
