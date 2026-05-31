@@ -261,6 +261,63 @@ python examples/organized/container/advanced/pull_items_from_docked_grid.py --so
 
 ---
 
+## Очистители (Refinery)
+
+### Оценка приоритетов (безопасный режим)
+
+Посмотреть план изменений, ничего не меняя:
+
+```bash
+python examples/organized/refinery/refinery_priority_operator.py --grid farpost0 --evaluate
+```
+
+### Применить изменения
+
+```bash
+python examples/organized/refinery/refinery_priority_operator.py --grid farpost0 --apply
+```
+### Учитывать очередь сборки (boost при дефиците слитков)
+
+```bash
+python examples/organized/refinery/refinery_priority_operator.py --grid farpost0 --apply --from-assembler-queue
+```
+
+### Автоматический цикл (повтор каждые 30 сек)
+
+```bash
+python examples/organized/refinery/refinery_priority_operator.py --grid farpost0 --apply --loop --interval 30
+```
+
+### Что делает скрипт
+
+1. Находит все очистители на гриде
+2. Собирает руду со всех контейнеров
+3. Сортирует руду по приоритету из `refinery_priority_config.json`
+4. Для каждого очистителя:
+   - Переписывает очередь (какие blueprint-ы и в каком порядке)
+   - Перекладывает руду во входной инвентарь (первая руда = первая плавится)
+5. Если включён `--from-assembler-queue` — поднимает руду в приоритете, если нужен слиток для очереди сборки
+
+### Порядок руд по умолчанию
+
+```
+Uranium → Platinum → Gold → Silver → Cobalt → Magnesium → Nickel → Silicon → Iron → Stone
+```
+
+Первая руда — самый высокий приоритет. Изменить можно в `examples/organized/refinery/refinery_priority_config.json`.
+
+### Теги контейнеров-источников
+
+Скрипт ищет контейнеры с тегами `[source]`, `[input]`, `[ore]` в имени. Если таких нет — берёт все контейнеры на гриде.
+
+### Безопасность
+
+- `--evaluate` ничего не меняет, только показывает план
+- Скрипт не удаляет руду, только переносит между инвентарями
+- Перед первым применением всегда сначала `--evaluate`
+
+---
+
 ## Управление устройствами
 
 ```bash

@@ -1,0 +1,63 @@
+{
+  "ore_order": [
+    "Uranium",
+    "Platinum",
+    "Gold",
+    "Silver",
+    "Cobalt",
+    "Magnesium",
+    "Nickel",
+    "Silicon",
+    "Iron",
+    "Stone"
+  ],
+  "ore_to_blueprint": {
+    "Stone": "StoneOreToIngot",
+    "Iron": "IronOreToIngot",
+    "Nickel": "NickelOreToIngot",
+    "Cobalt": "CobaltOreToIngot",
+    "Magnesium": "MagnesiumOreToIngot",
+    "Silicon": "SiliconOreToIngot",
+    "Silver": "SilverOreToIngot",
+    "Gold": "GoldOreToIngot",
+    "Platinum": "PlatinumOreToIngot",
+    "Uranium": "UraniumOreToIngot"
+  },
+  "max_ore_types_per_refinery": 3,
+  "queue_amount_per_ore": 1000,
+  "move_amount_per_ore": 1000,
+  "min_ore_amount": 1,
+  "source_container_tags": [
+    "source",
+    "input",
+    "ore"
+  ],
+  "use_all_containers_if_no_tagged_sources": true,
+  "allow_move_from_other_refineries": false,
+  "clear_wrong_ore_from_refinery_input": true,
+  "force_priority_ore_to_first_input_slot": true,
+  "assembler_queue_boost": {
+    "ingot_safety_stock": {
+      "Uranium": 10,
+      "Platinum": 10,
+      "Gold": 50,
+      "Silver": 50,
+      "Cobalt": 100,
+      "Magnesium": 100,
+      "Nickel": 100,
+      "Silicon": 100,
+      "Iron": 500,
+      "Stone": 0
+    }
+  },
+  "restore_displaced_lower_priority_ore": false,
+  "temporary_storage_tags": [
+    "ore",
+    "cargo",
+    "storage",
+    "buffer",
+    "input"
+  ],
+  "verify_transfer_timeout": 2.0,
+  "script_expected_version": "refinery-priority-v4-verified-transfer-no-restore-2026-05-31"
+}
