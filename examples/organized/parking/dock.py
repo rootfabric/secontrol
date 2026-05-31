@@ -18,6 +18,7 @@ import sys
 import os
 import time
 import math
+import argparse
 
 # --- Load .env (handles \r\n) ---
 env_path = "/workspace/.env"
@@ -37,9 +38,27 @@ from secontrol.devices.connector_device import ConnectorDevice
 from secontrol.devices.gyro_device import GyroDevice
 
 
-SHIP = sys.argv[1] if len(sys.argv) > 1 else "104571351454649539"
-TARGET = sys.argv[2] if len(sys.argv) > 2 else "84360909276756422"
-APPROACH_DIST = float(sys.argv[3]) if len(sys.argv) > 3 else 100.0
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Automated docking with mandatory free target connector selection"
+    )
+    parser.add_argument("ship", nargs="?", default="104571351454649539", help="Ship grid name or ID")
+    parser.add_argument("target", nargs="?", default="84360909276756422", help="Target grid name or ID")
+    parser.add_argument("approach_distance", nargs="?", type=float, default=100.0, help="Approach distance in meters")
+    parser.add_argument("--ship-connector-id", help="Use exact ship connector entity ID")
+    parser.add_argument("--ship-connector-name", help="Use ship connector whose name contains this text")
+    parser.add_argument("--target-connector-id", help="Use exact target connector entity ID; it must be free")
+    parser.add_argument("--target-connector-name", help="Use free target connector whose name contains this text")
+    parser.add_argument("--list-connectors", action="store_true", help="Print connector states and exit")
+    parser.add_argument("--connector-check-retries", type=int, default=4, help="Telemetry refresh attempts before connector selection")
+    parser.add_argument("--connector-check-delay", type=float, default=0.35, help="Delay between connector telemetry refreshes")
+    return parser.parse_args()
+
+
+ARGS = parse_args()
+SHIP = ARGS.ship
+TARGET = ARGS.target
+APPROACH_DIST = float(ARGS.approach_distance)
 
 # =====================================================================
 # Settings
@@ -211,19 +230,282 @@ def check_connector(connector):
     )
 
 
-def try_connect(sc, label="", axis_dist=None):
+def normalize_entity_id(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        if int(value) == 0:
+            return None
+        return str(int(value))
+    text = str(value).strip()
+    if not text or text.lower() in {"none", "null", "n/a", "0"}:
+        return None
+    try:
+        return str(int(float(text)))
+    except Exception:
+        return text
+
+
+def same_entity_id(left, right):
+    left_id = normalize_entity_id(left)
+    right_id = normalize_entity_id(right)
+    return left_id is not None and right_id is not None and left_id == right_id
+
+
+def connector_entity_id(connector):
+    return normalize_entity_id(getattr(connector, "device_id", None))
+
+
+def connector_display_name(connector):
+    name = getattr(connector, "name", None) or "Connector"
+    return f"{name} ({getattr(connector, 'device_id', 'unknown')})"
+
+
+def connector_status_text(connector):
+    t = connector.telemetry or {}
+    is_conn, status, other_id = check_connector(connector)
+    return (
+        f"status={status or 'N/A'} "
+        f"connected={is_conn} "
+        f"other={normalize_entity_id(other_id) or '-'} "
+        f"enabled={t.get('enabled', 'N/A')} "
+        f"functional={t.get('isFunctional', 'N/A')} "
+        f"working={t.get('isWorking', 'N/A')}"
+    )
+
+
+def telemetry_bool(telemetry, key, default=True):
+    if not isinstance(telemetry, dict):
+        return default
+    if key not in telemetry or telemetry.get(key) is None:
+        return default
+    return bool(telemetry.get(key))
+
+
+def connector_is_powered_and_functional(connector):
+    t = connector.telemetry or {}
+    if not telemetry_bool(t, "enabled", True):
+        return False, "disabled"
+    if not telemetry_bool(t, "isFunctional", True):
+        return False, "not functional"
+    if not telemetry_bool(t, "isWorking", True):
+        return False, "not working"
+    return True, "available"
+
+
+def connector_has_pose(connector):
+    pos = get_pos(connector.telemetry or {})
+    fwd = get_connector_forward(connector)
+    if not pos:
+        return False, "no position telemetry"
+    if fwd == (0.0, 0.0, 0.0):
+        return False, "no forward vector telemetry"
+    return True, "pose available"
+
+
+def ship_connector_is_usable(connector):
+    ok, reason = connector_is_powered_and_functional(connector)
+    if not ok:
+        return False, reason
+
+    pose_ok, pose_reason = connector_has_pose(connector)
+    if not pose_ok:
+        return False, pose_reason
+
+    is_conn, status, other_id = check_connector(connector)
+    status_norm = (status or "").strip().lower()
+    if is_conn or status_norm == "connected":
+        return False, f"already connected to {normalize_entity_id(other_id) or 'unknown connector'}"
+
+    return True, "usable"
+
+
+def target_connector_is_available(connector, ship_connector=None, *, allow_ship_connectable=False):
+    ok, reason = connector_is_powered_and_functional(connector)
+    if not ok:
+        return False, reason
+
+    pose_ok, pose_reason = connector_has_pose(connector)
+    if not pose_ok:
+        return False, pose_reason
+
+    is_conn, status, other_id = check_connector(connector)
+    status_norm = (status or "").strip().lower()
+    other = normalize_entity_id(other_id)
+    ship_id = connector_entity_id(ship_connector) if ship_connector is not None else None
+
+    if is_conn or status_norm == "connected":
+        if allow_ship_connectable and same_entity_id(other, ship_id):
+            return True, "already connected to selected ship connector"
+        return False, f"occupied: connected to {other or 'unknown connector'}"
+
+    if other is not None:
+        if allow_ship_connectable and same_entity_id(other, ship_id):
+            return True, "reserved by selected ship connector"
+        return False, f"occupied/reserved by {other}"
+
+    if status_norm == "connectable":
+        return False, "connectable but otherConnectorId is missing; cannot prove it is our connector"
+
+    return True, "free"
+
+
+def print_connector_table(title, connectors, *, ship_connector=None, target_mode=False):
+    print(title)
+    if not connectors:
+        print("  <none>")
+        return
+
+    for connector in connectors:
+        if target_mode:
+            ok, reason = target_connector_is_available(connector, ship_connector, allow_ship_connectable=True)
+        else:
+            ok, reason = ship_connector_is_usable(connector)
+        mark = "OK" if ok else "BUSY"
+        print(f"  [{mark}] {connector_display_name(connector)} — {connector_status_text(connector)} — {reason}")
+
+
+def refresh_connector_lists(sc_list, tc_list, retries=4, delay=0.35):
+    devices = list(sc_list) + list(tc_list)
+    for _ in range(max(1, int(retries))):
+        refresh_devices(*devices, delay=delay)
+
+
+def connector_matches_filter(connector, *, connector_id=None, name=None):
+    if connector_id and not same_entity_id(connector_entity_id(connector), connector_id):
+        return False
+    if name:
+        needle = str(name).strip().lower()
+        haystack = str(getattr(connector, "name", "") or "").lower()
+        if needle not in haystack:
+            return False
+    return True
+
+
+def choose_ship_connector(connectors, *, connector_id=None, name=None):
+    matches = [
+        connector for connector in connectors
+        if connector_matches_filter(connector, connector_id=connector_id, name=name)
+    ]
+
+    if not matches:
+        return None, "no ship connector matched filter"
+
+    rejected = []
+    for connector in matches:
+        ok, reason = ship_connector_is_usable(connector)
+        if ok:
+            return connector, "selected"
+        rejected.append((connector, reason))
+
+    details = "; ".join(f"{connector_display_name(c)}: {reason}" for c, reason in rejected)
+    return None, details or "no usable ship connector"
+
+
+def choose_target_connector(connectors, ship_connector, *, connector_id=None, name=None):
+    matches = [
+        connector for connector in connectors
+        if connector_matches_filter(connector, connector_id=connector_id, name=name)
+    ]
+
+    if not matches:
+        return None, "no target connector matched filter"
+
+    sc_pos = get_pos(ship_connector.telemetry or {})
+
+    def sort_key(connector):
+        pos = get_pos(connector.telemetry or {})
+        distance = dist3(sc_pos, pos) if sc_pos and pos else float("inf")
+        return (distance, str(getattr(connector, "name", "") or ""), str(getattr(connector, "device_id", "")))
+
+    matches.sort(key=sort_key)
+
+    rejected = []
+    for connector in matches:
+        ok, reason = target_connector_is_available(
+            connector,
+            ship_connector,
+            allow_ship_connectable=bool(connector_id),
+        )
+        if ok:
+            return connector, "selected"
+        rejected.append((connector, reason))
+
+    details = "; ".join(f"{connector_display_name(c)}: {reason}" for c, reason in rejected)
+    return None, details or "no free target connector"
+
+
+def ensure_target_connector_available(target_connector, ship_connector, context, *, allow_ship_connectable=True):
+    try:
+        target_connector.update()
+    except Exception:
+        pass
+    try:
+        ship_connector.update()
+    except Exception:
+        pass
+
+    ok, reason = target_connector_is_available(
+        target_connector,
+        ship_connector,
+        allow_ship_connectable=allow_ship_connectable,
+    )
+    if ok:
+        return True
+
+    print(
+        f"ERROR: target connector is not available during {context}: "
+        f"{connector_display_name(target_connector)} — {connector_status_text(target_connector)} — {reason}"
+    )
+    return False
+
+
+def connector_is_connected_to_target(ship_connector, target_connector):
+    sc_connected, _, sc_other = check_connector(ship_connector)
+    tc_connected, _, tc_other = check_connector(target_connector)
+    return (
+        sc_connected
+        and tc_connected
+        and same_entity_id(sc_other, connector_entity_id(target_connector))
+        and same_entity_id(tc_other, connector_entity_id(ship_connector))
+    )
+
+
+def try_connect(sc, tc=None, label="", axis_dist=None):
     """
     Try to lock connector.
 
     Important:
     Physical contact is NOT treated as successful docking.
     Docking is successful only when connectorIsConnected becomes True.
+    If target connector is provided, the lock is accepted only with that target.
     """
-    is_conn, status, _ = check_connector(sc)
+    is_conn, status, other_id = check_connector(sc)
     if is_conn:
-        return True
+        if tc is None or connector_is_connected_to_target(sc, tc):
+            return True
+
+        print(
+            f"  {label}SAFETY: ship connector is connected to wrong connector "
+            f"{normalize_entity_id(other_id) or 'unknown'}, expected {connector_entity_id(tc)}"
+        )
+        return False
+
+    if tc is not None:
+        if not ensure_target_connector_available(tc, sc, "connect attempt", allow_ship_connectable=True):
+            return False
 
     if status == "Connectable":
+        other = normalize_entity_id(other_id)
+        if tc is not None and other is not None and not same_entity_id(other, connector_entity_id(tc)):
+            print(
+                f"  {label}SAFETY: ship connector sees wrong target "
+                f"{other}, expected {connector_entity_id(tc)} — connect skipped"
+            )
+            return False
+
         if axis_dist is None:
             print(f"  {label}Connector sees target — sending connect()...")
         else:
@@ -237,11 +519,27 @@ def try_connect(sc, label="", axis_dist=None):
                 sc.update()
             except Exception:
                 pass
+            if tc is not None:
+                try:
+                    tc.update()
+                except Exception:
+                    pass
 
-            is_conn, status, _ = check_connector(sc)
+            is_conn, status, other_id = check_connector(sc)
             if is_conn:
-                print(f"  {label}>> LOCKED!")
-                return True
+                if tc is None or connector_is_connected_to_target(sc, tc):
+                    print(f"  {label}>> LOCKED!")
+                    return True
+
+                print(
+                    f"  {label}SAFETY: locked to wrong connector "
+                    f"{normalize_entity_id(other_id) or 'unknown'}, expected {connector_entity_id(tc)}"
+                )
+                try:
+                    sc.disconnect()
+                except Exception:
+                    pass
+                return False
 
         print(f"  {label}Not locked yet, status={status}")
 
@@ -459,6 +757,8 @@ def final_push_to_connector(rc, sc, tc, axis_dir, gyros):
     using connector telemetry and connector status.
     """
     refresh_devices(rc, sc, tc, delay=0.1)
+    if not ensure_target_connector_available(tc, sc, "final push start", allow_ship_connectable=True):
+        return False
 
     sc_pos = get_pos(sc.telemetry or {})
     tc_pos = get_pos(tc.telemetry or {})
@@ -520,6 +820,9 @@ def final_push_to_connector(rc, sc, tc, axis_dir, gyros):
     while time.time() - start < FINAL_PUSH_TIMEOUT:
         time.sleep(0.25)
         refresh_devices(rc, sc, tc, delay=0)
+
+        if not ensure_target_connector_available(tc, sc, "final push", allow_ship_connectable=True):
+            break
 
         is_conn, status, _ = check_connector(sc)
         if is_conn:
@@ -775,13 +1078,46 @@ if not tc_list:
     print("ERROR: no connector on target grid")
     sys.exit(1)
 
-sc = sc_list[0]
-tc = tc_list[0]
+refresh_connector_lists(
+    sc_list,
+    tc_list,
+    retries=ARGS.connector_check_retries,
+    delay=ARGS.connector_check_delay,
+)
+
+if ARGS.list_connectors:
+    print(f"  Ship: {ship.name} (ID: {ship.grid_id})")
+    print(f"  Target: {target_grid.name} (ID: {target_grid.grid_id})")
+    print_connector_table("\nShip connectors:", sc_list, target_mode=False)
+    print_connector_table("\nTarget connectors:", tc_list, ship_connector=sc_list[0] if sc_list else None, target_mode=True)
+    sys.exit(0)
+
+sc, sc_reason = choose_ship_connector(
+    sc_list,
+    connector_id=ARGS.ship_connector_id,
+    name=ARGS.ship_connector_name,
+)
+if not sc:
+    print(f"ERROR: no usable ship connector: {sc_reason}")
+    print_connector_table("\nShip connectors:", sc_list, target_mode=False)
+    sys.exit(1)
+
+tc, tc_reason = choose_target_connector(
+    tc_list,
+    sc,
+    connector_id=ARGS.target_connector_id,
+    name=ARGS.target_connector_name,
+)
+if not tc:
+    print(f"ERROR: no free target connector: {tc_reason}")
+    print_connector_table("\nTarget connectors:", tc_list, ship_connector=sc, target_mode=True)
+    sys.exit(1)
 
 print(f"  Ship: {ship.name} (ID: {ship.grid_id})")
 print(f"  Target: {target_grid.name} (ID: {target_grid.grid_id})")
-print(f"  Ship connector: {sc.device_id}")
-print(f"  Target connector: {tc.device_id}")
+print(f"  Ship connector: {connector_display_name(sc)} — {connector_status_text(sc)}")
+print(f"  Target connector: {connector_display_name(tc)} — {connector_status_text(tc)}")
+print(f"  Free target connectors: {sum(1 for c in tc_list if target_connector_is_available(c, sc, allow_ship_connectable=False)[0])}/{len(tc_list)}")
 print(f"  Gyros: {len(gyros)}")
 
 # =====================================================================
@@ -793,6 +1129,8 @@ print("PHASE 1: APPROACH POINT")
 print("=" * 60)
 
 refresh_devices(rc, sc, tc, delay=0.2)
+if not ensure_target_connector_available(tc, sc, "Phase 1 approach planning", allow_ship_connectable=True):
+    sys.exit(1)
 
 t_pos = get_pos(tc.telemetry or {})
 t_orient = (tc.telemetry or {}).get("orientation", {})
@@ -958,6 +1296,8 @@ for g in gyros:
 
 time.sleep(0.3)
 refresh_devices(rc, sc, tc, delay=0.2)
+if not ensure_target_connector_available(tc, sc, "Phase 2 rotation planning", allow_ship_connectable=True):
+    sys.exit(1)
 
 sc_pos = get_pos(sc.telemetry or {})
 tc_pos = get_pos(tc.telemetry or {})
@@ -1015,6 +1355,9 @@ while True:
     step += 1
 
     refresh_devices(rc, sc, tc, delay=0.1)
+    if not ensure_target_connector_available(tc, sc, f"Phase 3 step {step}", allow_ship_connectable=True):
+        aborted = True
+        break
 
     sc_pos = get_pos(sc.telemetry or {})
     tc_pos = get_pos(tc.telemetry or {})
@@ -1034,7 +1377,7 @@ while True:
     signed_axial, lateral_error, lateral_vec, line_sc_pos = compute_docking_geometry(sc_pos, tc_pos, axis_dir)
     raw_dist = dist3(sc_pos, tc_pos)
 
-    if try_connect(sc, "", raw_dist):
+    if try_connect(sc, tc, "", raw_dist):
         connected = True
         break
 
@@ -1236,7 +1579,7 @@ while True:
     signed_axial, lateral_error, lateral_vec, line_sc_pos = compute_docking_geometry(sc_pos, tc_pos, axis_dir)
     raw_dist = dist3(sc_pos, tc_pos)
 
-    if try_connect(sc, "  ", raw_dist):
+    if try_connect(sc, tc, "  ", raw_dist):
         connected = True
         break
 
@@ -1316,7 +1659,7 @@ while True:
         move_dist = min(1.5, remaining_before_final_push)
 
     if move_dist < 0.05:
-        if try_connect(sc, "  ", raw_dist):
+        if try_connect(sc, tc, "  ", raw_dist):
             connected = True
             break
 
@@ -1372,7 +1715,7 @@ while True:
             cur_lateral = lateral_error
             cur_raw = raw_dist
 
-        if try_connect(sc, "  ", cur_raw):
+        if try_connect(sc, tc, "  ", cur_raw):
             connected = True
             break
 
@@ -1381,7 +1724,7 @@ while True:
         ap = bool((rc.telemetry or {}).get("autopilotEnabled", False))
 
         if cur_axial <= CONNECT_ATTEMPT_DISTANCE:
-            if try_connect(sc, "  ", cur_axial):
+            if try_connect(sc, tc, "  ", cur_axial):
                 connected = True
                 break
 
