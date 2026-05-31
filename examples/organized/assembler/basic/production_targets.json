@@ -1,0 +1,12 @@
+{
+  "SteelPlate": 100,
+  "InteriorPlate": 50,
+  "ConstructionComponent": 50,
+  "SmallTube": 20,
+  "LargeTube": 10,
+  "MotorComponent": 20,
+  "ComputerComponent": 20,
+  "MetalGrid": 10,
+  "Display": 5,
+  "BulletproofGlass": 5
+}

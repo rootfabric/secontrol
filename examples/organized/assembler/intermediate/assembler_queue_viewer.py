@@ -1,23 +1,22 @@
-"""Пример просмотра и управления очередью команд ассемблера из телеметрии.
+"""Просмотр и очистка очереди конструктора.
 
 Использование:
-  python assembler_queue_viewer.py        # Просмотр очереди
-  python assembler_queue_viewer.py clear  # Очистка очереди
+  python examples/organized/assembler/intermediate/assembler_queue_viewer.py --grid farpost0
+  python examples/organized/assembler/intermediate/assembler_queue_viewer.py --grid farpost0 --full
+  python examples/organized/assembler/intermediate/assembler_queue_viewer.py --grid farpost0 clear
 """
 
 from __future__ import annotations
 
+import argparse
 import json
-import sys
-from typing import Any, Dict, List
 
-from secontrol.base_device import BaseDevice
 from secontrol.common import close, prepare_grid
 from secontrol.devices.assembler_device import AssemblerDevice
 
 
 def find_assembler(grid) -> AssemblerDevice | None:
-    """Найти первый доступный ассемблер на гриде."""
+    """Найти первый доступный конструктор на гриде."""
     for device in grid.devices.values():
         if isinstance(device, AssemblerDevice):
             return device
@@ -25,22 +24,23 @@ def find_assembler(grid) -> AssemblerDevice | None:
 
 
 def display_queue(assembler: AssemblerDevice) -> None:
-    """Отобразить очередь команд ассемблера."""
+    """Отобразить очередь конструктора."""
     queue = assembler.queue()
 
     if not queue:
-        print("Очередь команд пуста")
+        print("Очередь конструктора пуста")
         return
 
-    print(f"Очередь команд ассемблера '{assembler.name}' (ID: {assembler.device_id}):")
+    print(f"Очередь конструктора '{assembler.name}' (ID: {assembler.device_id}):")
     print("=" * 60)
 
     for i, item in enumerate(queue):
         print(f"Позиция {i}:")
-        print(f"  Index: {item.get('index', 'N/A')}")
+        print(f"  Index: {item.get('index', i)}")
         print(f"  Item ID: {item.get('itemId', 'N/A')}")
         print(f"  Blueprint Type: {item.get('blueprintType', 'N/A')}")
         print(f"  Blueprint Subtype: {item.get('blueprintSubtype', 'N/A')}")
+        print(f"  Blueprint ID: {item.get('blueprintId', 'N/A')}")
         print(f"  Amount: {item.get('amount', 'N/A')}")
         print("-" * 40)
 
@@ -54,75 +54,79 @@ def display_telemetry_queue(assembler: AssemblerDevice) -> None:
         print("Телеметрия недоступна")
         return
 
-    print("Полная телеметрия ассемблера:")
+    print("Полная телеметрия конструктора:")
     print(json.dumps(telemetry, indent=2, ensure_ascii=False))
 
 
-def main() -> None:
-    """Основная функция."""
-    # Проверить аргументы командной строки
-    if len(sys.argv) > 1 and sys.argv[1].lower() == "clear":
-        clear_queue_mode()
-        return
-
-    # Режим просмотра очереди
-    view_queue_mode()
-
-
-def view_queue_mode() -> None:
+def view_queue_mode(grid_name: str, *, full: bool = False) -> int:
     """Режим просмотра очереди."""
-    grid = prepare_grid()
+    grid = prepare_grid(grid_name)
     try:
         assembler = find_assembler(grid)
         if not assembler:
-            print("Ассемблер не найден на гриде")
-            return
+            print("Конструктор не найден на гриде")
+            return 1
 
-        print(f"Найден ассемблер: {assembler.name} (ID: {assembler.device_id})")
+        print(f"Грид: {grid.name}")
+        print(f"Найден конструктор: {assembler.name} (ID: {assembler.device_id})")
         print()
 
-        # Показать очередь через встроенный метод print_queue()
+        try:
+            assembler.wait_for_telemetry(timeout=1.0, wait_for_new=True, need_update=True)
+        except Exception:
+            pass
+
         assembler.print_queue()
         print()
-
-        # Показать очередь через метод queue() с дополнительной информацией
         display_queue(assembler)
-        print()
 
-        # Показать полную телеметрию
-        display_telemetry_queue(assembler)
-
+        if full:
+            print()
+            display_telemetry_queue(assembler)
+        return 0
     finally:
         close(grid)
 
 
-def clear_queue_mode() -> None:
+def clear_queue_mode(grid_name: str) -> int:
     """Режим очистки очереди."""
-    grid = prepare_grid()
+    grid = prepare_grid(grid_name)
     try:
         assembler = find_assembler(grid)
         if not assembler:
-            print("Ассемблер не найден на гриде")
-            return
+            print("Конструктор не найден на гриде")
+            return 1
 
-        print(f"Найден ассемблер: {assembler.name} (ID: {assembler.device_id})")
+        print(f"Грид: {grid.name}")
+        print(f"Найден конструктор: {assembler.name} (ID: {assembler.device_id})")
 
-        # Показать текущую очередь перед очисткой
         print("Текущая очередь перед очисткой:")
         assembler.print_queue()
 
-        # Очистить очередь
         print("\nОчистка очереди...")
-        result = assembler.clear_queue()
+        ok = assembler.clear_queue_verified(timeout=3.0)
 
-        if result > 0:
-            print(f"Команда очистки отправлена успешно ({result} сообщений)")
-            print("Очередь должна быть очищена")
-        else:
-            print("Не удалось отправить команду очистки")
+        if ok:
+            print("Очередь очищена и подтверждена телеметрией.")
+            assembler.print_queue()
+            return 0
 
+        print("Не удалось подтвердить очистку очереди")
+        return 2
     finally:
         close(grid)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Просмотр и очистка очереди конструктора")
+    parser.add_argument("command", nargs="?", choices=["view", "clear"], default="view", help="Действие")
+    parser.add_argument("--grid", required=True, help="Имя или ID грида")
+    parser.add_argument("--full", action="store_true", help="Показать полную телеметрию")
+    args = parser.parse_args()
+
+    if args.command == "clear":
+        raise SystemExit(clear_queue_mode(args.grid))
+    raise SystemExit(view_queue_mode(args.grid, full=args.full))
 
 
 if __name__ == "__main__":

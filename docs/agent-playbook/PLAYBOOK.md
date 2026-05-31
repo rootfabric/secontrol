@@ -217,14 +217,45 @@ python examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid sky
 ## Производство и инвентарь
 
 ```bash
+# Что может произвести грид (все чертежи конструкторов)
+python examples/organized/assembler/basic/grid_production.py --grid farpost0
+
+# С материалами для каждого чертежа
+python examples/organized/assembler/basic/grid_production.py --grid farpost0 --full
+
+# Поддерживать запас компонентов (по умолчанию из production_targets.json)
+python examples/organized/assembler/basic/maintain_components.py --grid farpost0
+
+# Посмотреть что будет без запуска
+python examples/organized/assembler/basic/maintain_components.py --grid farpost0 --dry-run
+
+# Свой файл целей
+python examples/organized/assembler/basic/maintain_components.py --grid farpost0 --config my_targets.json
+
 # Показать содержимое контейнеров грида
 python examples/organized/container/basic/containers_show.py --grid farpost0
 
-# В JSON-формате
-python examples/organized/container/basic/containers_show.py --grid farpost0 --json
-
 # Перегрузить ресурсы с корабля на базу (корабль должен быть пристыкован)
 python examples/organized/container/advanced/pull_items_from_docked_grid.py --source-grid skynet-agent0 --target-grid skynet-farpost0
+
+# Управление очередью конструктора: examples/organized/assembler/README.md
+```
+
+### Файл целей production_targets.json
+
+```json
+{
+  "SteelPlate": 100,
+  "InteriorPlate": 50,
+  "ConstructionComponent": 50,
+  "SmallTube": 20,
+  "LargeTube": 10,
+  "MotorComponent": 20,
+  "ComputerComponent": 20,
+  "MetalGrid": 10,
+  "Display": 5,
+  "BulletproofGlass": 5
+}
 ```
 
 

@@ -1,13 +1,19 @@
-"""Команда для очистки очереди команд ассемблера."""
+"""Команда для очистки очереди конструктора.
+
+Использование:
+  python examples/organized/assembler/intermediate/assembler_queue_clear.py --grid farpost0
+"""
 
 from __future__ import annotations
+
+import argparse
 
 from secontrol.common import close, prepare_grid
 from secontrol.devices.assembler_device import AssemblerDevice
 
 
 def find_assembler(grid) -> AssemblerDevice | None:
-    """Найти первый доступный ассемблер на гриде."""
+    """Найти первый доступный конструктор на гриде."""
     for device in grid.devices.values():
         if isinstance(device, AssemblerDevice):
             return device
@@ -15,30 +21,33 @@ def find_assembler(grid) -> AssemblerDevice | None:
 
 
 def main() -> None:
-    """Основная функция для очистки очереди."""
-    grid = prepare_grid()
+    parser = argparse.ArgumentParser(description="Очистить очередь конструктора")
+    parser.add_argument("--grid", required=True, help="Имя или ID грида")
+    args = parser.parse_args()
+
+    grid = prepare_grid(args.grid)
     try:
         assembler = find_assembler(grid)
         if not assembler:
-            print("Ассемблер не найден на гриде")
-            return
+            print("Конструктор не найден на гриде")
+            raise SystemExit(1)
 
-        print(f"Найден ассемблер: {assembler.name} (ID: {assembler.device_id})")
+        print(f"Грид: {grid.name}")
+        print(f"Найден конструктор: {assembler.name} (ID: {assembler.device_id})")
 
-        # Показать текущую очередь перед очисткой
         print("Текущая очередь перед очисткой:")
         assembler.print_queue()
 
-        # Очистить очередь
         print("\nОчистка очереди...")
-        result = assembler.clear_queue()
+        ok = assembler.clear_queue_verified(timeout=3.0)
 
-        if result > 0:
-            print(f"Команда очистки отправлена успешно ({result} сообщений)")
-            print("Очередь должна быть очищена")
-        else:
-            print("Не удалось отправить команду очистки")
+        if ok:
+            print("Очередь очищена и подтверждена телеметрией.")
+            assembler.print_queue()
+            raise SystemExit(0)
 
+        print("Не удалось подтвердить очистку очереди")
+        raise SystemExit(2)
     finally:
         close(grid)
 

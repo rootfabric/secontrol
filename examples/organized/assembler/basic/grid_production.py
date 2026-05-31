@@ -77,10 +77,29 @@ def _bp_prereqs(bp: dict) -> list[str]:
 
 
 def _classify(bp: dict) -> str:
+    bp_id = bp.get("blueprintId", "")
     subtype = _bp_subtype(bp)
+
+    # Точное совпадение
     for cat, subtypes in CATEGORIES.items():
         if subtype in subtypes:
             return cat
+
+    # Поиск по суффиксу ID (для Position-префиксов)
+    bp_lower = bp_id.lower()
+    if any(k in bp_lower for k in ["grinder", "handdrill", "welder"]):
+        return "Инструменты"
+    if any(k in bp_lower for k in ["pistol", "rifle", "launcher", "flaregun"]):
+        if any(k in bp_lower for k in ["magazine", "ammo", "clip"]):
+            return "Боеприпасы"
+        return "Оружие"
+    if any(k in bp_lower for k in ["magazine", "ammo", "clip", "missile", "rocket", "sabot", "shell"]):
+        return "Боеприпасы"
+    if "firework" in bp_lower:
+        return "Фейерверки"
+    if any(k in bp_lower for k in ["bottle", "medkit", "powerkit", "canvas", "datapad"]):
+        return "Предметы"
+
     return "Прочее"
 
 
@@ -96,6 +115,11 @@ def show_production(grid, *, full: bool = False) -> None:
 
     print(f"Грид: {grid.name}")
     print(f"Конструкторов: {len(assemblers)}")
+
+    for a in assemblers:
+        a.set_enabled(True)
+
+    time.sleep(0.5)
 
     # Запросить чертежи
     for a in assemblers:

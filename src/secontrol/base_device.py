@@ -1178,13 +1178,19 @@ class BaseDevice:
 
         Returns True if telemetry is available within the timeout, False otherwise.
         """
+        if not wait_for_new and self.telemetry is not None:
+            return True
+
+        # Clear before publishing the update command. The plugin may answer very fast;
+        # clearing after update() creates a race where the fresh event is lost.
+        if wait_for_new:
+            self._telemetry_event.clear()
+
         if need_update:
             self.update()
 
         if not wait_for_new and self.telemetry is not None:
             return True
-        if wait_for_new:
-            self._telemetry_event.clear()
         return self._telemetry_event.wait(timeout)
 
     # ------------------------------------------------------------------
