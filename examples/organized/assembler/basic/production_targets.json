@@ -1,12 +1,12 @@
 {
-  "SteelPlate": 100,
-  "InteriorPlate": 50,
-  "ConstructionComponent": 50,
-  "SmallTube": 20,
-  "LargeTube": 10,
-  "MotorComponent": 20,
-  "ComputerComponent": 20,
-  "MetalGrid": 10,
-  "Display": 5,
-  "BulletproofGlass": 5
+  "SteelPlate": 1000,
+  "InteriorPlate": 500,
+  "ConstructionComponent": 500,
+  "SmallTube": 200,
+  "LargeTube": 100,
+  "MotorComponent": 200,
+  "ComputerComponent": 200,
+  "MetalGrid": 100,
+  "Display": 50,
+  "BulletproofGlass": 50
 }
