@@ -2,6 +2,15 @@
 
 Эта инструкция заменяет старые заметки по `mine_until.py`/`start_drill.py`. Она рассчитана на мод **Outenemy Nanobot Drill System - Automation Fixes** и Python-библиотеку `secontrol`.
 
+## 0. Правило обработки руд (НЕ ВЫДУМЫВАТЬ)
+
+Каждая руда перерабатывается **ТОЛЬКО** в слитки своего типа:
+- Gold ore → Gold ingot (и больше ни во что)
+- Platinum ore → Platinum ingot (и больше ни во что)
+- Silver ore → Silver ingot (и больше ни во что)
+- Нет никакой конвертации руд друг в друга. Не сочиняй про «переплавку» Iron в Gold, Silver в Gold, Platinum в Gold и т.п.
+- Если пользователь просит добыть Gold, а его нет на карте — так и скажи, не предлагай добыть другое «вместо» золота.
+
 ## 1. Главные правила безопасности
 
 1. На сервере должен быть загружен только один вариант Nanobot Drill. Нельзя одновременно держать оригинальный Nanobot Drill and Fill System и fork `Outenemy Nanobot Drill System - Automation Fixes`.

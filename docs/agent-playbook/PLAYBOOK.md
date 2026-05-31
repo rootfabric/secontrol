@@ -368,6 +368,8 @@ python examples/organized/grid/intermediate/grid_rename_device_example.py --grid
 1. Найти руду:   shared_map_deposits.py --grid agent1 --material Platinum --clusters
 2. Навигация:    space_navigator_v4.py --grid agent1 --target="X,Y,Z"
 3. Бурение:      mine_ore_robot_safe_live_move.py --grid agent1 --ore Platinum --amount 5000
+4. Стыковка:     dock.py [ship_id] [base_id] [approach_distance]
+5. Выгрузка:     pull_items_from_docked_grid.py --source-grid [ship] --target-grid [base] --target-container "Cargo"
 ```
 
 ### Пайплайн: После рестарта сервера
@@ -387,6 +389,12 @@ python examples/organized/grid/intermediate/grid_rename_device_example.py --grid
 - **Временные файлы** — только в `tmp/`
 - **Скрипт по умолчанию для скана руд** — `ore_scanner.py` (файл + Redis)
 - **Скрипт по умолчанию для обзора** — `space_survey.py`
+- **Руды не конвертируются в другие!** Каждая руда перерабатывается ТОЛЬКО в слитки того же типа:
+  - Gold ore → Gold ingot (только!)
+  - Platinum ore → Platinum ingot (только!)
+  - Silver ore → Silver ingot (только!)
+  - Нельзя получить Gold из Platinum, Silver, Cobalt или любой другой руды.
+  - Если Gold нет на карте — так и сообщи пользователю. НЕ выдумывай «конвертацию» или «переплавку» одной руды в другую.
 
 
 ---
