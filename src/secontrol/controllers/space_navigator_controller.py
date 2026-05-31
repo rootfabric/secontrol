@@ -141,6 +141,41 @@ class SpeedZone:
         return self.close_speed
 
 
+
+
+@dataclass
+class OpenSpaceBoostConfig:
+    """Speed boost policy for clear long-range cruise corridors.
+
+    The normal v4 speed model only looks at nearest voxel distance and target
+    distance. This optional policy allows max-speed in open corridors even when
+    some voxel exists elsewhere in the scan volume. It still caps speed by a
+    conservative braking-distance calculation.
+    """
+
+    enabled: bool = False
+    open_space_radius: float = 900.0
+    lookahead: float = 3000.0
+    corridor_radius: float = 140.0
+    min_target_distance: float = 700.0
+    safety_margin: float = 140.0
+    brake_accel: float = 8.0
+    reaction_time: float = 1.5
+    scan_max_age: float = 3.0
+    coarse_only: bool = True
+
+    def __post_init__(self) -> None:
+        self.enabled = bool(self.enabled)
+        self.open_space_radius = max(0.0, float(self.open_space_radius))
+        self.lookahead = max(1.0, float(self.lookahead))
+        self.corridor_radius = max(1.0, float(self.corridor_radius))
+        self.min_target_distance = max(0.0, float(self.min_target_distance))
+        self.safety_margin = max(0.0, float(self.safety_margin))
+        self.brake_accel = max(0.1, float(self.brake_accel))
+        self.reaction_time = max(0.0, float(self.reaction_time))
+        self.scan_max_age = max(0.0, float(self.scan_max_age))
+        self.coarse_only = bool(self.coarse_only)
+
 @dataclass
 class NavigationResult:
     """Result returned by SpaceNavigatorController.navigate_to."""
@@ -696,6 +731,7 @@ class SpaceNavigatorController:
         enable_background_scanner: bool = False,
         dry_run: bool = False,
         target_is_obstacle: bool = False,
+        open_space_boost: Optional[OpenSpaceBoostConfig] = None,
     ):
         from secontrol.common import prepare_grid
 
@@ -711,6 +747,9 @@ class SpaceNavigatorController:
         self.enable_background_scanner = bool(enable_background_scanner)
         self.dry_run = bool(dry_run)
         self.target_is_obstacle = bool(target_is_obstacle)
+        self.open_space_boost = open_space_boost or OpenSpaceBoostConfig(enabled=False)
+        self._last_speed_mode = "PROFILE_CAP"
+        self._last_speed_details = ""
 
         radars = self.grid.find_devices_by_type(OreDetectorDevice)
         rcs = self.grid.find_devices_by_type(RemoteControlDevice)
@@ -771,6 +810,14 @@ class SpaceNavigatorController:
             f"cell={self.fine_scan.cell_size:.0f}m, "
             f"rescan={self.fine_scan.rescan_distance:.0f}m"
         )
+        if self.open_space_boost.enabled:
+            print(
+                "Open-space boost: "
+                f"radius={self.open_space_boost.open_space_radius:.0f}m, "
+                f"lookahead={self.open_space_boost.lookahead:.0f}m, "
+                f"corridor={self.open_space_boost.corridor_radius:.0f}m, "
+                f"brake={self.open_space_boost.brake_accel:.1f}m/s^2"
+            )
         print()
 
         self.rc.enable()
@@ -803,6 +850,7 @@ class SpaceNavigatorController:
         cached_profile_name: Optional[str] = None
         cached_scan_center: Optional[Point3D] = None
         cached_solid: List[List[float]] = []
+        cached_scan_time = 0.0
 
         for step in range(self.max_steps):
             if cancel_check and cancel_check():
@@ -864,6 +912,7 @@ class SpaceNavigatorController:
                 radar_map = cached_map
                 map_scan_center = cached_scan_center or ship_pos
                 solid = cached_solid
+                scan_time = cached_scan_time
                 print(
                     f"[{profile.name}] reusing scan; "
                     f"moved={_dist(ship_pos, map_scan_center):.0f}m/"
@@ -903,8 +952,11 @@ class SpaceNavigatorController:
                 cached_profile_name = profile.name.upper()
                 cached_scan_center = ship_pos
                 cached_solid = solid or []
+                cached_scan_time = time.time()
+                scan_time = cached_scan_time
                 map_scan_center = ship_pos
 
+            scan_age = max(0.0, time.time() - scan_time) if scan_time > 0.0 else float("inf")
             self._nearest_voxel_distance = nearest_point_distance(solid or [], ship_pos)
             with self.state.lock:
                 self.state.nearest_obstacle = self._nearest_voxel_distance
@@ -1151,6 +1203,8 @@ class SpaceNavigatorController:
                 current_pos=ship_pos,
                 nearest_obstacle=self._nearest_voxel_distance,
                 target_distance=dist_to_target,
+                solid_points=solid or [],
+                scan_age=scan_age,
                 cancel_check=cancel_check,
             )
             if not flight_ok:
@@ -1297,13 +1351,25 @@ class SpaceNavigatorController:
         current_pos: Point3D,
         nearest_obstacle: float,
         target_distance: float = float("inf"),
+        solid_points: Sequence[Sequence[float]] = (),
+        scan_age: float = 0.0,
         cancel_check: Optional[Callable[[], bool]],
     ) -> bool:
         distance = _dist(current_pos, waypoint)
-        speed_far = self._speed_for_profile(profile, nearest_obstacle, target_distance=target_distance)
+        speed_far = self._speed_for_profile(
+            profile,
+            nearest_obstacle,
+            target_distance=target_distance,
+            current_pos=current_pos,
+            waypoint=waypoint,
+            solid_points=solid_points,
+            scan_age=scan_age,
+        )
         speed_near = min(speed_far, self.speed_zone.close_speed)
         with self.state.lock:
             self.state.current_speed = speed_far
+
+        print(f"[SPEED] mode={self._last_speed_mode} speed={speed_far:.1f}m/s {self._last_speed_details}")
 
         def should_cancel() -> bool:
             if cancel_check and cancel_check():
@@ -1358,15 +1424,97 @@ class SpaceNavigatorController:
         return True
 
     def _speed_for_profile(
-        self, profile: ScanProfile, nearest_obstacle: float, target_distance: float = float("inf")
+        self,
+        profile: ScanProfile,
+        nearest_obstacle: float,
+        target_distance: float = float("inf"),
+        *,
+        current_pos: Optional[Point3D] = None,
+        waypoint: Optional[Point3D] = None,
+        solid_points: Sequence[Sequence[float]] = (),
+        scan_age: float = 0.0,
     ) -> float:
-        if profile.name.upper() == "FINE":
+        profile_name = profile.name.upper()
+        if profile_name == "FINE":
+            self._last_speed_mode = "FINE_CLOSE"
+            self._last_speed_details = f"profile=FINE target={target_distance:.0f}m"
             return self.speed_zone.close_speed
+
         speed_obstacle = self.speed_zone.speed_for_distance(nearest_obstacle)
         speed_target = self.speed_zone.speed_for_target_distance(target_distance)
-        if profile.name.upper() == "MEDIUM":
-            return min(self.speed_zone.medium_speed, speed_obstacle, speed_target)
-        return min(speed_obstacle, speed_target)
+        if profile_name == "MEDIUM":
+            base_speed = min(self.speed_zone.medium_speed, speed_obstacle, speed_target)
+        else:
+            base_speed = min(speed_obstacle, speed_target)
+
+        self._last_speed_mode = "PROFILE_CAP"
+        self._last_speed_details = (
+            f"profile={profile_name} nearest={_fmt_distance(nearest_obstacle)} "
+            f"target={_fmt_distance(target_distance)}"
+        )
+
+        cfg = self.open_space_boost
+        if not cfg.enabled:
+            return base_speed
+        if cfg.coarse_only and profile_name != "COARSE":
+            self._last_speed_mode = "PROFILE_CAP"
+            self._last_speed_details += " boost=not_coarse"
+            return base_speed
+        if current_pos is None or waypoint is None:
+            self._last_speed_details += " boost=no_waypoint"
+            return base_speed
+        if scan_age > cfg.scan_max_age:
+            self._last_speed_mode = "STALE_SCAN_CAP"
+            self._last_speed_details += f" scan_age={scan_age:.1f}s>{cfg.scan_max_age:.1f}s"
+            return base_speed
+        if target_distance < cfg.min_target_distance:
+            self._last_speed_mode = "TARGET_CAP"
+            self._last_speed_details += f" boost=target_close<{cfg.min_target_distance:.0f}m"
+            return base_speed
+
+        corridor_free = corridor_free_distance(
+            current_pos,
+            waypoint,
+            solid_points,
+            lookahead=cfg.lookahead,
+            corridor_radius=cfg.corridor_radius + self.ship_radius,
+        )
+        safe_obstacle_speed = speed_from_stop_distance(
+            corridor_free,
+            ship_radius=self.ship_radius,
+            safety_margin=cfg.safety_margin,
+            brake_accel=cfg.brake_accel,
+            reaction_time=cfg.reaction_time,
+        )
+        safe_target_speed = speed_from_stop_distance(
+            target_distance - self.arrival_distance,
+            ship_radius=0.0,
+            safety_margin=cfg.safety_margin,
+            brake_accel=cfg.brake_accel,
+            reaction_time=cfg.reaction_time,
+        )
+        safe_cap = max(0.0, min(self.speed_zone.max_speed, safe_obstacle_speed, safe_target_speed))
+        nearby_clear = nearest_obstacle >= cfg.open_space_radius
+        corridor_clear = corridor_free >= cfg.lookahead
+
+        details = (
+            f"profile={profile_name} nearest={_fmt_distance(nearest_obstacle)} "
+            f"corridor={corridor_free:.0f}m/{cfg.lookahead:.0f}m "
+            f"target={_fmt_distance(target_distance)} safe_cap={safe_cap:.1f}"
+        )
+        if nearby_clear and corridor_clear:
+            speed = min(self.speed_zone.max_speed, safe_cap)
+            if speed > base_speed:
+                self._last_speed_mode = "OPEN_SPACE_BOOST"
+            else:
+                self._last_speed_mode = "BRAKE_CAP"
+            self._last_speed_details = details
+            return max(self.speed_zone.close_speed, speed)
+
+        speed = min(base_speed, safe_cap)
+        self._last_speed_mode = "CORRIDOR_CAP" if not corridor_clear else "NEAR_VOXEL_CAP"
+        self._last_speed_details = details
+        return max(self.speed_zone.close_speed, speed)
 
     def _boundary_margin(self, profile: ScanProfile) -> float:
         return max(profile.cell_size * 2.0, self.ship_radius)
@@ -1526,6 +1674,81 @@ class SpaceNavigatorController:
         close(self.grid)
 
 
+def speed_from_stop_distance(
+    free_distance: float,
+    *,
+    ship_radius: float,
+    safety_margin: float,
+    brake_accel: float,
+    reaction_time: float,
+) -> float:
+    """Return max speed that can stop inside free_distance.
+
+    Solves: distance = v * reaction_time + v^2 / (2 * brake_accel).
+    """
+
+    usable_distance = float(free_distance) - float(ship_radius) - float(safety_margin)
+    if not math.isfinite(usable_distance) or usable_distance <= 0.0:
+        return 0.0
+    accel = max(0.1, float(brake_accel))
+    reaction = max(0.0, float(reaction_time))
+    return max(0.0, -accel * reaction + math.sqrt((accel * reaction) ** 2 + 2.0 * accel * usable_distance))
+
+
+def corridor_free_distance(
+    origin: Point3D,
+    direction_point: Point3D,
+    solid_points: Sequence[Sequence[float]],
+    *,
+    lookahead: float,
+    corridor_radius: float,
+) -> float:
+    """Distance to the first voxel inside a forward cylindrical corridor."""
+
+    lookahead = max(1.0, float(lookahead))
+    corridor_radius = max(1.0, float(corridor_radius))
+    dx = float(direction_point[0]) - float(origin[0])
+    dy = float(direction_point[1]) - float(origin[1])
+    dz = float(direction_point[2]) - float(origin[2])
+    length = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if length <= 1e-6:
+        return 0.0
+    direction = np.asarray((dx / length, dy / length, dz / length), dtype=np.float64)
+
+    try:
+        if len(solid_points) == 0:  # type: ignore[arg-type]
+            return lookahead
+    except TypeError:
+        pass
+    try:
+        points = np.asarray(solid_points, dtype=np.float64)
+    except (TypeError, ValueError):
+        return lookahead
+    if points.ndim != 2 or points.shape[1] < 3 or points.size == 0:
+        return lookahead
+
+    rel = points[:, :3] - np.asarray(origin, dtype=np.float64).reshape(1, 3)
+    projections = rel @ direction
+    forward = (projections >= 0.0) & (projections <= lookahead)
+    if not np.any(forward):
+        return lookahead
+
+    rel_forward = rel[forward]
+    projections_forward = projections[forward]
+    closest = rel_forward - projections_forward.reshape(-1, 1) * direction.reshape(1, 3)
+    lateral_sq = np.einsum("ij,ij->i", closest, closest)
+    inside = lateral_sq <= corridor_radius * corridor_radius
+    if not np.any(inside):
+        return lookahead
+    return max(0.0, float(np.min(projections_forward[inside])))
+
+
+def _fmt_distance(value: float) -> str:
+    if math.isfinite(value):
+        return f"{value:.0f}m"
+    return "inf"
+
+
 def nearest_point_distance(
     points: Sequence[Sequence[float]],
     origin: Optional[Point3D],
@@ -1683,6 +1906,7 @@ __all__ = [
     "SpaceNavigatorController",
     "ScanProfile",
     "SpeedZone",
+    "OpenSpaceBoostConfig",
     "NavigationResult",
     "BackgroundScanner",
     "NavState",
@@ -1691,7 +1915,9 @@ __all__ = [
     "estimate_ship_radius_from_blocks",
     "find_path_multiscale",
     "crop_map_for_path",
+    "corridor_free_distance",
     "nearest_point_distance",
+    "speed_from_stop_distance",
     "normalize_scan_metadata",
     "pick_waypoint_along_path",
     "point_is_safe",

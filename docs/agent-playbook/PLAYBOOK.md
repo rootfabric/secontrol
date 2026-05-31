@@ -116,18 +116,23 @@ python examples/organized/parking/smooth_undock.py [ship_id] [base_id] [distance
 
 ### Полёты
 
+**Рекомендуется использовать `space_navigator_v5.py`** — быстрый перелёт с сохранением защиты от столкновений и автоматическим boost в открытом космосе. Подробнее: `C:\secontrol\examples\space_flight\README_v5.md`
+
 ```bash
-# Полёт к ближайшему астероиду (автоматический A* pathfinding)
+# Полёт к ближайшему астероиду (v5)
+python examples/space_flight/space_navigator_v5.py --grid agent1 --nearest-asteroid --max-speed 95 --far-speed 75 --medium-speed 35 --close-speed 8 --arrival 80
+
+# Полёт к GPS/координатам (v5) — например на базу
+python examples/space_flight/space_navigator_v5.py --grid agent1 --target="GPS:Base:-137317:-111140:-82039:" --max-speed 95 --far-speed 75 --medium-speed 35 --close-speed 8 --arrival 80
+
+# Полёт к конкретным координатам (v5)
+python examples/space_flight/space_navigator_v5.py --grid agent1 --target="X,Y,Z" --max-speed 95 --far-speed 75 --medium-speed 35 --close-speed 8 --arrival 80
+```
+
+Аналогичные команды через v4 (медленнее, но подробнее логи):
+```bash
 python examples/space_flight/space_navigator_v4.py --grid agent1 --nearest-asteroid
-
-# Полёт к конкретным координатам
-python examples/space_flight/space_navigator_v4.py --grid agent1 --target="X,Y,Z" --arrival 50
-
-# Полёт к GPS-точке
 python examples/space_flight/space_navigator_v4.py --grid agent1 --target="GPS:Name:X:Y:Z:" --arrival 50
-
-# Ограничить скорость (например приближение к астероиду)
-python examples/space_flight/space_navigator_v4.py --grid agent1 --target="X,Y,Z" --max-speed 30
 ```
 
 ### Парковка и стыковка
