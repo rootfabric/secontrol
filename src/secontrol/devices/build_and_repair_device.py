@@ -15,6 +15,32 @@ class BuildAndRepairDevice(BaseDevice):
     def __init__(self, grid, metadata) -> None:
         super().__init__(grid, metadata)
 
+
+    # ------------------------------------------------------------------
+    # Telemetry/status helpers
+    # ------------------------------------------------------------------
+    def request_full_telemetry(self, wait: float = 2.0) -> dict[str, Any]:
+        """Ask the plugin to publish full BaR telemetry and return the latest snapshot."""
+        self.send_command({"cmd": "request_full_telemetry", "payload": {}})
+        self.wait_for_telemetry(timeout=wait, wait_for_new=True, need_update=True)
+        return dict(self.telemetry or {})
+
+    def status_snapshot(self, wait: float = 2.0) -> dict[str, Any]:
+        """Return current BuildAndRepair status, including DetailedInfo/missing items when available."""
+        return self.request_full_telemetry(wait=wait)
+
+    def missing_components(self, wait: float = 2.0) -> dict[str, Any]:
+        """Return missing build/repair components reported by the mod."""
+        data = self.status_snapshot(wait=wait)
+        missing = data.get("missingComponents") or data.get("missingItems") or {}
+        return dict(missing) if isinstance(missing, dict) else {}
+
+    def missing_items_list(self, wait: float = 2.0) -> list[dict[str, Any]]:
+        """Return missing items as a list of {name, key, amount} objects."""
+        data = self.status_snapshot(wait=wait)
+        items = data.get("missingItemsList") or []
+        return [dict(item) for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
     # ------------------------------------------------------------------
     # Generic property and action methods
     # ------------------------------------------------------------------
