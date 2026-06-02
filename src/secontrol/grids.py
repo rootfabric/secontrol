@@ -1564,7 +1564,7 @@ class Grid:
                 device_cls_or_name = DEVICE_REGISTRY.get(dev_type, None)
                 if device_cls_or_name is None:
                     # Используем DEVICE_TYPE_MAP для разрешения по типу
-                    cls = DEVICE_TYPE_MAP.get(normalize_device_type(dev_type), BaseDevice)
+                    cls = DEVICE_TYPE_MAP.get(normalize_device_type(dev_type, dev_subtype), BaseDevice)
                 else:
                     # Если в DEVICE_REGISTRY есть запись, проверим, является ли она строкой (именем типа)
                     if isinstance(device_cls_or_name, str):
@@ -1576,10 +1576,10 @@ class Grid:
                 # Конструктор BaseDevice/наследников может отличаться — приведи под свой
                 # Создаем DeviceMetadata для передачи в конструктор
                 telemetry_key = self.build_device_key(
-                    normalize_device_type(dev_type), str(dev_id)
+                    normalize_device_type(dev_type, dev_subtype), str(dev_id)
                 )
                 metadata = DeviceMetadata(
-                    device_type=normalize_device_type(dev_type),
+                    device_type=normalize_device_type(dev_type, dev_subtype),
                     device_id=str(dev_id),
                     telemetry_key=telemetry_key,
                     grid_id=self.grid_id,
@@ -1663,7 +1663,10 @@ class Grid:
 
         # dev_type в телеметрии обычно «чистый» (например, battery_block, projector и т.п.).
         # Если у тебя в Redis тип — уже нормализован, замапь тут при необходимости.
-        type_key = self._normalize_type_for_telemetry(dev_type)
+        if getattr(device, "device_type", "") == "nanobot_build_and_repair":
+            type_key = "nanobot_build_and_repair"
+        else:
+            type_key = self._normalize_type_for_telemetry(dev_type)
         tkey = f"se:{self.owner_id}:grid:{self.grid_id}:{type_key}:{dev_id}:telemetry"
         snap = self.redis.get_json(tkey)
         if isinstance(snap, dict):

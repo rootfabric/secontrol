@@ -7,6 +7,83 @@ from typing import Any, Dict, Optional
 from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
 
 
+COMPONENT_DISPLAY_NAMES_RU: dict[str, str] = {
+    "SteelPlate": "Стальная пластина",
+    "InteriorPlate": "Внутренняя пластина",
+    "Construction": "Строительный компонент",
+    "Motor": "Мотор",
+    "Computer": "Компьютер",
+    "Display": "Дисплей",
+    "Girder": "Балка",
+    "SmallTube": "Малая стальная труба",
+    "LargeTube": "Большая стальная труба",
+    "MetalGrid": "Металлическая решётка",
+    "BulletproofGlass": "Бронированное стекло",
+    "Reactor": "Компонент реактора",
+    "Thrust": "Компонент двигателя",
+    "GravityGenerator": "Компонент генератора гравитации",
+    "Medical": "Медицинский компонент",
+    "RadioCommunication": "Радиокомпонент",
+    "Detector": "Компонент детектора",
+    "Explosives": "Взрывчатка",
+    "SolarCell": "Солнечная ячейка",
+    "PowerCell": "Энергоячейка",
+    "Superconductor": "Сверхпроводник",
+    "ZoneChip": "Чип зоны",
+}
+
+
+def _amount_as_number(value: Any) -> float | int | Any:
+    if isinstance(value, bool):
+        return value
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return value
+    if abs(number - round(number)) < 0.000001:
+        return int(round(number))
+    return round(number, 6)
+
+
+def _display_name(name: str) -> str:
+    return COMPONENT_DISPLAY_NAMES_RU.get(name, name)
+
+
+def normalize_missing_items(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normalize BaR missing component telemetry to a stable list."""
+    items = data.get("missingItemsList")
+    if isinstance(items, list) and items:
+        result: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or item.get("definitionId") or item.get("key") or "?")
+            amount = _amount_as_number(item.get("amount"))
+            result.append({
+                "name": name,
+                "display_name": _display_name(name),
+                "amount": amount,
+                "key": str(item.get("key") or name),
+                "definition_id": item.get("definitionId"),
+            })
+        return result
+
+    missing = data.get("missingComponents") or data.get("missingItems") or {}
+    if isinstance(missing, dict):
+        result = []
+        for key, value in missing.items():
+            name = str(key)
+            result.append({
+                "name": name,
+                "display_name": _display_name(name),
+                "amount": _amount_as_number(value),
+                "key": name,
+                "definition_id": name,
+            })
+        return result
+    return []
+
+
 class BuildAndRepairDevice(BaseDevice):
     """Build and Repair (Nanobot) system device."""
 
@@ -36,10 +113,27 @@ class BuildAndRepairDevice(BaseDevice):
         return dict(missing) if isinstance(missing, dict) else {}
 
     def missing_items_list(self, wait: float = 2.0) -> list[dict[str, Any]]:
-        """Return missing items as a list of {name, key, amount} objects."""
+        """Return normalized missing items as {name, display_name, amount, key}."""
         data = self.status_snapshot(wait=wait)
-        items = data.get("missingItemsList") or []
-        return [dict(item) for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+        return normalize_missing_items(data)
+
+    def missing_report(self, wait: float = 2.0) -> dict[str, Any]:
+        """Return a compact report with missing items and diagnostics."""
+        data = self.status_snapshot(wait=wait)
+        items = normalize_missing_items(data)
+        return {
+            "device_id": self.device_id,
+            "name": self.name,
+            "enabled": data.get("enabled"),
+            "is_functional": data.get("isFunctional"),
+            "is_working": data.get("isWorking"),
+            "has_missing": bool(items) or bool(data.get("hasMissingItems")),
+            "source": data.get("missingComponentsSource"),
+            "items": items,
+            "diagnostics": data.get("missingComponentsDiagnostics") or [],
+            "projectors_checked": data.get("nanobotProjectorsChecked") or [],
+            "raw": data,
+        }
 
     # ------------------------------------------------------------------
     # Generic property and action methods

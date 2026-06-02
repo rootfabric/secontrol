@@ -8,27 +8,14 @@ import json
 from typing import Any
 
 from secontrol.common import close, prepare_grid
+from secontrol.devices.build_and_repair_device import normalize_missing_items
 
 
-SCRIPT_VERSION = "build-and-repair-missing-v1-2026-05-31"
+SCRIPT_VERSION = "build-and-repair-missing-v2-delegate-components-2026-06-02"
 
 
 def normalize_missing(data: dict[str, Any]) -> list[dict[str, Any]]:
-    items = data.get("missingItemsList")
-    if isinstance(items, list) and items:
-        result: list[dict[str, Any]] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or item.get("key") or "?")
-            amount = item.get("amount")
-            result.append({"name": name, "amount": amount, "key": item.get("key")})
-        return result
-
-    missing = data.get("missingComponents") or data.get("missingItems") or {}
-    if isinstance(missing, dict):
-        return [{"name": str(key), "amount": value, "key": str(key)} for key, value in missing.items()]
-    return []
+    return normalize_missing_items(data)
 
 
 def main() -> int:
@@ -73,13 +60,45 @@ def main() -> int:
                 print("detailedInfo:")
                 print(raw_info)
 
+            source = data.get("missingComponentsSource")
+            if source:
+                print(f"source: {source}")
+
+            projectors = data.get("nanobotProjectorsChecked") or []
+            if isinstance(projectors, list) and projectors:
+                print("projectors checked:")
+                for projector in projectors:
+                    if not isinstance(projector, dict):
+                        continue
+                    print(
+                        "  "
+                        f"{projector.get('name') or projector.get('id')}: "
+                        f"projecting={projector.get('isProjecting')} "
+                        f"remaining={projector.get('remainingBlocks')} "
+                        f"buildable={projector.get('buildableBlocks')}"
+                    )
+
             missing = normalize_missing(data)
             if missing:
                 print("missing:")
                 for item in missing:
-                    print(f"  {item['name']}: {item['amount']}")
+                    display = item.get("display_name") or item.get("name")
+                    name = item.get("name")
+                    suffix = f" ({name})" if display != name else ""
+                    print(f"  {display}{suffix}: {item.get('amount')}")
             else:
-                print("missing: none reported")
+                checked = data.get("missingComponentsDelegateChecked")
+                diagnostics = data.get("missingComponentsDiagnostics") or []
+                if checked is not None:
+                    print(f"missing: none reported (delegates checked: {checked})")
+                else:
+                    print("missing: none reported")
+                if isinstance(diagnostics, list) and diagnostics:
+                    failed = [d for d in diagnostics if isinstance(d, dict) and d.get("error")]
+                    if failed:
+                        print("delegate errors:")
+                        for diag in failed[:5]:
+                            print(f"  {diag.get('property')}: {diag.get('error')}")
 
         return 0
     finally:

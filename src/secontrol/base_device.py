@@ -473,11 +473,17 @@ class BaseDevice:
         self._inventory_index_map: Dict[str, int] = {}
 
         # Подписка на телеметрию устройства (устойчивая: keyspace + channel + polling)
+        snapshot = self.redis.get_json(self.telemetry_key)
+        if snapshot is None and self.device_type != "nanobot_build_and_repair":
+            existing_key = self._resolve_existing_telemetry_key()
+            if existing_key:
+                self.telemetry_key = existing_key
+                snapshot = self.redis.get_json(self.telemetry_key)
+
         self._subscription = self.redis.subscribe_to_key_resilient(
             self.telemetry_key,
             self._on_telemetry_change,
         )
-        snapshot = self.redis.get_json(self.telemetry_key)
         if snapshot is not None:
             self._on_telemetry_change(self.telemetry_key, snapshot, "initial")
 
@@ -1314,12 +1320,21 @@ def normalize_device_type(raw_type: Optional[str], subtype: Optional[str] = None
     if not raw_type:
         return "generic"
     t = str(raw_type)
+    subtype_text = str(subtype or "")
+    subtype_lc = subtype_text.lower()
     # специальные случаи
     if t == "MyObjectBuilder_Drill":
-        if subtype and "nanobot" in subtype.lower():
+        if "nanobot" in subtype_lc:
             return "nanobot_drill_system"
         else:
             return "ship_drill"
+    if t == "MyObjectBuilder_ShipWelder" and (
+        "buildandrepair" in subtype_lc
+        or "nanobotbuild" in subtype_lc
+        or "nanobotrepair" in subtype_lc
+        or "seltdlargenanobotbuildandrepairsystem" in subtype_lc
+    ):
+        return "nanobot_build_and_repair"
     # точное совпадение по объект билдеру
     if t in TYPE_ALIASES:
         return TYPE_ALIASES[t]
