@@ -20,7 +20,7 @@ def normalize_missing(data: dict[str, Any]) -> list[dict[str, Any]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Show missing items reported by Nanobot BuildAndRepair systems")
-    parser.add_argument("--grid", default="", help="Grid name or id")
+    parser.add_argument("--grid", default="farpost", help="Grid name or id")
     parser.add_argument("--name", default="", help="Only show BaR blocks whose name contains this text")
     parser.add_argument("--json", action="store_true", help="Print raw status JSON")
     parser.add_argument("--wait", type=float, default=2.0, help="Seconds to wait for a fresh telemetry update")

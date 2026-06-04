@@ -1,0 +1,1393 @@
+<?xml version="1.0" encoding="utf-16"?>
+<MyObjectBuilder_ShipBlueprintDefinition xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema"><Id Type="MyObjectBuilder_ShipBlueprintDefinition" Subtype="bp-contact-clone" />
+      <DisplayName>bp-contact-clone</DisplayName>
+      <CubeGrids>
+        <CubeGrid>
+          <SubtypeName />
+          <EntityId>122988165987025550</EntityId>
+          <PersistentFlags>CastShadows InScene</PersistentFlags>
+          <PositionAndOrientation>
+            <Position x="-137355.25909403054" y="-111192.6849828416" z="-82076.598050664426" />
+            <Forward x="-0.5385397" y="-0.7358315" z="-0.410520136" />
+            <Up x="0.8420975" y="-0.453196228" z="-0.292377353" />
+            <Orientation>
+              <X>0.517631769</X>
+              <Y>0.163698748</Y>
+              <Z>0.677241147</Z>
+              <W>-0.4965929</W>
+            </Orientation>
+          </PositionAndOrientation>
+          <LocalPositionAndOrientation xsi:nil="true" />
+          <GridSizeEnum>Large</GridSizeEnum>
+          <CubeBlocks>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="0" y="3" z="-12" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="0" y="3" z="-13" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="0" y="3" z="-14" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="0" y="3" z="-15" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="0" y="3" z="-11" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="0" y="3" z="-10" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="0" y="3" z="-9" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="1" y="3" z="-12" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="-1" y="3" z="-12" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="1" y="3" z="-13" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="1" y="3" z="-14" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="1" y="3" z="-15" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="-1" y="3" z="-13" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="-1" y="3" z="-14" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="-1" y="3" z="-15" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="-1" y="3" z="-9" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="-1" y="3" z="-10" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="-1" y="3" z="-11" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="1" y="3" z="-11" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="1" y="3" z="-10" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="1" y="3" z="-9" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_OxygenTank">
+              <SubtypeName>LargeHydrogenTank</SubtypeName>
+              <EntityId>138815627132187006</EntityId>
+              <Min x="-1" y="2" z="-13" />
+              <BlockOrientation Forward="Left" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+              </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_BatteryBlock">
+              <SubtypeName>LargeBlockBatteryBlock</SubtypeName>
+              <EntityId>141833656081257546</EntityId>
+              <Min x="-1" y="2" z="-12" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+              </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_BatteryBlock">
+              <SubtypeName>LargeBlockBatteryBlock</SubtypeName>
+              <EntityId>100694658075247417</EntityId>
+              <Min x="1" y="2" z="-12" />
+              <BlockOrientation Forward="Left" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+              </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>143435382941432738</EntityId>
+              <Min x="0" y="1" z="-12" />
+              <BlockOrientation Forward="Left" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>135934645571424383</EntityId>
+              <Min x="0" y="1" z="-11" />
+              <BlockOrientation Forward="Left" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>78044460647055829</EntityId>
+              <Min x="0" y="1" z="-10" />
+              <BlockOrientation Forward="Left" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>105195437108197087</EntityId>
+              <Min x="0" y="1" z="-9" />
+              <BlockOrientation Forward="Up" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CargoContainer">
+              <SubtypeName>LargeBlockLargeContainer</SubtypeName>
+              <EntityId>108479719198800204</EntityId>
+              <Min x="-1" y="2" z="-16" />
+              <BlockOrientation Forward="Left" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="-1" y="3" z="-16" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="0" y="3" z="-16" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="1" y="3" z="-16" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="1" y="3" z="-17" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="-1" y="3" z="-17" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="1" y="3" z="-18" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="-1" y="3" z="-18" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_CubeBlock">
+              <SubtypeName>LargeBlockArmorBlock</SubtypeName>
+              <Min x="0" y="3" z="-18" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>131997401252687639</EntityId>
+              <Min x="0" y="3" z="-17" />
+              <BlockOrientation Forward="Backward" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_HydrogenEngine">
+              <SubtypeName>LargeHydrogenEngine</SubtypeName>
+              <EntityId>125085043780024544</EntityId>
+              <Min x="-1" y="1" z="-11" />
+              <BlockOrientation Forward="Forward" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>false</Enabled>
+              </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_OxygenGenerator">
+              <SubtypeName />
+              <EntityId>93072294593175590</EntityId>
+              <Min x="1" y="1" z="-11" />
+              <BlockOrientation Forward="Left" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_SolarPanel">
+              <SubtypeName>LargeBlockSolarPanel</SubtypeName>
+              <EntityId>119075739708961947</EntityId>
+              <Min x="-2" y="4" z="-10" />
+              <BlockOrientation Forward="Right" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_SolarPanel">
+              <SubtypeName>LargeBlockSolarPanel</SubtypeName>
+              <EntityId>99695283770415488</EntityId>
+              <Min x="-2" y="4" z="-14" />
+              <BlockOrientation Forward="Right" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_SolarPanel">
+              <SubtypeName>LargeBlockSolarPanel</SubtypeName>
+              <EntityId>112646627217672865</EntityId>
+              <Min x="2" y="4" z="-14" />
+              <BlockOrientation Forward="Left" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_SolarPanel">
+              <SubtypeName>LargeBlockSolarPanel</SubtypeName>
+              <EntityId>140244617683652860</EntityId>
+              <Min x="2" y="4" z="-10" />
+              <BlockOrientation Forward="Left" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_ShipWelder">
+              <SubtypeName>SELtdLargeNanobotBuildAndRepairSystem</SubtypeName>
+              <EntityId>110538549925325477</EntityId>
+              <Min x="0" y="0" z="-12" />
+              <BlockOrientation Forward="Up" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>false</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Drill">
+              <SubtypeName>SELtdLargeNanobotDrillSystem</SubtypeName>
+              <EntityId>74492438223374161</EntityId>
+              <Min x="0" y="0" z="-11" />
+              <BlockOrientation Forward="Up" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>false</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Cockpit">
+              <SubtypeName>LargeBlockCockpitSeat</SubtypeName>
+              <EntityId>90794595975216317</EntityId>
+              <Min x="0" y="0" z="-9" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_OreDetector">
+              <SubtypeName>LargeOreDetector</SubtypeName>
+              <EntityId>122456290522943651</EntityId>
+              <Min x="0" y="2" z="-10" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+              </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Gyro">
+              <SubtypeName>LargeBlockGyro</SubtypeName>
+              <EntityId>122627325672127462</EntityId>
+              <Min x="1" y="2" z="-11" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Gyro">
+              <SubtypeName>LargeBlockGyro</SubtypeName>
+              <EntityId>103084105904135425</EntityId>
+              <Min x="-1" y="2" z="-11" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>88588334764178632</EntityId>
+              <Min x="0" y="2" z="-9" />
+              <BlockOrientation Forward="Up" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>107690104777597415</EntityId>
+              <Min x="-1" y="2" z="-9" />
+              <BlockOrientation Forward="Up" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>76242562900262932</EntityId>
+              <Min x="1" y="2" z="-9" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>141168675527243016</EntityId>
+              <Min x="0" y="3" z="-19" />
+              <BlockOrientation Forward="Up" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Assembler">
+              <SubtypeName>LargeAssembler</SubtypeName>
+              <EntityId>117572086631287393</EntityId>
+              <Min x="-1" y="2" z="-10" />
+              <BlockOrientation Forward="Down" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+              </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Refinery">
+              <SubtypeName>Blast Furnace</SubtypeName>
+              <EntityId>96346428753993024</EntityId>
+              <Min x="1" y="2" z="-10" />
+              <BlockOrientation Forward="Left" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>81470285209215775</EntityId>
+              <Min x="1" y="2" z="-8" />
+              <BlockOrientation Forward="Backward" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>138102529844627374</EntityId>
+              <Min x="-1" y="2" z="-8" />
+              <BlockOrientation Forward="Backward" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>77654584042434284</EntityId>
+              <Min x="0" y="2" z="-8" />
+              <BlockOrientation Forward="Backward" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>108940281419482079</EntityId>
+              <Min x="0" y="1" z="-19" />
+              <BlockOrientation Forward="Up" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>116534913942408031</EntityId>
+              <Min x="-1" y="1" z="-19" />
+              <BlockOrientation Forward="Up" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>119265930695753385</EntityId>
+              <Min x="1" y="1" z="-19" />
+              <BlockOrientation Forward="Up" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>143143511352992626</EntityId>
+              <Min x="1" y="0" z="-19" />
+              <BlockOrientation Forward="Up" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>94093673340486928</EntityId>
+              <Min x="0" y="0" z="-19" />
+              <BlockOrientation Forward="Up" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>107212471387437635</EntityId>
+              <Min x="-1" y="0" z="-19" />
+              <BlockOrientation Forward="Up" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>118690030446188047</EntityId>
+              <Min x="-1" y="2" z="-19" />
+              <BlockOrientation Forward="Up" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>106575592159518875</EntityId>
+              <Min x="0" y="2" z="-19" />
+              <BlockOrientation Forward="Up" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>89535369098640078</EntityId>
+              <Min x="1" y="2" z="-19" />
+              <BlockOrientation Forward="Up" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>104126145597032688</EntityId>
+              <Min x="1" y="3" z="-19" />
+              <BlockOrientation Forward="Up" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>92549652575104870</EntityId>
+              <Min x="-1" y="3" z="-19" />
+              <BlockOrientation Forward="Up" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>123169373772573343</EntityId>
+              <Min x="-2" y="2" z="-19" />
+              <BlockOrientation Forward="Left" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>141827039717668544</EntityId>
+              <Min x="-2" y="1" z="-19" />
+              <BlockOrientation Forward="Left" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>142185028367925719</EntityId>
+              <Min x="-2" y="0" z="-19" />
+              <BlockOrientation Forward="Left" Up="Forward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>101135062712572079</EntityId>
+              <Min x="2" y="0" z="-19" />
+              <BlockOrientation Forward="Right" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>106868316974256370</EntityId>
+              <Min x="2" y="1" z="-19" />
+              <BlockOrientation Forward="Right" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>116108447065342354</EntityId>
+              <Min x="2" y="2" z="-19" />
+              <BlockOrientation Forward="Right" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>134153121664719416</EntityId>
+              <Min x="-1" y="-1" z="-19" />
+              <BlockOrientation Forward="Down" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>132282531899916016</EntityId>
+              <Min x="0" y="-1" z="-19" />
+              <BlockOrientation Forward="Down" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>129744430977443918</EntityId>
+              <Min x="1" y="-1" z="-19" />
+              <BlockOrientation Forward="Down" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>119207281259308102</EntityId>
+              <Min x="0" y="1" z="-20" />
+              <BlockOrientation Forward="Forward" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>104917563976697916</EntityId>
+              <Min x="-1" y="1" z="-20" />
+              <BlockOrientation Forward="Forward" Up="Right" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>78372960877249460</EntityId>
+              <Min x="1" y="1" z="-20" />
+              <BlockOrientation Forward="Forward" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>119694489834507692</EntityId>
+              <Min x="0" y="0" z="-20" />
+              <BlockOrientation Forward="Forward" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallHydrogenThrust</SubtypeName>
+              <EntityId>78485900184726285</EntityId>
+              <Min x="0" y="2" z="-20" />
+              <BlockOrientation Forward="Forward" Up="Right" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>106926880796423318</EntityId>
+              <Min x="0" y="1" z="-8" />
+              <BlockOrientation Forward="Left" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>99325325030958964</EntityId>
+              <Min x="0" y="1" z="-7" />
+              <BlockOrientation Forward="Up" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_ShipConnector">
+              <SubtypeName>Connector</SubtypeName>
+              <EntityId>120905984047218126</EntityId>
+              <Min x="0" y="1" z="-6" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+              </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Conveyor">
+              <SubtypeName>LargeBlockConveyor</SubtypeName>
+              <EntityId>131953875633913887</EntityId>
+              <Min x="-1" y="1" z="-7" />
+              <BlockOrientation Forward="Up" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_MergeBlock">
+              <SubtypeName>LargeShipMergeBlock</SubtypeName>
+              <EntityId>85176554838468461</EntityId>
+              <Min x="-1" y="1" z="-6" />
+              <BlockOrientation Forward="Right" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_RemoteControl">
+              <SubtypeName>LargeBlockRemoteControl</SubtypeName>
+              <EntityId>101979230403336145</EntityId>
+              <Min x="1" y="1" z="-9" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Beacon">
+              <SubtypeName>LargeBlockBeacon</SubtypeName>
+              <EntityId>77686526734667211</EntityId>
+              <Min x="-1" y="1" z="-8" />
+              <BlockOrientation Forward="Up" Up="Backward" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+              </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>87450740407914502</EntityId>
+              <Min x="-1" y="3" z="-7" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>87339195939343827</EntityId>
+              <Min x="0" y="3" z="-7" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>102971337391574863</EntityId>
+              <Min x="1" y="3" z="-7" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>99307824923850710</EntityId>
+              <Min x="2" y="0" z="-20" />
+              <BlockOrientation Forward="Right" Up="Down" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>130041717608893075</EntityId>
+              <Min x="2" y="1" z="-20" />
+              <BlockOrientation Forward="Right" Up="Down" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>118279270862094176</EntityId>
+              <Min x="2" y="2" z="-20" />
+              <BlockOrientation Forward="Right" Up="Down" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>83686831848597591</EntityId>
+              <Min x="1" y="-1" z="-20" />
+              <BlockOrientation Forward="Down" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>123966290751096930</EntityId>
+              <Min x="0" y="-1" z="-20" />
+              <BlockOrientation Forward="Down" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>140005468081783149</EntityId>
+              <Min x="-1" y="-1" z="-20" />
+              <BlockOrientation Forward="Down" Up="Left" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>104895388772869057</EntityId>
+              <Min x="-3" y="0" z="-20" />
+              <BlockOrientation Forward="Left" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>122568162984427283</EntityId>
+              <Min x="-3" y="1" z="-20" />
+              <BlockOrientation Forward="Left" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>104298198636288801</EntityId>
+              <Min x="-3" y="2" z="-20" />
+              <BlockOrientation Forward="Left" Up="Up" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>91872536745673287</EntityId>
+              <Min x="-1" y="4" z="-20" />
+              <BlockOrientation Forward="Up" Up="Right" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>101127502896523191</EntityId>
+              <Min x="0" y="4" z="-20" />
+              <BlockOrientation Forward="Up" Up="Right" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>138328407647762196</EntityId>
+              <Min x="1" y="4" z="-20" />
+              <BlockOrientation Forward="Up" Up="Right" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>118563604594056653</EntityId>
+              <Min x="1" y="2" z="-20" />
+              <BlockOrientation Forward="Forward" Up="Right" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>75037621823958192</EntityId>
+              <Min x="-1" y="2" z="-20" />
+              <BlockOrientation Forward="Forward" Up="Right" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>96014065583817784</EntityId>
+              <Min x="-1" y="0" z="-20" />
+              <BlockOrientation Forward="Forward" Up="Right" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Thrust">
+              <SubtypeName>LargeBlockSmallThrust</SubtypeName>
+              <EntityId>72410923576636275</EntityId>
+              <Min x="1" y="0" z="-20" />
+              <BlockOrientation Forward="Forward" Up="Right" />
+              <ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <BuiltBy>144115188075855919</BuiltBy>
+              <Enabled>true</Enabled>
+            </MyObjectBuilder_CubeBlock>
+            <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Reactor">
+              <SubtypeName>LargeBlockLargeGenerator</SubtypeName>
+              <EntityId>142116581802990870</EntityId>
+              <Min x="-1" y="-1" z="-16" />
+              <BlockOrientation Forward="Backward" Up="Down" /><ColorMaskHSV x="0" y="-0.8" z="0.4" />
+              <Owner>144115188075855919</Owner>
+              <BuiltBy>144115188075855919</BuiltBy>
+              <ShareMode>Faction</ShareMode>
+              <Enabled>true</Enabled>
+              </MyObjectBuilder_CubeBlock>
+          </CubeBlocks>
+          <ConveyorLines>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="0" />
+              <StartDirection>Backward</StartDirection>
+              <EndPosition x="0" y="1" z="1" />
+              <EndDirection>Forward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="3" />
+              <StartDirection>Backward</StartDirection>
+              <EndPosition x="0" y="1" z="4" />
+              <EndDirection>Forward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="0" />
+              <StartDirection>Forward</StartDirection>
+              <EndPosition x="0" y="1" z="-1" />
+              <EndDirection>Backward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="0" />
+              <StartDirection>Right</StartDirection>
+              <EndPosition x="1" y="1" z="0" />
+              <EndDirection>Left</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="0" />
+              <StartDirection>Up</StartDirection>
+              <EndPosition x="0" y="2" z="0" />
+              <EndDirection>Down</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="-1" />
+              <StartDirection>Forward</StartDirection>
+              <EndPosition x="0" y="1" z="-2" />
+              <EndDirection>Backward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="-1" />
+              <StartDirection>Left</StartDirection>
+              <EndPosition x="-1" y="1" z="-1" />
+              <EndDirection>Right</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="-1" />
+              <StartDirection>Up</StartDirection>
+              <EndPosition x="0" y="2" z="-1" />
+              <EndDirection>Down</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="-2" />
+              <StartDirection>Forward</StartDirection>
+              <EndPosition x="0" y="1" z="-3" />
+              <EndDirection>Backward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="-2" />
+              <StartDirection>Right</StartDirection>
+              <EndPosition x="1" y="1" z="-2" />
+              <EndDirection>Left</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="-2" />
+              <StartDirection>Left</StartDirection>
+              <EndPosition x="-1" y="1" z="-2" />
+              <EndDirection>Right</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="-3" />
+              <StartDirection>Up</StartDirection>
+              <EndPosition x="0" y="2" z="-3" />
+              <EndDirection>Down</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="-3" />
+              <StartDirection>Down</StartDirection>
+              <EndPosition x="0" y="0" z="-3" />
+              <EndDirection>Up</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="0" z="5" />
+              <StartDirection>Down</StartDirection>
+              <EndPosition x="0" y="-1" z="5" />
+              <EndDirection>Up</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="6" />
+              <StartDirection>Backward</StartDirection>
+              <EndPosition x="0" y="1" z="7" />
+              <EndDirection>Forward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="0" z="-3" />
+              <StartDirection>Forward</StartDirection>
+              <EndPosition x="0" y="0" z="-4" />
+              <EndDirection>Backward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="0" z="-3" />
+              <StartDirection>Right</StartDirection>
+              <EndPosition x="1" y="0" z="-3" />
+              <EndDirection>Left</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="0" z="-3" />
+              <StartDirection>Left</StartDirection>
+              <EndPosition x="-1" y="0" z="-3" />
+              <EndDirection>Right</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="-1" y="0" z="-3" />
+              <StartDirection>Forward</StartDirection>
+              <EndPosition x="-1" y="0" z="-4" />
+              <EndDirection>Backward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="1" y="0" z="-3" />
+              <StartDirection>Forward</StartDirection>
+              <EndPosition x="1" y="0" z="-4" />
+              <EndDirection>Backward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="7" />
+              <StartDirection>Backward</StartDirection>
+              <EndPosition x="0" y="1" z="8" />
+              <EndDirection>Forward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="7" />
+              <StartDirection>Up</StartDirection>
+              <EndPosition x="0" y="2" z="7" />
+              <EndDirection>Down</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="7" />
+              <StartDirection>Down</StartDirection>
+              <EndPosition x="0" y="0" z="7" />
+              <EndDirection>Up</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="7" />
+              <StartDirection>Left</StartDirection>
+              <EndPosition x="-1" y="1" z="7" />
+              <EndDirection>Right</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="7" />
+              <StartDirection>Right</StartDirection>
+              <EndPosition x="1" y="1" z="7" />
+              <EndDirection>Left</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="-1" y="1" z="7" />
+              <StartDirection>Backward</StartDirection>
+              <EndPosition x="-1" y="1" z="8" />
+              <EndDirection>Forward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="-1" y="1" z="7" />
+              <StartDirection>Up</StartDirection>
+              <EndPosition x="-1" y="2" z="7" />
+              <EndDirection>Down</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="-1" y="1" z="7" />
+              <StartDirection>Down</StartDirection>
+              <EndPosition x="-1" y="0" z="7" />
+              <EndDirection>Up</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="-1" y="1" z="7" />
+              <StartDirection>Left</StartDirection>
+              <EndPosition x="-2" y="1" z="7" />
+              <EndDirection>Right</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="1" y="1" z="7" />
+              <StartDirection>Backward</StartDirection>
+              <EndPosition x="1" y="1" z="8" />
+              <EndDirection>Forward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="1" y="1" z="7" />
+              <StartDirection>Up</StartDirection>
+              <EndPosition x="1" y="2" z="7" />
+              <EndDirection>Down</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="1" y="1" z="7" />
+              <StartDirection>Down</StartDirection>
+              <EndPosition x="1" y="0" z="7" />
+              <EndDirection>Up</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="1" y="1" z="7" />
+              <StartDirection>Right</StartDirection>
+              <EndPosition x="2" y="1" z="7" />
+              <EndDirection>Left</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="1" y="2" z="7" />
+              <StartDirection>Up</StartDirection>
+              <EndPosition x="1" y="3" z="7" />
+              <EndDirection>Down</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="1" y="2" z="7" />
+              <StartDirection>Left</StartDirection>
+              <EndPosition x="0" y="2" z="7" />
+              <EndDirection>Right</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="1" y="2" z="7" />
+              <StartDirection>Right</StartDirection>
+              <EndPosition x="2" y="2" z="7" />
+              <EndDirection>Left</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="2" z="7" />
+              <StartDirection>Backward</StartDirection>
+              <EndPosition x="0" y="2" z="8" />
+              <EndDirection>Forward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="2" z="7" />
+              <StartDirection>Up</StartDirection>
+              <EndPosition x="0" y="3" z="7" />
+              <EndDirection>Down</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="2" z="7" />
+              <StartDirection>Left</StartDirection>
+              <EndPosition x="-1" y="2" z="7" />
+              <EndDirection>Right</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="-1" y="2" z="7" />
+              <StartDirection>Up</StartDirection>
+              <EndPosition x="-1" y="3" z="7" />
+              <EndDirection>Down</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="-1" y="2" z="7" />
+              <StartDirection>Left</StartDirection>
+              <EndPosition x="-2" y="2" z="7" />
+              <EndDirection>Right</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="-1" y="0" z="7" />
+              <StartDirection>Down</StartDirection>
+              <EndPosition x="-1" y="-1" z="7" />
+              <EndDirection>Up</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="-1" y="0" z="7" />
+              <StartDirection>Left</StartDirection>
+              <EndPosition x="-2" y="0" z="7" />
+              <EndDirection>Right</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="-1" y="0" z="7" />
+              <StartDirection>Right</StartDirection>
+              <EndPosition x="0" y="0" z="7" />
+              <EndDirection>Left</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="0" z="7" />
+              <StartDirection>Backward</StartDirection>
+              <EndPosition x="0" y="0" z="8" />
+              <EndDirection>Forward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="0" z="7" />
+              <StartDirection>Down</StartDirection>
+              <EndPosition x="0" y="-1" z="7" />
+              <EndDirection>Up</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="0" z="7" />
+              <StartDirection>Right</StartDirection>
+              <EndPosition x="1" y="0" z="7" />
+              <EndDirection>Left</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="1" y="0" z="7" />
+              <StartDirection>Down</StartDirection>
+              <EndPosition x="1" y="-1" z="7" />
+              <EndDirection>Up</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="1" y="0" z="7" />
+              <StartDirection>Right</StartDirection>
+              <EndPosition x="2" y="0" z="7" />
+              <EndDirection>Left</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="-3" />
+              <StartDirection>Forward</StartDirection>
+              <EndPosition x="0" y="1" z="-4" />
+              <EndDirection>Backward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="-4" />
+              <StartDirection>Forward</StartDirection>
+              <EndPosition x="0" y="1" z="-5" />
+              <EndDirection>Backward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="-5" />
+              <StartDirection>Forward</StartDirection>
+              <EndPosition x="0" y="1" z="-6" />
+              <EndDirection>Backward</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="1" z="-5" />
+              <StartDirection>Left</StartDirection>
+              <EndPosition x="-1" y="1" z="-5" />
+              <EndDirection>Right</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+            <MyObjectBuilder_ConveyorLine>
+              <StartPosition x="0" y="2" z="5" />
+              <StartDirection>Up</StartDirection>
+              <EndPosition x="0" y="3" z="5" />
+              <EndDirection>Down</EndDirection>
+              <Sections />
+              <ConveyorLineType>LARGE_LINE</ConveyorLineType>
+            </MyObjectBuilder_ConveyorLine>
+          </ConveyorLines>
+          <DisplayName>skynet-agent0</DisplayName>
+          <DestructibleBlocks>true</DestructibleBlocks>
+          <IsRespawnGrid>false</IsRespawnGrid>
+          <LocalCoordSys>203</LocalCoordSys>
+          <TargetingTargets />
+          <NPCGridClaimElapsed xsi:nil="true" />
+        </CubeGrid>
+      </CubeGrids>
+      <EnvironmentType>None</EnvironmentType>
+      <WorkshopId>0</WorkshopId>
+      <OwnerSteamId>76561197971305892</OwnerSteamId>
+      <Points>0</Points>
+    </MyObjectBuilder_ShipBlueprintDefinition>

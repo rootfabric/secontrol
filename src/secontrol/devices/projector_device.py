@@ -212,5 +212,32 @@ class ProjectorDevice(BaseDevice):
             return None
         return str(xml)
 
+    # ------------------------------------------------------------------
+    # Projection diagnostics helpers
+    # ------------------------------------------------------------------
+    def request_projection_report(self, *, max_blocks: int = 200) -> int:
+        """Ask the plugin to calculate missing projected blocks and components."""
+        limit = max(0, int(max_blocks))
+        return self.send_command({
+            "cmd": "projection_report",
+            "maxBlocks": limit,
+            "state": {"maxBlocks": limit},
+        })
+
+    def projection_report(self) -> dict[str, Any]:
+        """Return the latest projection report from telemetry."""
+        data = self.telemetry or {}
+        report = data.get("projectionReport")
+        return dict(report) if isinstance(report, dict) else {}
+
+    def scan_projection_report(self, *, wait: float = 3.0, max_blocks: int = 200) -> dict[str, Any]:
+        """Request and wait for a fresh projection report."""
+        self.request_projection_report(max_blocks=max_blocks)
+        try:
+            self.wait_for_telemetry(timeout=wait, wait_for_new=True, need_update=True)
+        except Exception:
+            pass
+        return self.projection_report()
+
 
 DEVICE_TYPE_MAP[ProjectorDevice.device_type] = ProjectorDevice
