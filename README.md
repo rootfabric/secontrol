@@ -188,8 +188,24 @@ Access to stronger models would directly improve the speed and quality of develo
 
 ## Installation
 
+For the latest published release, install `secontrol` from PyPI:
+
 ```bash
 pip install secontrol
+```
+
+If you need changes that are already in the Git repository but have not yet been published to PyPI, install the library directly from GitHub:
+
+```bash
+pip install git+https://github.com/rootfabric/secontrol.git
+```
+
+For local development, clone the repository and install it in editable mode so your local code changes are used immediately:
+
+```bash
+git clone https://github.com/rootfabric/secontrol.git
+cd secontrol
+pip install -e .
 ```
 
 ## Quick Start

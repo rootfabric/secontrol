@@ -84,11 +84,30 @@ RedisEventClient           ← низкоуровневый: publish, subscribe,
 
 ## 4. Установка и зависимости
 
-```bash
-# Основные
-pip install secontrol
+Для последней опубликованной версии установите `secontrol` из PyPI:
 
-# Для разработки
+```bash
+pip install secontrol
+```
+
+Если нужны изменения, которые уже есть в Git-репозитории, но ещё не опубликованы в PyPI, установите библиотеку напрямую из GitHub:
+
+```bash
+pip install git+https://github.com/rootfabric/secontrol.git
+```
+
+Для локальной разработки склонируйте репозиторий и установите библиотеку в editable-режиме, чтобы локальные изменения кода применялись сразу:
+
+```bash
+git clone https://github.com/rootfabric/secontrol.git
+cd secontrol
+pip install -e .
+```
+
+Дополнительные варианты для разработки и веб-панели:
+
+```bash
+# Для разработки с dev-зависимостями
 pip install -e ".[dev]"
 
 # Для веб-панели
