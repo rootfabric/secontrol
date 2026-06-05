@@ -4,6 +4,14 @@ Space Engineers AI Robotics (`secontrol`) is an open-source research project for
 
 The repository provides a Python control library, examples, workflows, and documentation for interacting with the Space Engineers Redis gateway. It is designed to collect telemetry, send commands, automate devices, and evolve scripted behaviors into long-running AI agents.
 
+Public entry point: <https://www.outenemy.ru/se/>
+
+## Status
+
+This project is in active early-stage development. Several low-level and mid-level automation workflows already work, including telemetry, navigation experiments, docking, production, refinery control, inventory logistics, radar scanning, projector workflows, and early mission loops.
+
+The long-term goal is full long-running autonomy, not a single scripted mission.
+
 ## Project goal
 
 The goal of this project is to create an open-source platform for developing AI agents that can live and operate inside a complex simulated world.
@@ -120,9 +128,40 @@ This creates a useful environment for developing and evaluating AI systems that 
 
 A successful agent in this environment must not only generate code or answer questions. It must keep itself alive, understand its tools, maintain infrastructure, adapt to failures, and act over long time horizons.
 
-## How Codex/API credits will be used
+## Evaluation scenarios
 
-Codex and API credits will be used to accelerate development of the open-source autonomy stack.
+The project aims to define repeatable scenarios for measuring autonomous agent progress:
+
+- inspect grid state and report missing systems;
+- undock from a base and reach a target point;
+- fly to the nearest asteroid without collision;
+- scan for ore and select a mining target;
+- mine resources and return to base;
+- dock to a free connector;
+- unload cargo and start refining ore;
+- produce missing components using assembler queues;
+- load a blueprint into a projector and prepare construction;
+- recover from common failures such as being stuck, misaligned, low on power, damaged, or missing resources.
+
+Each scenario can produce structured logs: world state, goal, plan, tool calls, telemetry results, failure reason, and corrected plan.
+
+## Limitations and safety
+
+The project is experimental. Agents are developed inside a game simulation and should not be treated as reliable real-world robotics controllers.
+
+Current limitations include:
+
+- incomplete world understanding;
+- imperfect navigation and docking;
+- possible collision or stuck states;
+- incomplete failure recovery;
+- dependence on available telemetry and game-side integration.
+
+The project focuses on safe sandboxed experimentation before applying similar ideas to more realistic environments.
+
+## How stronger AI models can help
+
+Codex and API credits, if available, would be used to accelerate development of the open-source autonomy stack.
 
 Planned uses include:
 
@@ -136,7 +175,7 @@ Planned uses include:
 - Analyzing telemetry logs and turning failures into reproducible test cases.
 - Creating evaluation scenarios for autonomous AI agents.
 
-Access to stronger models would directly improve the speed and quality of development. The project requires frequent debugging across game telemetry, Python automation, state machines, planning logic, and real-time behavior. Codex can help turn experimental scripts into a reliable open-source platform for autonomous AI research.
+Access to stronger models would directly improve the speed and quality of development. The project requires frequent debugging across game telemetry, Python automation, state machines, planning logic, and real-time behavior. AI-assisted development can help turn experimental scripts into a reliable open-source platform for autonomous AI research.
 
 ## Features
 
