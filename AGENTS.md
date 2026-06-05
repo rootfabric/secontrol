@@ -1,75 +1,36 @@
-# secontrol — Agent Index
+# secontrol — Agent Entry Point
 
-Два трека. Выбери свой:
+`secontrol` is a Python SDK and command toolkit for controlling Space Engineers agents through the Redis gateway.
 
----
-
-## Ты оператор? (работаешь в игре)
-
-Готовые команды. Копируй и запускай. Никакого кодирования без крайней необходимости не стандартных задач.
-
-**→ `docs/agent-playbook/PLAYBOOK.md`**
-
-- Навигация (обзор астероидов, полёты, парковка)
-- Добыча (скан руд, бурение, поиск месторождений)
-- Строительство, производство, инвентарь
-- Мониторинг, управление устройствами
-- Стандартные пайплайны (разведка, добыча, рестарт)
+This file is the first file an AI agent must read before planning, running commands, editing code, or changing documentation.
 
 ---
 
-## Ты админ? (управляешь сервером)
+## 0. Prime directive
 
-Спавн гридов, удаление, телепорт, чат, AI-фракции, управление блоками и вокселями.
+Do not invent commands.
 
-**→ `admins/AGENTS.md`**
+Before proposing or executing a mission plan:
 
-- Спавн/удаление/телепорт гридов
-- Управление блоками и вокселями
-- Сообщения в чат, mission screen
-- AI-фракции: создание, политика вступления, назначение гридов
-- AdminUtilitiesClient API
-
----
-
-## Ты разработчик? (пишешь/правишь код)
-
-Структура проекта, API, как добавлять устройства и скрипты.
-
-**→ `docs/agent-dev/DEVGUIDE.md`**
-
-- Архитектура проекта
-- Как подключиться к гриду
-- RadarController, SharedMapController, SpaceNavigatorController
-- Конвенции кода, тестирование
-- Справочники: API, устройства, примеры
-
+1. Inspect existing commands.
+2. Prefer `commands/` over `scripts/`.
+3. Prefer `commands/` over `examples/organized/`.
+4. Prefer existing playbooks and workflows over invented plans.
+5. Validate that every script file in the plan exists.
+6. Do not use `tmp/*.py` as operational commands.
+7. Do not use `.refactor_backups/` or `.manual_refactor_backups/`.
+8. Do not ask for manual help until all safe non-flight checks are completed.
+9. If a task matches an existing pipeline, use that pipeline first.
+10. If no existing command exists, say so and propose creating one. Do not fabricate a path.
 
 ---
 
-## Временные файлы
+## 1. Mandatory repository scan before planning
 
-Все временные файлы (сканы, бэкапы, промежуточные данные) — в `tmp/` в корне проекта.
+Before any non-trivial task, run or mentally follow this discovery order:
 
----
-
-## Скиллы
-
-`docs/agent-skills/README.md`
-
----
-
-## Ссылки
-
-| Что | Где |
-|---|---|
-| Playbook (операторы) | `docs/agent-playbook/PLAYBOOK.md` |
-| Admin (админы) | `admins/AGENTS.md` |
-| Dev Guide (разработчики) | `docs/agent-dev/DEVGUIDE.md` |
-| Скиллы | `docs/agent-skills/README.md` |
-| Workflows | `docs/workflows/` |
-| API Reference | `docs/API_REFERENCE.md` |
-| Device Reference | `docs/DEVICE_REFERENCE.md` |
-| Examples | `docs/EXAMPLES.md` |
-| Architecture | `ARCHITECTURE.md` |
-| REPO Guide | `agent/REPO_GUIDE.md` |
+```bash
+find commands -maxdepth 3 -type f | sort
+find docs/playbooks docs/workflows docs/agent-playbook -type f 2>/dev/null | sort
+grep -RniE "pipeline|пайплайн|добыча|mining|ice|hydrogen|dock|стыков|бур|ore|radar|navigation|production|refinery|projector" docs commands 2>/dev/null
+```
