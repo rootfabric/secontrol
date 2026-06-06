@@ -25,6 +25,9 @@ python examples/organized/radar/ore_scanner.py --grid agent0
 # Синхронизировать данные в Redis
 python examples/organized/radar/shared_map/shared_map_sync.py --grid agent0
 
+# Слить все ресурсы со всех припаркованных кораблей (запускается на базе)
+python examples/organized/container/advanced/pull_from_attached_ships.py --base-grid skynet-farpost0 --target-tag cargo
+
 # Лететь к ближайшему астероиду
 python examples/space_flight/space_navigator_v4.py --grid agent0 --nearest-asteroid
 ```
@@ -49,6 +52,19 @@ python examples/organized/radar/ore_scanner.py --grid agent1
 # 5. Синхронизировать данные в Redis
 python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1
 ```
+
+
+
+## Каталог миссий missions
+
+Готовые сценарии под ключ — параметризованные последовательности команд с правилами безопасности и обработкой ошибок. Если запрос пользователя совпадает с миссией — используй её, не собирай пайплайн вручную.
+
+Каталог: `docs/agents-missions/`
+
+| Миссия | Описание |
+|---|---|
+| [SE Ore Collection Mission](agents-missions/se-ore-collection-mission.md) | Добыча ресурсов. Добыть N руды (Uranium/Platinum/Iron/...) кораблём, вернуться на базу, пристыковаться, перегрузить cargo. По умолчанию: `ship=skynet-agent0`, `base=skynet-farpost0`, `ore=Uranium`, `amount=3000`. Включает правила остановки при ошибках и запрет на «выдуманные» GPS. |
+
 
 ---
 
@@ -205,17 +221,6 @@ python examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid age
 # Добыть руду (Nanobot Drill) — автоматически скан + бур + сбор с игрой в параметры если не добывает сходу
 python examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid skynet-agent0 --ore Ice --amount 500000 --scan-radius 1500 --area-size 75 --density-radius 20 --max-points 120 --startup-timeout 90 --no-progress-timeout 60 --working-point-min-seconds 180 --check-interval 0.5 --stone-safety-delta 20 --inventory-delta-threshold 10 --max-stone-per-ore-ratio 0.05
 ```
----
-
-## Строительство
-
-```bash
-# Строительство блоков (проектор + BARS)
-# docs/agent-skills/gaming/se-projection-builder.md
-
-# Статус грида (блоки, повреждения, контейнеры)
-# docs/agent-skills/gaming/se-grid-status-report/SKILL.md
-```
 
 ---
 
@@ -243,8 +248,51 @@ python examples/organized/container/basic/containers_show.py --grid farpost0
 # Перегрузить ресурсы с корабля на базу (корабль должен быть пристыкован)
 python examples/organized/container/advanced/pull_items_from_docked_grid.py --source-grid skynet-agent0 --target-grid skynet-farpost0
 
+# Слить ВСЁ со ВСЕХ пристыкованных кораблей в контейнер базы (запускается на базе)
+python examples/organized/container/advanced/pull_from_attached_ships.py --base-grid skynet-farpost0 --target-tag cargo
+python examples/organized/container/advanced/pull_from_attached_ships.py --base-grid skynet-farpost0 --dry-run
+python examples/organized/container/advanced/pull_from_attached_ships.py --base-grid skynet-farpost0 --target-tag cargo --exclude-type ore
+
 # Управление очередью конструктора: examples/organized/assembler/README.md
 ```
+
+### Слить все ресурсы со всех пристыкованных кораблей (на стороне базы)
+
+`pull_from_attached_ships.py` запускается **на базе**. Скрипт сам находит
+все пристыкованные корабли по коннекторам базы со статусом `Connected` и
+поочерёдно вытягивает из них содержимое (контейнеры, кокпиты, буры,
+рефайнери, ассемблеры) в указанный контейнер базы. Если контейнер
+заполнится — автоматически переключится на следующий свободный с тем же
+тегом.
+
+```bash
+# Базовый запуск — слить всё в контейнер с тегом [cargo]
+python examples/organized/container/advanced/pull_from_attached_ships.py \
+    --base-grid skynet-farpost0 --target-tag cargo
+
+# Указать конкретный контейнер по имени
+python examples/organized/container/advanced/pull_from_attached_ships.py \
+    --base-grid skynet-farpost0 --target-container "Main Storage"
+
+# Только посмотреть, что есть на пристыкованных (без переноса)
+python examples/organized/container/advanced/pull_from_attached_ships.py \
+    --base-grid skynet-farpost0 --dry-run
+
+# Не трогать руду (оставить на кораблях для переплавки)
+python examples/organized/container/advanced/pull_from_attached_ships.py \
+    --base-grid skynet-farpost0 --target-tag cargo --exclude-type ore
+
+# Не переносить конкретный предмет (например, канистры с водородом)
+python examples/organized/container/advanced/pull_from_attached_ships.py \
+    --base-grid skynet-farpost0 --target-tag cargo --exclude-subtype Hydrogen
+```
+
+**Сравнение с `pull_items_from_docked_grid.py`:**
+
+| Скрипт | Кто указан | Что делает |
+|---|---|---|
+| `pull_items_from_docked_grid.py` | конкретная пара source→target | тянет ресурсы с одного грида в другой |
+| `pull_from_attached_ships.py` | только база | сам находит ВСЕХ, кто пристыкован к базе, и сливает |
 
 ### Файл целей production_targets.json
 
@@ -338,14 +386,6 @@ python examples/organized/grid/intermediate/grid_rename_device_example.py --grid
 
 ---
 
-## Мониторинг
-
-```bash
-# Redis мониторинг, алерты
-# docs/agent-skills/gaming/game-server-automation/SKILL.md
-```
-
----
 
 ## Стандартные пайплайны
 
@@ -370,6 +410,7 @@ python examples/organized/grid/intermediate/grid_rename_device_example.py --grid
 3. Бурение:      mine_ore_robot_safe_live_move.py --grid agent1 --ore Platinum --amount 5000
 4. Стыковка:     dock.py [ship_id] [base_id] [approach_distance]
 5. Выгрузка:     pull_items_from_docked_grid.py --source-grid [ship] --target-grid [base] --target-container "Cargo"
+   (или, на стороне базы: pull_from_attached_ships.py --base-grid [base] --target-tag cargo)
 ```
 
 ### Пайплайн: После рестарта сервера
@@ -399,8 +440,3 @@ python examples/organized/grid/intermediate/grid_rename_device_example.py --grid
 
 ---
 
-## Скиллы
-
-`docs/agent-skills/README.md`
-
----

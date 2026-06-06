@@ -11,10 +11,13 @@ class BatteryDevice(BaseDevice):
     device_type = "battery"
 
     def set_mode(self, mode: str) -> int:
-        if mode not in {"auto", "recharge", "discharge"}:
-            raise ValueError("mode must be 'auto', 'recharge' or 'discharge'")
+        mode = mode.strip().lower()
+        if mode not in {"auto", "recharge", "discharge", "semiauto", "semi-auto", "semi"}:
+            raise ValueError("mode must be 'auto', 'recharge', 'discharge' or 'semiauto'")
+        if mode == "semi-auto" or mode == "semi":
+            mode = "semiauto"
         return self.send_command({
-            "cmd": "battery_mode",
+            "cmd": "set_mode",
             "state": {"mode": mode},
         })
 

@@ -19,20 +19,35 @@ import os
 import time
 import math
 import argparse
+from pathlib import Path
 
-# --- Load .env (handles \r\n) ---
-env_path = "/workspace/.env"
-if os.path.exists(env_path):
-    with open(env_path) as f:
+# --- Locate repository root and load .env (handles \r\n) ---
+def find_repo_root(start: Path) -> Path:
+    for parent in (start, *start.parents):
+        if (parent / "pyproject.toml").exists() and (parent / "src").exists():
+            return parent
+    return Path.cwd()
+
+
+REPO_ROOT = find_repo_root(Path(__file__).resolve())
+env_path = REPO_ROOT / ".env"
+if env_path.exists():
+    with env_path.open(encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 os.environ[k.strip()] = v.strip()
 
-sys.path.insert(0, "/workspace/src")
+src_path = REPO_ROOT / "src"
+if src_path.exists():
+    sys.path.insert(0, str(src_path))
 
-from secontrol.common import prepare_grid
+try:
+    from secontrol.common import prepare_grid, get_all_grids
+except ImportError:
+    from secontrol.common import prepare_grid
+    get_all_grids = None
 from secontrol.devices.remote_control_device import RemoteControlDevice
 from secontrol.devices.connector_device import ConnectorDevice
 from secontrol.devices.gyro_device import GyroDevice
@@ -52,6 +67,32 @@ def parse_args():
     parser.add_argument("--list-connectors", action="store_true", help="Print connector states and exit")
     parser.add_argument("--connector-check-retries", type=int, default=4, help="Telemetry refresh attempts before connector selection")
     parser.add_argument("--connector-check-delay", type=float, default=0.35, help="Delay between connector telemetry refreshes")
+
+    # Physical port occupancy check.
+    # ConnectorStatus can say "Unconnected" when another ship is being welded in
+    # front of the port and its connector is disabled. Therefore a target port is
+    # considered free only when its connector state is free AND the physical
+    # corridor in front of it has no foreign connector.
+    parser.add_argument("--port-occupancy-check", dest="port_occupancy_check", action="store_true", default=True, help="Check the physical corridor in front of target connectors; enabled by default")
+    parser.add_argument("--no-port-occupancy-check", dest="port_occupancy_check", action="store_false", help="Disable physical connector-corridor occupancy check")
+    parser.add_argument("--port-occupancy-depth", type=float, default=10.0, help="Depth in meters in front of a target connector that is treated as occupied")
+    parser.add_argument("--port-occupancy-radius", type=float, default=4.0, help="Radius in meters around the target connector axis that is treated as occupied")
+    parser.add_argument("--port-occupancy-max-grids", type=int, default=40, help="Maximum additional grids to inspect for blocking connectors")
+
+    # Long-range pre-approach. If the ship is far from the base connector, first fly
+    # to a 500m staging point with SpaceNavigatorController v5, then start the
+    # existing precise connector docking phases.
+    parser.add_argument("--long-approach", dest="long_approach", action="store_true", default=True, help="Use v5 navigation to a far staging point before precise docking; enabled by default")
+    parser.add_argument("--no-long-approach", dest="long_approach", action="store_false", help="Disable v5 long-range pre-approach and use only the legacy precise approach")
+    parser.add_argument("--long-approach-distance", type=float, default=500.0, help="Staging distance in front of the target connector, meters")
+    parser.add_argument("--long-approach-threshold", type=float, default=700.0, help="Use v5 pre-approach only if the ship is farther than this from the 500m staging point")
+    parser.add_argument("--long-approach-arrival", type=float, default=80.0, help="v5 arrival radius for the long-range staging point")
+    parser.add_argument("--long-approach-max-speed", type=float, default=95.0, help="v5 open-space max speed")
+    parser.add_argument("--long-approach-far-speed", type=float, default=75.0, help="v5 far speed")
+    parser.add_argument("--long-approach-medium-speed", type=float, default=35.0, help="v5 medium speed")
+    parser.add_argument("--long-approach-close-speed", type=float, default=8.0, help="v5 close speed")
+    parser.add_argument("--long-approach-max-steps", type=int, default=200, help="v5 max scan/fly iterations for the pre-approach")
+    parser.add_argument("--continue-after-long-approach-failure", action="store_true", help="Continue legacy docking even if v5 pre-approach fails; unsafe unless you know the path is clear")
     return parser.parse_args()
 
 
@@ -59,6 +100,9 @@ ARGS = parse_args()
 SHIP = ARGS.ship
 TARGET = ARGS.target
 APPROACH_DIST = float(ARGS.approach_distance)
+
+# Filled after grids are loaded. Used by target connector availability checks.
+PORT_OCCUPANCY_CONNECTORS = None
 
 # =====================================================================
 # Settings
@@ -110,6 +154,15 @@ FINAL_PUSH_NO_PROGRESS_TICKS = 12
 FINAL_PUSH_LATERAL_TOLERANCE_FAR = 1.40
 FINAL_PUSH_LATERAL_TOLERANCE_NEAR = 0.65
 FINAL_PUSH_LINEUP_STOP_RADIUS = 0.30
+# If we are already in the magnetic zone and lateral/angle error starts growing,
+# the ship has missed the port. Do not keep pushing. Stop, back out to the
+# stable line in front of the connector, then let Phase 3 retry the approach.
+FINAL_PUSH_MISS_AXIAL_DISTANCE = 4.0
+FINAL_PUSH_MISS_LATERAL_LIMIT = 0.85
+FINAL_PUSH_MISS_ANGLE_LIMIT_DEG = 10.0
+FINAL_PUSH_RECOVERY_DISTANCE = 14.0
+FINAL_PUSH_RECOVERY_SPEED = 1.8
+FINAL_PUSH_RECOVERY_TIMEOUT = 45.0
 MAX_PHASE3_STEPS = 120
 
 SAFE_NEAR_DISTANCE = 12.0
@@ -322,7 +375,20 @@ def ship_connector_is_usable(connector):
     return True, "usable"
 
 
-def target_connector_is_available(connector, ship_connector=None, *, allow_ship_connectable=False):
+def target_connector_is_available(
+    connector,
+    ship_connector=None,
+    *,
+    allow_ship_connectable=False,
+    occupancy_connectors=None,
+    occupancy_depth=None,
+    occupancy_radius=None,
+):
+    if occupancy_depth is None:
+        occupancy_depth = ARGS.port_occupancy_depth
+    if occupancy_radius is None:
+        occupancy_radius = ARGS.port_occupancy_radius
+
     ok, reason = connector_is_powered_and_functional(connector)
     if not ok:
         return False, reason
@@ -349,8 +415,181 @@ def target_connector_is_available(connector, ship_connector=None, *, allow_ship_
     if status_norm == "connectable":
         return False, "connectable but otherConnectorId is missing; cannot prove it is our connector"
 
+    # Second-level physical occupancy check.
+    # This catches disabled/offline connectors created by projector/welding in
+    # front of a base connector. Such connectors may not appear in otherConnectorId
+    # and may keep ConnectorStatus as Unconnected, but the docking port is still
+    # physically occupied.
+    if occupancy_connectors is None:
+        occupancy_connectors = PORT_OCCUPANCY_CONNECTORS
+
+    if occupancy_connectors is not None:
+        port_free, port_reason = target_port_is_physically_free(
+            connector,
+            ship_connector,
+            occupancy_connectors,
+            depth=occupancy_depth,
+            radius=occupancy_radius,
+            allow_ship_connector=True,
+        )
+        if not port_free:
+            return False, port_reason
+
     return True, "free"
 
+def connector_world_position(connector):
+    return get_pos(connector.telemetry or {})
+
+
+def connector_enabled_text(connector):
+    telemetry = connector.telemetry or {}
+    enabled = telemetry.get("enabled", telemetry.get("Enabled", telemetry.get("isEnabled")))
+    functional = telemetry.get("functional", telemetry.get("Functional", telemetry.get("isFunctional")))
+    return f"enabled={enabled}, functional={functional}"
+
+
+def is_connector_in_target_port_corridor(
+    target_connector,
+    candidate_connector,
+    *,
+    depth=10.0,
+    radius=4.0,
+):
+    target_id = connector_entity_id(target_connector)
+    candidate_id = connector_entity_id(candidate_connector)
+
+    if same_entity_id(target_id, candidate_id):
+        return False, None
+
+    target_pos = connector_world_position(target_connector)
+    candidate_pos = connector_world_position(candidate_connector)
+
+    if not target_pos or not candidate_pos:
+        return False, None
+
+    orient = (target_connector.telemetry or {}).get("orientation", {})
+    target_fwd = normalize(get_vec3(orient.get("forward")) or (0.0, 0.0, 0.0))
+
+    if target_fwd == (0.0, 0.0, 0.0):
+        return False, None
+
+    rel = vec_sub(candidate_pos, target_pos)
+    axial = dot(rel, target_fwd)
+
+    if axial < 0.25 or axial > float(depth):
+        return False, None
+
+    lateral_vec = vec_add(rel, -axial, target_fwd)
+    lateral = vec_len(lateral_vec)
+
+    if lateral > float(radius):
+        return False, None
+
+    info = {
+        "candidate_id": candidate_id,
+        "candidate_name": getattr(candidate_connector, "name", None) or "Connector",
+        "axial": axial,
+        "lateral": lateral,
+        "state": connector_enabled_text(candidate_connector),
+    }
+    return True, info
+
+
+def collect_connectors_for_occupancy(ship_grid, target_grid, *, max_grids=40):
+    connectors = []
+
+    def add_grid_connectors(grid):
+        try:
+            grid_connectors = grid.find_devices_by_type(ConnectorDevice)
+        except Exception:
+            return
+
+        for connector in grid_connectors:
+            try:
+                connector.update()
+            except Exception:
+                pass
+            connectors.append(connector)
+
+    add_grid_connectors(ship_grid)
+    add_grid_connectors(target_grid)
+
+    if get_all_grids is None:
+        print("  WARNING: get_all_grids is not available; port occupancy check is limited to ship and target grids")
+        return connectors
+
+    try:
+        try:
+            all_grids = get_all_grids(exclude_subgrids=False)
+        except TypeError:
+            all_grids = get_all_grids()
+    except Exception as exc:
+        print(f"  WARNING: cannot list all grids for port occupancy check: {exc}")
+        return connectors
+
+    seen_grid_ids = {str(ship_grid.grid_id), str(target_grid.grid_id)}
+    loaded = 0
+
+    for grid_id, grid_name in all_grids:
+        grid_id = str(grid_id)
+
+        if grid_id in seen_grid_ids:
+            continue
+
+        if loaded >= int(max_grids):
+            print(f"  WARNING: port occupancy scan reached max grids limit: {max_grids}")
+            break
+
+        try:
+            grid = prepare_grid(grid_id)
+            time.sleep(0.05)
+            add_grid_connectors(grid)
+            seen_grid_ids.add(grid_id)
+            loaded += 1
+        except Exception as exc:
+            print(f"  WARNING: cannot inspect grid {grid_name} ({grid_id}) for connectors: {exc}")
+
+    return connectors
+
+
+def target_port_is_physically_free(
+    target_connector,
+    ship_connector,
+    occupancy_connectors,
+    *,
+    depth=10.0,
+    radius=4.0,
+    allow_ship_connector=True,
+):
+    ship_id = connector_entity_id(ship_connector)
+
+    for candidate in occupancy_connectors or []:
+        candidate_id = connector_entity_id(candidate)
+
+        if same_entity_id(candidate_id, connector_entity_id(target_connector)):
+            continue
+
+        if allow_ship_connector and same_entity_id(candidate_id, ship_id):
+            continue
+
+        blocked, info = is_connector_in_target_port_corridor(
+            target_connector,
+            candidate,
+            depth=depth,
+            radius=radius,
+        )
+
+        if not blocked:
+            continue
+
+        return False, (
+            "port corridor blocked by "
+            f"{info['candidate_name']} ({info['candidate_id']}), "
+            f"axial={info['axial']:.2f}m, lateral={info['lateral']:.2f}m, "
+            f"{info['state']}"
+        )
+
+    return True, "port corridor is clear"
 
 def print_connector_table(title, connectors, *, ship_connector=None, target_mode=False):
     print(title)
@@ -360,7 +599,7 @@ def print_connector_table(title, connectors, *, ship_connector=None, target_mode
 
     for connector in connectors:
         if target_mode:
-            ok, reason = target_connector_is_available(connector, ship_connector, allow_ship_connectable=True)
+            ok, reason = target_connector_is_available(connector, ship_connector, allow_ship_connectable=True, occupancy_connectors=PORT_OCCUPANCY_CONNECTORS, occupancy_depth=ARGS.port_occupancy_depth, occupancy_radius=ARGS.port_occupancy_radius)
         else:
             ok, reason = ship_connector_is_usable(connector)
         mark = "OK" if ok else "BUSY"
@@ -404,7 +643,21 @@ def choose_ship_connector(connectors, *, connector_id=None, name=None):
     return None, details or "no usable ship connector"
 
 
-def choose_target_connector(connectors, ship_connector, *, connector_id=None, name=None):
+def choose_target_connector(
+    connectors,
+    ship_connector,
+    *,
+    connector_id=None,
+    name=None,
+    occupancy_connectors=None,
+    occupancy_depth=None,
+    occupancy_radius=None,
+):
+    if occupancy_depth is None:
+        occupancy_depth = ARGS.port_occupancy_depth
+    if occupancy_radius is None:
+        occupancy_radius = ARGS.port_occupancy_radius
+
     matches = [
         connector for connector in connectors
         if connector_matches_filter(connector, connector_id=connector_id, name=name)
@@ -428,6 +681,9 @@ def choose_target_connector(connectors, ship_connector, *, connector_id=None, na
             connector,
             ship_connector,
             allow_ship_connectable=bool(connector_id),
+            occupancy_connectors=occupancy_connectors,
+            occupancy_depth=occupancy_depth,
+            occupancy_radius=occupancy_radius,
         )
         if ok:
             return connector, "selected"
@@ -436,8 +692,21 @@ def choose_target_connector(connectors, ship_connector, *, connector_id=None, na
     details = "; ".join(f"{connector_display_name(c)}: {reason}" for c, reason in rejected)
     return None, details or "no free target connector"
 
+def ensure_target_connector_available(
+    target_connector,
+    ship_connector,
+    context,
+    *,
+    allow_ship_connectable=True,
+    occupancy_connectors=None,
+    occupancy_depth=None,
+    occupancy_radius=None,
+):
+    if occupancy_depth is None:
+        occupancy_depth = ARGS.port_occupancy_depth
+    if occupancy_radius is None:
+        occupancy_radius = ARGS.port_occupancy_radius
 
-def ensure_target_connector_available(target_connector, ship_connector, context, *, allow_ship_connectable=True):
     try:
         target_connector.update()
     except Exception:
@@ -447,10 +716,25 @@ def ensure_target_connector_available(target_connector, ship_connector, context,
     except Exception:
         pass
 
+    # Refresh known blocking connectors as well. This catches state/position
+    # changes of already known welded grids during a long docking sequence.
+    if occupancy_connectors is None:
+        occupancy_connectors = PORT_OCCUPANCY_CONNECTORS
+
+    if occupancy_connectors:
+        for candidate in occupancy_connectors:
+            try:
+                candidate.update()
+            except Exception:
+                pass
+
     ok, reason = target_connector_is_available(
         target_connector,
         ship_connector,
         allow_ship_connectable=allow_ship_connectable,
+        occupancy_connectors=occupancy_connectors,
+        occupancy_depth=occupancy_depth,
+        occupancy_radius=occupancy_radius,
     )
     if ok:
         return True
@@ -460,7 +744,6 @@ def ensure_target_connector_available(target_connector, ship_connector, context,
         f"{connector_display_name(target_connector)} — {connector_status_text(target_connector)} — {reason}"
     )
     return False
-
 
 def connector_is_connected_to_target(ship_connector, target_connector):
     sc_connected, _, sc_other = check_connector(ship_connector)
@@ -577,6 +860,26 @@ def get_target_docking_axis(tc, sc_pos=None, tc_pos=None):
             axis_dir = vec_neg(axis_dir)
 
     return normalize(axis_dir)
+
+
+def get_target_connector_forward(tc):
+    orient = (tc.telemetry or {}).get("orientation", {})
+    return normalize(get_vec3(orient.get("forward")) or (0.0, 0.0, 0.0))
+
+
+def get_stable_target_docking_axis(tc, fallback=None):
+    """
+    Return the fixed approach axis derived only from the target connector.
+
+    This deliberately ignores the current ship position. After a missed final
+    push the dynamic connector-to-connector vector can flip and make a backoff
+    command drive the ship into the port again. Recovery/backoff must use this
+    stable target-axis version.
+    """
+    target_fwd = get_target_connector_forward(tc)
+    if target_fwd == (0.0, 0.0, 0.0):
+        return normalize(fallback) if fallback is not None else (0.0, 0.0, 0.0)
+    return normalize(vec_neg(target_fwd))
 
 
 def compute_docking_geometry(sc_pos, tc_pos, axis_dir):
@@ -747,6 +1050,175 @@ def fly_connector_offset(rc, sc, axis_dir, move_dist, speed, gps_name, timeout):
     )
 
 
+def run_v5_long_approach(grid_name, target_pos):
+    """Fly to the far docking staging point with SpaceNavigatorController v5."""
+    try:
+        from secontrol.controllers.space_navigator_controller import (
+            OpenSpaceBoostConfig,
+            SpaceNavigatorController,
+            SpeedZone,
+        )
+    except Exception as exc:
+        print(f"  V5 PRE-APPROACH ERROR: cannot import SpaceNavigatorController v5: {exc}")
+        return False
+
+    print("\n" + "=" * 60)
+    print("PHASE 0: V5 LONG-RANGE PRE-APPROACH")
+    print("=" * 60)
+    print(
+        f"  v5 target: ({target_pos[0]:.1f}, {target_pos[1]:.1f}, {target_pos[2]:.1f}) "
+        f"arrival={ARGS.long_approach_arrival:.1f}m"
+    )
+
+    speed_zone = SpeedZone(
+        max_speed=ARGS.long_approach_max_speed,
+        far_speed=ARGS.long_approach_far_speed,
+        medium_speed=ARGS.long_approach_medium_speed,
+        near_speed=(ARGS.long_approach_medium_speed + ARGS.long_approach_close_speed) / 2.0,
+        close_speed=ARGS.long_approach_close_speed,
+    )
+    open_space_boost = OpenSpaceBoostConfig(
+        enabled=True,
+        open_space_radius=900.0,
+        lookahead=3000.0,
+        corridor_radius=140.0,
+        min_target_distance=700.0,
+        safety_margin=140.0,
+        brake_accel=8.0,
+        reaction_time=1.5,
+        scan_max_age=3.0,
+        coarse_only=True,
+    )
+
+    controller = None
+    try:
+        controller = SpaceNavigatorController(
+            grid_name=str(grid_name),
+            speed_zone=speed_zone,
+            arrival_distance=ARGS.long_approach_arrival,
+            max_steps=ARGS.long_approach_max_steps,
+            target_is_obstacle=False,
+            open_space_boost=open_space_boost,
+        )
+        result = controller.navigate_to(target_pos)
+        print(
+            f"  V5 PRE-APPROACH RESULT: status={result.status} "
+            f"arrived={bool(result)} message={result.message or '-'}"
+        )
+        return bool(result)
+    except Exception as exc:
+        print(f"  V5 PRE-APPROACH ERROR: {exc}")
+        return False
+    finally:
+        if controller is not None:
+            try:
+                controller.close()
+            except Exception:
+                pass
+
+
+def final_push_miss_reason(cur_axial, cur_lateral, cur_angle, status):
+    if str(status or "").strip().lower() == "connectable":
+        return None
+
+    if cur_axial <= -0.15:
+        return f"passed target plane: axial={cur_axial:.2f}m"
+
+    if cur_axial <= FINAL_PUSH_MISS_AXIAL_DISTANCE:
+        if cur_lateral > FINAL_PUSH_MISS_LATERAL_LIMIT:
+            return (
+                f"miss detected near connector: axial={cur_axial:.2f}m, "
+                f"lateral={cur_lateral:.2f}m > {FINAL_PUSH_MISS_LATERAL_LIMIT:.2f}m"
+            )
+        if cur_angle > FINAL_PUSH_MISS_ANGLE_LIMIT_DEG:
+            return (
+                f"miss detected near connector: axial={cur_axial:.2f}m, "
+                f"angle={cur_angle:.1f}° > {FINAL_PUSH_MISS_ANGLE_LIMIT_DEG:.1f}°"
+            )
+
+    return None
+
+
+def recover_after_missed_final_push(
+    rc,
+    sc,
+    tc,
+    gyros,
+    reason,
+    *,
+    distance=FINAL_PUSH_RECOVERY_DISTANCE,
+):
+    """
+    Recover from a missed final push.
+
+    The old behavior could keep pushing forward after the connector had already
+    slipped sideways or passed the target plane. This routine stops the ship,
+    backs the ship connector out to a fixed point in front of the target
+    connector, re-aligns, and returns control to the main Phase 3 loop.
+    """
+    print(f"  MISS RECOVERY: {reason}")
+    print(
+        f"  MISS RECOVERY: backing out to stable line "
+        f"{float(distance):.1f}m in front of target connector"
+    )
+
+    stop_ship(rc, gyros, settle=0.45)
+    refresh_devices(rc, sc, tc, delay=0.15)
+
+    tc_pos = get_pos(tc.telemetry or {})
+    if not tc_pos:
+        print("  MISS RECOVERY: no target connector position, cannot recover")
+        return False
+
+    stable_axis = get_stable_target_docking_axis(tc)
+    if stable_axis == (0.0, 0.0, 0.0):
+        print("  MISS RECOVERY: no stable target axis, cannot recover")
+        return False
+
+    connector_target = vec_add(tc_pos, -float(distance), stable_axis)
+
+    ok = fly_connector_to_position(
+        rc=rc,
+        sc=sc,
+        connector_target_pos=connector_target,
+        speed=FINAL_PUSH_RECOVERY_SPEED,
+        gps_name="MissRecoveryBackout",
+        timeout=FINAL_PUSH_RECOVERY_TIMEOUT,
+        stop_radius=0.9,
+    )
+
+    stop_ship(rc, gyros, settle=0.6)
+    refresh_devices(rc, sc, tc, delay=0.2)
+
+    if not ok:
+        print("  MISS RECOVERY: backout command timed out, geometry will be re-evaluated")
+        return False
+
+    final_angle = correct_orientation(
+        rc=rc,
+        sc=sc,
+        gyros=gyros,
+        axis_dir=stable_axis,
+        timeout=12,
+        tolerance=FINAL_ALIGN_TOLERANCE,
+    )
+
+    refresh_devices(rc, sc, tc, delay=0.15)
+    cur_sc = get_pos(sc.telemetry or {})
+    cur_tc = get_pos(tc.telemetry or {})
+
+    if cur_sc and cur_tc:
+        axial, lateral, _, _ = compute_docking_geometry(cur_sc, cur_tc, stable_axis)
+        print(
+            f"  MISS RECOVERY: ready for retry, axial={axial:.2f}m, "
+            f"lateral={lateral:.2f}m, angle={math.degrees(final_angle):.1f}°"
+        )
+    else:
+        print(f"  MISS RECOVERY: ready for retry, angle={math.degrees(final_angle):.1f}°")
+
+    return True
+
+
 def final_push_to_connector(rc, sc, tc, axis_dir, gyros):
     """
     Final docking movement.
@@ -764,6 +1236,10 @@ def final_push_to_connector(rc, sc, tc, axis_dir, gyros):
     tc_pos = get_pos(tc.telemetry or {})
 
     if not sc_pos or not tc_pos:
+        return False
+
+    axis_dir = get_stable_target_docking_axis(tc, fallback=axis_dir)
+    if axis_dir == (0.0, 0.0, 0.0):
         return False
 
     signed_axial, lateral_error, _, _ = compute_docking_geometry(sc_pos, tc_pos, axis_dir)
@@ -886,6 +1362,11 @@ def final_push_to_connector(rc, sc, tc, axis_dir, gyros):
                     print("  FINAL PUSH: >> LOCKED!")
                     return True
 
+        miss_reason = final_push_miss_reason(cur_axial, cur_lateral, cur_angle, status)
+        if miss_reason:
+            recover_after_missed_final_push(rc, sc, tc, gyros, miss_reason)
+            return False
+
         allowed_lateral_now = (
             FINAL_PUSH_LATERAL_TOLERANCE_NEAR
             if cur_axial <= SAFE_NEAR_DISTANCE
@@ -893,15 +1374,24 @@ def final_push_to_connector(rc, sc, tc, axis_dir, gyros):
         )
 
         if cur_lateral > allowed_lateral_now * 2.0:
-            print(
-                f"  FINAL PUSH: lateral error grew to {cur_lateral:.2f}m "
-                f"> {allowed_lateral_now * 2.0:.2f}m, stopping"
+            recover_after_missed_final_push(
+                rc,
+                sc,
+                tc,
+                gyros,
+                f"lateral error grew to {cur_lateral:.2f}m > {allowed_lateral_now * 2.0:.2f}m",
             )
-            break
+            return False
 
         if cur_angle > SAFE_PANIC_ANGLE_DEG:
-            print(f"  FINAL PUSH: angle grew to {cur_angle:.1f}°, stopping")
-            break
+            recover_after_missed_final_push(
+                rc,
+                sc,
+                tc,
+                gyros,
+                f"angle grew to {cur_angle:.1f}°",
+            )
+            return False
 
         # Connector center distance reached the expected magnetic zone.
         # Keep pushing gently unless it locks or we clearly hit hard contact.
@@ -919,10 +1409,6 @@ def final_push_to_connector(rc, sc, tc, axis_dir, gyros):
                     return True
 
         if cur_axial <= -0.15:
-            print(
-                f"  FINAL PUSH: connector passed target plane "
-                f"axial={cur_axial:.2f}m — stopping to avoid overshoot"
-            )
             sc.connect()
             for _ in range(8):
                 time.sleep(0.25)
@@ -930,7 +1416,14 @@ def final_push_to_connector(rc, sc, tc, axis_dir, gyros):
                 if check_connector(sc)[0]:
                     print("  FINAL PUSH: >> LOCKED!")
                     return True
-            break
+            recover_after_missed_final_push(
+                rc,
+                sc,
+                tc,
+                gyros,
+                f"connector passed target plane axial={cur_axial:.2f}m",
+            )
+            return False
 
         if abs(last_axial - cur_axial) < 0.03:
             no_progress_ticks += 1
@@ -952,7 +1445,14 @@ def final_push_to_connector(rc, sc, tc, axis_dir, gyros):
                     if check_connector(sc)[0]:
                         print("  FINAL PUSH: >> LOCKED!")
                         return True
-                break
+                recover_after_missed_final_push(
+                    rc,
+                    sc,
+                    tc,
+                    gyros,
+                    f"hard contact/no progress at axial={cur_axial:.2f}m",
+                )
+                return False
 
             if push_retry_count < 3:
                 push_retry_count += 1
@@ -999,7 +1499,13 @@ def backoff_from_connector(rc, sc, tc, axis_dir, distance=SAFE_BACKOFF_DISTANCE)
     stop_ship(rc, gyros, settle=0.3)
     refresh_devices(rc, sc, tc, delay=0.1)
 
-    away_dir = vec_neg(axis_dir)
+    stable_axis = get_stable_target_docking_axis(tc, fallback=axis_dir)
+    if stable_axis == (0.0, 0.0, 0.0):
+        stable_axis = axis_dir
+
+    # Move away from the port using a fixed target connector axis. Do not use
+    # the dynamic axis after a miss: it may flip and command another forward push.
+    away_dir = vec_neg(stable_axis)
 
     ok = fly_connector_offset(
         rc=rc,
@@ -1102,11 +1608,26 @@ if not sc:
     print_connector_table("\nShip connectors:", sc_list, target_mode=False)
     sys.exit(1)
 
+if ARGS.port_occupancy_check:
+    print("\n[CHECK] Scanning physical connector port occupancy...")
+    PORT_OCCUPANCY_CONNECTORS = collect_connectors_for_occupancy(
+        ship,
+        target_grid,
+        max_grids=ARGS.port_occupancy_max_grids,
+    )
+    print(f"  Known connectors for occupancy check: {len(PORT_OCCUPANCY_CONNECTORS)}")
+else:
+    PORT_OCCUPANCY_CONNECTORS = None
+    print("\n[CHECK] Physical connector port occupancy check disabled")
+
 tc, tc_reason = choose_target_connector(
     tc_list,
     sc,
     connector_id=ARGS.target_connector_id,
     name=ARGS.target_connector_name,
+    occupancy_connectors=PORT_OCCUPANCY_CONNECTORS,
+    occupancy_depth=ARGS.port_occupancy_depth,
+    occupancy_radius=ARGS.port_occupancy_radius,
 )
 if not tc:
     print(f"ERROR: no free target connector: {tc_reason}")
@@ -1117,7 +1638,10 @@ print(f"  Ship: {ship.name} (ID: {ship.grid_id})")
 print(f"  Target: {target_grid.name} (ID: {target_grid.grid_id})")
 print(f"  Ship connector: {connector_display_name(sc)} — {connector_status_text(sc)}")
 print(f"  Target connector: {connector_display_name(tc)} — {connector_status_text(tc)}")
-print(f"  Free target connectors: {sum(1 for c in tc_list if target_connector_is_available(c, sc, allow_ship_connectable=False)[0])}/{len(tc_list)}")
+print(
+    "  Free target connectors: "
+    f"{sum(1 for c in tc_list if target_connector_is_available(c, sc, allow_ship_connectable=False, occupancy_connectors=PORT_OCCUPANCY_CONNECTORS, occupancy_depth=ARGS.port_occupancy_depth, occupancy_radius=ARGS.port_occupancy_radius)[0])}/{len(tc_list)}"
+)
 print(f"  Gyros: {len(gyros)}")
 
 # =====================================================================
@@ -1145,23 +1669,68 @@ if t_fwd == (0.0, 0.0, 0.0):
     sys.exit(1)
 
 stable_axis_dir = vec_neg(t_fwd)
-target_point = vec_add(t_pos, -APPROACH_DIST, stable_axis_dir)
 
-rc_pos = get_pos(rc.telemetry or {})
-sc_pos = get_pos(sc.telemetry or {})
 
-if not rc_pos:
-    print("ERROR: no ship remote control position")
-    sys.exit(1)
+def compute_approach_targets(approach_distance):
+    rc_position = get_pos(rc.telemetry or {})
+    sc_position = get_pos(sc.telemetry or {})
 
-if not sc_pos:
-    print("ERROR: no ship connector position")
-    sys.exit(1)
+    if not rc_position:
+        print("ERROR: no ship remote control position")
+        sys.exit(1)
 
-connector_offset = vec_sub(sc_pos, rc_pos)
-ship_target = vec_sub(target_point, connector_offset)
+    if not sc_position:
+        print("ERROR: no ship connector position")
+        sys.exit(1)
+
+    connector_offset_local = vec_sub(sc_position, rc_position)
+    connector_target_point = vec_add(t_pos, -float(approach_distance), stable_axis_dir)
+    remote_target_point = vec_sub(connector_target_point, connector_offset_local)
+    return rc_position, sc_position, connector_target_point, remote_target_point
+
+
+rc_pos, sc_pos, long_target_point, long_ship_target = compute_approach_targets(ARGS.long_approach_distance)
+long_distance = dist3(rc_pos, long_ship_target)
+base_distance = dist3(sc_pos, t_pos)
 
 print(f"  Target connector: ({t_pos[0]:.1f}, {t_pos[1]:.1f}, {t_pos[2]:.1f})")
+print(
+    f"  Long staging point ({ARGS.long_approach_distance:.1f}m): "
+    f"({long_target_point[0]:.1f}, {long_target_point[1]:.1f}, {long_target_point[2]:.1f})"
+)
+print(f"  Distance to target connector: {base_distance:.1f}m")
+print(f"  Distance to long staging point: {long_distance:.1f}m")
+
+if ARGS.long_approach and base_distance > ARGS.long_approach_threshold:
+    ok = run_v5_long_approach(SHIP, long_ship_target)
+    stop_ship(rc, gyros=None, settle=1.0)
+    refresh_devices(rc, sc, tc, delay=0.5)
+
+    if not ok:
+        print(
+            "ERROR: v5 long-range pre-approach failed. "
+            "Precise docking from this distance is intentionally blocked for safety."
+        )
+        print("       Use --continue-after-long-approach-failure only if the path is known to be clear.")
+        if not ARGS.continue_after_long_approach_failure:
+            sys.exit(1)
+
+    rc_pos, sc_pos, long_target_point, long_ship_target = compute_approach_targets(ARGS.long_approach_distance)
+    long_distance = dist3(rc_pos, long_ship_target)
+    base_distance = dist3(sc_pos, t_pos)
+    print(f"  Distance to target connector after v5: {base_distance:.1f}m")
+    print(f"  Distance to long staging point after v5: {long_distance:.1f}m")
+else:
+    if not ARGS.long_approach:
+        print("  V5 long-range pre-approach disabled by --no-long-approach")
+    else:
+        print(
+            f"  V5 long-range pre-approach skipped: "
+            f"target connector distance {base_distance:.1f}m <= threshold {ARGS.long_approach_threshold:.1f}m"
+        )
+
+rc_pos, sc_pos, target_point, ship_target = compute_approach_targets(APPROACH_DIST)
+
 print(
     f"  Connector approach point ({APPROACH_DIST:.1f}m): "
     f"({target_point[0]:.1f}, {target_point[1]:.1f}, {target_point[2]:.1f})"

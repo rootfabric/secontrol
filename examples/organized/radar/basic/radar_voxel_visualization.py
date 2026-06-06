@@ -78,7 +78,7 @@ def process_and_visualize(solid: list[list[float]], metadata: Dict[str, Any], co
 
 
 def main() -> None:
-    grid = prepare_grid("skynet-baza1")
+    grid = prepare_grid("skynet-agent2")
     # grid = prepare_grid("DroneBase")
     # grid = prepare_grid("farpost0")
 

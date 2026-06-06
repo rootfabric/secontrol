@@ -53,11 +53,6 @@
 
 ---
 
-## Скиллы
-
-`docs/agent-skills/README.md`
-
----
 
 ## Ссылки
 
@@ -66,7 +61,6 @@
 | Playbook (операторы) | `docs/agent-playbook/PLAYBOOK.md` |
 | Admin (админы) | `admins/AGENTS.md` |
 | Dev Guide (разработчики) | `docs/agent-dev/DEVGUIDE.md` |
-| Скиллы | `docs/agent-skills/README.md` |
 | Workflows | `docs/workflows/` |
 | API Reference | `docs/API_REFERENCE.md` |
 | Device Reference | `docs/DEVICE_REFERENCE.md` |

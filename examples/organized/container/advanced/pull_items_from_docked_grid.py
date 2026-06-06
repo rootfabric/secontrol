@@ -102,6 +102,9 @@ def main() -> None:
             c.send_command({"cmd": "update"})
         time.sleep(0.3)
         for c in source_grid.find_devices_by_type(ConnectorDevice):
+            if not c.telemetry:
+                print(f"  {c.name}: <no telemetry>")
+                continue
             status = c.telemetry.get('connectorStatus', 'Unknown')
             other_id = c.telemetry.get('otherConnectorGridId')
             print(f"  {c.name}: status={status}, otherGridId={other_id}")
@@ -111,6 +114,9 @@ def main() -> None:
             c.send_command({"cmd": "update"})
         time.sleep(0.3)
         for c in target_grid.find_devices_by_type(ConnectorDevice):
+            if not c.telemetry:
+                print(f"  {c.name}: <no telemetry>")
+                continue
             status = c.telemetry.get('connectorStatus', 'Unknown')
             other_id = c.telemetry.get('otherConnectorGridId')
             print(f"  {c.name}: status={status}, otherGridId={other_id}")

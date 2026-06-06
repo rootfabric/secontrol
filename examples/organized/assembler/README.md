@@ -538,3 +538,71 @@ python examples/organized/assembler/intermediate/assembler_queue_control.py --gr
 python examples/organized/assembler/intermediate/assembler_queue_control.py --grid farpost0 disassemble SteelPlate 5
 python examples/organized/assembler/intermediate/assembler_queue_control.py --grid farpost0 clear
 ```
+
+
+# assembler_unjam.py
+
+Скрипт очищает инвентари сборщиков, чтобы сборщик не заклинивало от лишних материалов.
+
+## Куда положить
+
+Рекомендуемый путь:
+
+```bash
+examples/organized/assembler/basic/assembler_unjam.py
+```
+
+или в новой структуре:
+
+```bash
+commands/production/assembler_unjam.py
+```
+
+## Проверка без действий
+
+```bash
+python examples/organized/assembler/basic/assembler_unjam.py --grid farpost0 --dry-run --all-assemblers
+```
+
+## Очистить все сборщики
+
+```bash
+python examples/organized/assembler/basic/assembler_unjam.py --grid farpost0 --all-assemblers --enable-conveyor
+```
+
+## Автоцикл каждые 30 секунд
+
+```bash
+python examples/organized/assembler/basic/assembler_unjam.py --grid farpost0 --all-assemblers --enable-conveyor --loop --interval 30
+```
+
+## Если нужно чистить только output
+
+```bash
+python examples/organized/assembler/basic/assembler_unjam.py --grid farpost0 --all-assemblers --no-input
+```
+
+## Если input забит и нужно выгрести почти всё
+
+```bash
+python examples/organized/assembler/basic/assembler_unjam.py --grid farpost0 --all-assemblers --force-input --enable-conveyor
+```
+
+## Если надо всегда оставлять железо во входе
+
+```bash
+python examples/organized/assembler/basic/assembler_unjam.py --grid farpost0 --all-assemblers --keep-subtype Iron
+```
+
+# assembler_prioritize_needed.py
+
+Скрипт поднимает в начало очереди сборщика компоненты, которые нужны прямо сейчас.
+
+Он полезен, когда BuildAndRepair/Nanobot показывает, например:
+
+```text
+Недостающие предметы:
+- Внутренняя пластина: 2
+```
+
+и при этом в сборщике уже стоит длинная очередь на другие компоненты.

@@ -265,3 +265,44 @@ python examples\organized\drill_nano\mine_platinum_simple_v11_safe.py `
 ```
 
 Если `Stone +0.0` и `Platinum +...`, можно переходить на `mine_ore_robot_safe_live_move.py`.
+
+## 8. Важное исправление AreaOffset
+
+Нельзя считать `Drill.AreaOffsetFrontBack`, `Drill.AreaOffsetUpDown`, `Drill.AreaOffsetLeftRight` через фиксированную карту осей грида. Nanobot Drill может быть установлен на корабле с любым поворотом.
+
+Все новые скрипты используют `nanodrill_area_frame.py` и считают смещение по ориентации самого Nanobot-блока:
+
+```text
+AreaOffsetLeftRight  -> Nanobot orientation.right
+AreaOffsetUpDown     -> Nanobot orientation.up
+AreaOffsetFrontBack  -> Nanobot orientation.backward
+```
+
+Если в логе появляется `WARNING: Nanobot orientation telemetry is missing; using legacy fixed axis map`, значит используется старый плагин или телеметрия блока ещё не обновилась. В этом режиме зона может снова быть неверной для нестандартного монтажа нанобура.
+
+## 8. Rotation-safe AreaOffset v2
+
+AreaOffset must be calculated from the Nanobot block orientation, not from the Remote Control/grid orientation. Required telemetry fields from the plugin:
+
+```text
+position
+orientation.forward
+orientation.up
+orientation.left
+orientation.right
+area.axis.frontBack
+area.axis.upDown
+area.axis.leftRight
+area.center
+```
+
+If the script prints `Nanobot position/orientation telemetry is missing`, do not continue mining. Rebuild and install the DedicatedPlugin version that publishes `nanodrillTransformTelemetryVersion=dynamic_area_axes_v2_2026_06_06`.
+
+Legacy fixed axis fallback is allowed only for manual diagnostics via `NANODRILL_ALLOW_LEGACY_AREA_MAP=1` and must not be used for automatic mining.
+
+## 9. Nanobot Drill v22 FrontBack/Z sign
+
+The visible Nanobot area uses `AreaOffsetFrontBack` along block/grid BACKWARD,
+not FORWARD. If a miss is about `2 * abs(FB)`, the Z/FrontBack sign is wrong.
+Normal agents should leave `NANODRILL_AREA_AXIS_MODE` unset so auto mode uses
+`left-up-backward`.

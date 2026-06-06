@@ -217,14 +217,55 @@ def get_item_amount(grid: Grid, item_subtype: str) -> float:
     return total
 
 
+def _inventory_text(item: Dict[str, Any], *keys: str) -> str:
+    return " ".join(str(item.get(key, "")) for key in keys if item.get(key) is not None).lower()
+
+
+def _looks_like_refined_or_component(item: Dict[str, Any]) -> bool:
+    text = _inventory_text(
+        item,
+        "item_type",
+        "item_type_id",
+        "type_id",
+        "type",
+        "content_type",
+        "definition_type",
+        "display_name",
+    )
+    return any(token in text for token in ("ingot", "component", "ammo", "tool", "physicalgunobject"))
+
+
+def _looks_like_ore_item(item: Dict[str, Any], wanted: str) -> bool:
+    subtype = str(item.get("item_subtype", "")).strip().lower()
+    display = str(item.get("display_name", "")).strip().lower()
+    type_text = _inventory_text(
+        item,
+        "item_type",
+        "item_type_id",
+        "type_id",
+        "type",
+        "content_type",
+        "definition_type",
+    )
+
+    if _looks_like_refined_or_component(item):
+        return False
+    if "myobjectbuilder_ore" in type_text or type_text.strip() == "ore" or type_text.endswith(" ore"):
+        return subtype == wanted or display == wanted or f"{wanted} ore" in display or wanted in subtype
+    if subtype == wanted and (" ore" in display or display == wanted or wanted == "ice"):
+        return True
+    if f"{wanted} ore" in display:
+        return True
+    return False
+
+
 def get_ore_amount(grid: Grid, ore_subtype: str) -> float:
+    """Return only raw ore amount, never ingots/components."""
+    wanted = ore_subtype.strip().lower()
     total = 0.0
-    wanted = ore_subtype.lower()
 
     for item in grid.get_all_grid_items():
-        subtype = str(item.get("item_subtype", ""))
-        display = str(item.get("display_name", ""))
-        if wanted in subtype.lower() or wanted in display.lower():
+        if isinstance(item, dict) and _looks_like_ore_item(item, wanted):
             total += float(item.get("amount", 0) or 0)
 
     return total
@@ -561,6 +602,65 @@ def set_area_to_target(
         "Drill.AreaDepth",
     ):
         print(f"  {prop_name}: {actual_props.get(prop_name)}")
+
+
+
+# NANODRILL_DYNAMIC_AREA_FIX
+# AreaOffset is Nanobot-block-local. This wrapper replaces the old fixed
+# DRILL_AXIS_MAP calculation and uses Nanobot position/orientation telemetry.
+try:
+    from nanodrill_area_frame import (
+        get_navigation_frame as _dynamic_get_navigation_frame,
+        set_area_to_world_target as _dynamic_set_area_to_world_target,
+    )
+
+    def set_area_to_target(
+        grid: Grid,
+        drill: NanobotDrillSystemDevice,
+        rc: RemoteControlDevice,
+        target: Tuple[float, float, float],
+        area_width: float,
+        area_height: float,
+        area_depth: float,
+    ) -> None:
+        drill_world, left, up, fwd = _dynamic_get_navigation_frame(grid, drill, rc)
+        drill_fb, drill_ud, drill_lr, distance_to_drill = _dynamic_set_area_to_world_target(
+            drill=drill,
+            drill_world=drill_world,
+            left=left,
+            up=up,
+            fwd=fwd,
+            target_world=target,
+            area_size=max(float(area_width), float(area_height), float(area_depth)),
+        )
+
+        safe_set(drill, "Drill.AreaWidth", float(area_width))
+        time.sleep(0.1)
+        safe_set(drill, "Drill.AreaHeight", float(area_height))
+        time.sleep(0.1)
+        safe_set(drill, "Drill.AreaDepth", float(area_depth))
+        time.sleep(0.5)
+
+        print("Area offset from Nanobot block orientation:")
+        print(f"  FrontBack:  {drill_fb:+.2f}m")
+        print(f"  UpDown:     {drill_ud:+.2f}m")
+        print(f"  LeftRight:  {drill_lr:+.2f}m")
+        print(f"Drill to target distance: {distance_to_drill:.1f}m")
+
+        drill.update()
+        actual_props = (drill.telemetry or {}).get("properties", {})
+        print("Actual area properties after set:")
+        for prop_name in (
+            "Drill.AreaOffsetFrontBack",
+            "Drill.AreaOffsetUpDown",
+            "Drill.AreaOffsetLeftRight",
+            "Drill.AreaWidth",
+            "Drill.AreaHeight",
+            "Drill.AreaDepth",
+        ):
+            print(f"  {prop_name}: {actual_props.get(prop_name)}")
+except Exception as _dynamic_area_import_error:
+    print(f"WARNING: dynamic Nanobot area helper unavailable: {_dynamic_area_import_error}")
 
 
 def main() -> int:

@@ -121,29 +121,42 @@ def _normalize_hue(value: float) -> float:
     return _clamp_unit(value)
 
 
-def _normalize_hsv_triplet(values: Sequence[Any]) -> tuple[float, float, float]:
-    if len(values) != 3:
-        raise ValueError("HSV value must contain exactly three components")
-    h, s, v = (float(values[0]), float(values[1]), float(values[2]))
+def _extract_triplet(values: Any, *, keys: tuple[str, str, str], label: str) -> tuple[Any, Any, Any]:
+    if isinstance(values, dict):
+        missing = [key for key in keys if key not in values]
+        if missing:
+            raise ValueError(f"{label} dict must contain keys: {', '.join(keys)} (missing: {', '.join(missing)})")
+        return values[keys[0]], values[keys[1]], values[keys[2]]
+    try:
+        items = list(values)
+    except TypeError as exc:
+        raise ValueError(f"{label} must be a sequence or a dict with keys {', '.join(keys)}") from exc
+    if len(items) != 3:
+        raise ValueError(f"{label} value must contain exactly three components")
+    return items[0], items[1], items[2]
+
+
+def _normalize_hsv_triplet(values: Any) -> tuple[float, float, float]:
+    h, s, v = _extract_triplet(values, keys=("h", "s", "v"), label="HSV")
+    h_f, s_f, v_f = float(h), float(s), float(v)
     return (
-        _normalize_hue(h),
-        _normalize_unit(s),
-        _normalize_unit(v),
+        _normalize_hue(h_f),
+        _normalize_unit(s_f),
+        _normalize_unit(v_f),
     )
 
 
-def _normalize_rgb_triplet(values: Sequence[Any]) -> tuple[int, int, int]:
-    if len(values) != 3:
-        raise ValueError("RGB value must contain exactly three components")
-    r, g, b = (float(values[0]), float(values[1]), float(values[2]))
-    if max(abs(r), abs(g), abs(b)) <= 1.0:
-        r *= 255.0
-        g *= 255.0
-        b *= 255.0
+def _normalize_rgb_triplet(values: Any) -> tuple[int, int, int]:
+    r, g, b = _extract_triplet(values, keys=("r", "g", "b"), label="RGB")
+    r_f, g_f, b_f = float(r), float(g), float(b)
+    if max(abs(r_f), abs(g_f), abs(b_f)) <= 1.0:
+        r_f *= 255.0
+        g_f *= 255.0
+        b_f *= 255.0
     return (
-        max(0, min(255, int(round(r)))),
-        max(0, min(255, int(round(g)))),
-        max(0, min(255, int(round(b)))),
+        max(0, min(255, int(round(r_f)))),
+        max(0, min(255, int(round(g_f)))),
+        max(0, min(255, int(round(b_f)))),
     )
 
 

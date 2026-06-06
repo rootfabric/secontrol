@@ -143,14 +143,55 @@ def v_cross(a: Vector, b: Vector) -> Vector:
     )
 
 
+def _inventory_text(item: Dict[str, Any], *keys: str) -> str:
+    return " ".join(str(item.get(key, "")) for key in keys if item.get(key) is not None).lower()
+
+
+def _looks_like_refined_or_component(item: Dict[str, Any]) -> bool:
+    text = _inventory_text(
+        item,
+        "item_type",
+        "item_type_id",
+        "type_id",
+        "type",
+        "content_type",
+        "definition_type",
+        "display_name",
+    )
+    return any(token in text for token in ("ingot", "component", "ammo", "tool", "physicalgunobject"))
+
+
+def _looks_like_ore_item(item: Dict[str, Any], wanted: str) -> bool:
+    subtype = str(item.get("item_subtype", "")).strip().lower()
+    display = str(item.get("display_name", "")).strip().lower()
+    type_text = _inventory_text(
+        item,
+        "item_type",
+        "item_type_id",
+        "type_id",
+        "type",
+        "content_type",
+        "definition_type",
+    )
+
+    if _looks_like_refined_or_component(item):
+        return False
+    if "myobjectbuilder_ore" in type_text or type_text.strip() == "ore" or type_text.endswith(" ore"):
+        return subtype == wanted or display == wanted or f"{wanted} ore" in display or wanted in subtype
+    if subtype == wanted and (" ore" in display or display == wanted or wanted == "ice"):
+        return True
+    if f"{wanted} ore" in display:
+        return True
+    return False
+
+
 def get_ore_amount(grid: Grid, ore_subtype: str) -> float:
+    """Return only raw ore amount, never ingots/components."""
+    wanted = ore_subtype.strip().lower()
     total = 0.0
-    wanted = ore_subtype.lower()
 
     for item in grid.get_all_grid_items():
-        subtype = str(item.get("item_subtype", ""))
-        display = str(item.get("display_name", ""))
-        if wanted in subtype.lower() or wanted in display.lower():
+        if isinstance(item, dict) and _looks_like_ore_item(item, wanted):
             total += float(item.get("amount", 0) or 0)
 
     return total
@@ -1071,6 +1112,33 @@ def mine_at_found_point(
             print(f"Stone delta: +{stone_delta:.1f}; limit: +{stone_safety_delta:.1f}")
             stop_drill(drill, hide_area=False)
             return 4
+
+
+
+# NANODRILL_DYNAMIC_AREA_FIX
+# AreaOffset is Nanobot-block-local. These overrides replace the old fixed
+# DRILL_AXIS_MAP logic and use Nanobot position/orientation telemetry.
+try:
+    from nanodrill_area_frame import (
+        get_navigation_frame as _dynamic_get_navigation_frame,
+        set_area_to_world_target as _dynamic_set_area_to_world_target,
+        drill_offsets_from_local_vector as _dynamic_drill_offsets_from_local_vector,
+        grid_vector_from_drill_offsets as _dynamic_grid_vector_from_drill_offsets,
+        get_block_local_position as _dynamic_get_block_local_position,
+        get_drill_local_offset as _dynamic_get_drill_local_offset,
+    )
+
+    get_navigation_frame = _dynamic_get_navigation_frame
+    set_area_to_world_target = _dynamic_set_area_to_world_target
+    drill_offsets_from_local_vector = _dynamic_drill_offsets_from_local_vector
+    get_block_local_position = _dynamic_get_block_local_position
+    get_drill_local_offset = _dynamic_get_drill_local_offset
+    try:
+        grid_vector_from_drill_offsets = _dynamic_grid_vector_from_drill_offsets
+    except NameError:
+        pass
+except Exception as _dynamic_area_import_error:
+    print(f"WARNING: dynamic Nanobot area helper unavailable: {_dynamic_area_import_error}")
 
 
 def main() -> int:
