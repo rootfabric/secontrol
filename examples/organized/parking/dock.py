@@ -93,6 +93,13 @@ def parse_args():
     parser.add_argument("--long-approach-close-speed", type=float, default=8.0, help="v5 close speed")
     parser.add_argument("--long-approach-max-steps", type=int, default=200, help="v5 max scan/fly iterations for the pre-approach")
     parser.add_argument("--continue-after-long-approach-failure", action="store_true", help="Continue legacy docking even if v5 pre-approach fails; unsafe unless you know the path is clear")
+
+    # Final retry loop. At the last meters the connector can miss the port even
+    # after a good approach because the ship drifts, clips the connector rim, or
+    # the RC autopilot stops before magnetic lock. In that case back out to a
+    # clean line-up point and retry the final push a limited number of times.
+    parser.add_argument("--final-dock-retries", type=int, default=5, help="Maximum final-stage backoff-and-retry attempts after a crooked or failed lock")
+    parser.add_argument("--final-retry-distance", type=float, default=16.0, help="Distance in front of target connector for final retry backoff, meters")
     return parser.parse_args()
 
 
@@ -163,6 +170,10 @@ FINAL_PUSH_MISS_ANGLE_LIMIT_DEG = 10.0
 FINAL_PUSH_RECOVERY_DISTANCE = 14.0
 FINAL_PUSH_RECOVERY_SPEED = 1.8
 FINAL_PUSH_RECOVERY_TIMEOUT = 45.0
+FINAL_RETRY_SAFE_DISTANCE_MIN_RATIO = 0.70
+FINAL_RETRY_SAFE_DISTANCE_MAX_RATIO = 1.80
+FINAL_RETRY_SAFE_LATERAL = 1.25
+FINAL_RETRY_SAFE_ANGLE_DEG = 15.0
 MAX_PHASE3_STEPS = 120
 
 SAFE_NEAR_DISTANCE = 12.0
@@ -1219,6 +1230,81 @@ def recover_after_missed_final_push(
     return True
 
 
+def get_final_retry_distance():
+    try:
+        return max(
+            FINAL_PUSH_RECOVERY_DISTANCE,
+            float(getattr(ARGS, "final_retry_distance", FINAL_PUSH_RECOVERY_DISTANCE)),
+        )
+    except Exception:
+        return FINAL_PUSH_RECOVERY_DISTANCE
+
+
+def prepare_final_dock_retry(rc, sc, tc, gyros, reason, retry_no, max_retries):
+    """
+    Prepare a clean repeated final docking attempt.
+
+    This is deliberately separate from the inner FinalPush resume logic. The
+    inner logic only retries the same continuous push while the approach is
+    still clean. This routine handles the bad final state: the ship is too
+    sideways, angled, has passed the connector plane, or failed to lock after
+    hard contact. It backs out to a stable connector-axis point and re-aligns
+    before the main Phase 3 loop tries the final push again.
+    """
+    print(
+        f"  FINAL RETRY {retry_no}/{max_retries}: {reason}. "
+        "Backing out and preparing another final lock attempt."
+    )
+
+    stop_ship(rc, gyros, settle=0.45)
+    refresh_devices(rc, sc, tc, delay=0.2)
+
+    if connector_is_connected_to_target(sc, tc):
+        print("  FINAL RETRY: already locked after telemetry refresh")
+        return True
+
+    sc_pos = get_pos(sc.telemetry or {})
+    tc_pos = get_pos(tc.telemetry or {})
+    stable_axis = get_stable_target_docking_axis(tc)
+    retry_distance = get_final_retry_distance()
+
+    if sc_pos and tc_pos and stable_axis != (0.0, 0.0, 0.0):
+        axial, lateral, _, _ = compute_docking_geometry(sc_pos, tc_pos, stable_axis)
+        angle_deg = math.degrees(get_connector_angle(sc, stable_axis))
+        min_safe = retry_distance * FINAL_RETRY_SAFE_DISTANCE_MIN_RATIO
+        max_safe = retry_distance * FINAL_RETRY_SAFE_DISTANCE_MAX_RATIO
+
+        if (
+            min_safe <= axial <= max_safe
+            and lateral <= FINAL_RETRY_SAFE_LATERAL
+            and angle_deg <= FINAL_RETRY_SAFE_ANGLE_DEG
+        ):
+            print(
+                f"  FINAL RETRY: ship is already backed out enough: "
+                f"axial={axial:.2f}m lateral={lateral:.2f}m angle={angle_deg:.1f}°"
+            )
+            final_angle = correct_orientation(
+                rc=rc,
+                sc=sc,
+                gyros=gyros,
+                axis_dir=stable_axis,
+                timeout=12,
+                tolerance=FINAL_ALIGN_TOLERANCE,
+            )
+            print(f"  FINAL RETRY: angle after re-align {math.degrees(final_angle):.1f}°")
+            return True
+
+    recovered = recover_after_missed_final_push(
+        rc=rc,
+        sc=sc,
+        tc=tc,
+        gyros=gyros,
+        reason=reason,
+        distance=retry_distance,
+    )
+    return recovered or connector_is_connected_to_target(sc, tc)
+
+
 def final_push_to_connector(rc, sc, tc, axis_dir, gyros):
     """
     Final docking movement.
@@ -1845,7 +1931,7 @@ while time.time() - start < 120:
         print(f"  WARNING: approach stuck at {sc_dist:.1f}m — retrying approach")
         rc.goto(gps, speed=7.0, gps_name="ApproachRetry")
         time.sleep(0.3)
-        rc.enable()
+        rc.start_autopilot()
         stuck_count = 0
         time.sleep(1.0)
 
@@ -1917,6 +2003,8 @@ rc.dampeners_on()
 step = 0
 previous_angle_deg = None
 backoff_count = 0
+final_dock_retries_done = 0
+max_final_dock_retries = max(0, int(getattr(ARGS, "final_dock_retries", 5)))
 connected = False
 aborted = False
 
@@ -2215,6 +2303,38 @@ while True:
             connected = True
             break
 
+        refresh_devices(rc, sc, tc, delay=0.2)
+        if connector_is_connected_to_target(sc, tc):
+            connected = True
+            break
+
+        if final_dock_retries_done >= max_final_dock_retries:
+            print(
+                f"  SAFETY: final docking retry limit reached "
+                f"({max_final_dock_retries}), aborting docking"
+            )
+            aborted = True
+            break
+
+        final_dock_retries_done += 1
+        retry_ready = prepare_final_dock_retry(
+            rc=rc,
+            sc=sc,
+            tc=tc,
+            gyros=gyros,
+            reason="final push failed or connector approached crookedly",
+            retry_no=final_dock_retries_done,
+            max_retries=max_final_dock_retries,
+        )
+
+        refresh_devices(rc, sc, tc, delay=0.2)
+        if connector_is_connected_to_target(sc, tc):
+            connected = True
+            break
+
+        if not retry_ready:
+            print("  FINAL RETRY: recovery did not reach a clean retry position; geometry will be re-evaluated")
+
         previous_angle_deg = None
         continue
 
@@ -2256,7 +2376,7 @@ while True:
 
     rc.goto(gps, speed=speed, gps_name=f"D{step}")
     time.sleep(0.2)
-    rc.enable()
+    rc.start_autopilot()
 
     for _ in range(8):
         refresh_devices(rc, sc, delay=0)

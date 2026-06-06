@@ -30,8 +30,10 @@ __all__ = [
 _BUILTIN_MODULES = [
     "ai_device",
     "artillery_device",
+    "antenna_device",
     "assembler_device",
     "battery_device",
+    "beacon_device",
     "build_and_repair_device",
     "cockpit_device",
     "connector_device",

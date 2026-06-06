@@ -97,6 +97,24 @@ python examples/organized/radar/space_survey.py --grid Mining
 # Сканировать гриды и игроков вокруг (радар, без вокселей)
 python examples/organized/radar/basic/scan_contacts.py --grid agent1
 
+# Сканировать видимые маркеры (GPS, бейконы, антенны, сильные сигналы)
+python examples/organized/radar/scan_visible_markers.py --grid agent1
+
+# Увеличить радиус скана маркеров (по умолчанию 20км)
+python examples/organized/radar/scan_visible_markers.py --grid agent1 --radius 50000
+
+# Только сильные сигналы (пропустить GPS/бейконы/антенны)
+python examples/organized/radar/scan_visible_markers.py --grid agent1 --strong-only
+
+# Только GPS-маркеры (без бейконов/антенн/сигналов)
+python examples/organized/radar/scan_visible_markers.py --grid agent1 --no-broadcasts --no-entity-signals
+
+# Только бейконы и антенны (без GPS/сигналов)
+python examples/organized/radar/scan_visible_markers.py --grid agent1 --no-gps --no-entity-signals
+
+# Только от своего игрока (не всех онлайн)
+python examples/organized/radar/scan_visible_markers.py --grid agent1 --owner-only
+
 # Все астероиды в радиусе 20км + какие разведаны
 python examples/organized/radar/space_survey.py --grid agent1
 

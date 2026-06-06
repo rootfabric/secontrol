@@ -80,17 +80,14 @@ dock_approach_distance: 100
 Выполни:
 
 ```bash
-python examples/organized/parking/check_docking_status.py
+python examples/organized/parking/check_docking_status.py --grid skynet-agent0
 ```
 
 Ожидаемый смысл вывода:
 
-- найти корабль `skynet-agent0`;
-- посмотреть его коннекторы;
+- посмотреть коннекторы корабля `skynet-agent0`;
 - понять, есть ли `status=Connected`;
 - понять, соединён ли он с базой `skynet-farpost0`.
-
-Важно: текущий скрипт проверки стыковки выводит все гриды, поэтому не добавляй к нему `--grid`.
 
 Если корабль уже пристыкован к базе — на шаге 3 нужно отстыковаться.
 
@@ -153,7 +150,7 @@ python examples/organized/parking/smooth_undock.py skynet-agent0 skynet-farpost0
 После расстыковки снова проверь статус:
 
 ```bash
-python examples/organized/parking/check_docking_status.py
+python examples/organized/parking/check_docking_status.py --grid skynet-agent0
 ```
 
 Если корабль всё ещё подключён — останови миссию.
@@ -255,7 +252,7 @@ DOCKING COMPLETE
 После стыковки можно дополнительно проверить статус:
 
 ```bash
-python examples/organized/parking/check_docking_status.py
+python examples/organized/parking/check_docking_status.py --grid skynet-agent0
 ```
 
 ---
@@ -273,7 +270,7 @@ python examples/organized/container/advanced/pull_items_from_docked_grid.py --so
 Сначала проверь стыковку:
 
 ```bash
-python examples/organized/parking/check_docking_status.py
+python examples/organized/parking/check_docking_status.py --grid skynet-agent0
 ```
 
 Если корабль действительно пристыкован, но перенос не работает, можно повторить перенос с `--force`:
@@ -289,7 +286,7 @@ python examples/organized/container/advanced/pull_items_from_docked_grid.py --so
 Выполни:
 
 ```bash
-python examples/organized/parking/check_docking_status.py
+python examples/organized/parking/check_docking_status.py --grid skynet-agent0
 ```
 
 Затем выполни диагностический dry-run переноса:
@@ -358,7 +355,7 @@ python examples/organized/radar/shared_map/shared_map_deposits.py --grid skynet-
 Проверь, не пристыкован ли он:
 
 ```bash
-python examples/organized/parking/check_docking_status.py
+python examples/organized/parking/check_docking_status.py --grid skynet-agent0
 ```
 
 Если пристыкован:
@@ -386,7 +383,7 @@ python examples/organized/parking/dock.py skynet-agent0 skynet-farpost0 100 --li
 Проверь стыковку:
 
 ```bash
-python examples/organized/parking/check_docking_status.py
+python examples/organized/parking/check_docking_status.py --grid skynet-agent0
 ```
 
 Если корабль пристыкован, повтори перенос с force:

@@ -354,7 +354,7 @@ Prerequisites: `pip install -e ".[dev]"`, Redis connection, Space Engineers gate
 
 | Script | What it does |
 |---|---|
-| `check_docking_status.py` | Показать статус парковки всех гридов (коннектор → Connected/Unconnected/Connectable) |
+| `check_docking_status.py` | Показать статус парковки (коннектор → Connected/Unconnected/Connectable). Опция `--grid <name|id>` для проверки одного грида |
 | `park_drone.py` | Park drone above base connector: find connector position, fly to coordinates |
 | `park_drone_auto.py` | Automated parking with position feedback |
 | `park_mode.py` | Enter/exit park mode |
