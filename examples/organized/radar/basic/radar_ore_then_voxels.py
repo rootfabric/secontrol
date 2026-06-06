@@ -34,10 +34,12 @@ ORE_COLORS = {
 }
 DEFAULT_ORE_COLOR = (200, 80, 200)  # magenta for unknown ores
 
-GRID_NAME = "agent2"
+GRID_NAME = "rover0"
+# GRID_NAME = "agent2"
 # GRID_NAME = "taburet3"
-SCAN_RADIUS = 1000
-CELL_SIZE = 10
+SCAN_RADIUS = 5000
+CELL_SIZE = 200
+SCRIPT_VERSION = "radar-ore-then-voxels-surface-neighbor-v1-2026-06-06"
 
 
 def ore_color(name: str) -> Tuple[int, int, int]:
@@ -193,6 +195,50 @@ def build_occ_grid(
     return occ
 
 
+def extract_surface_voxels(occ: Optional[np.ndarray]) -> Tuple[Optional[np.ndarray], int, int]:
+    """Return only solid voxels that have at least one empty 6-neighbor.
+
+    A voxel is hidden only when all six direct neighbors are also solid:
+    +X, -X, +Y, -Y, +Z, -Z. Borders outside the scan grid are treated as
+    empty space, so border voxels are always visible.
+    """
+    if occ is None or not np.any(occ):
+        return occ, 0, 0
+
+    solid = occ.astype(bool, copy=False)
+    total = int(np.sum(solid))
+    all_neighbors_solid = solid.copy()
+
+    neighbor = np.zeros_like(solid, dtype=bool)
+    neighbor[:-1, :, :] = solid[1:, :, :]
+    all_neighbors_solid &= neighbor
+
+    neighbor = np.zeros_like(solid, dtype=bool)
+    neighbor[1:, :, :] = solid[:-1, :, :]
+    all_neighbors_solid &= neighbor
+
+    neighbor = np.zeros_like(solid, dtype=bool)
+    neighbor[:, :-1, :] = solid[:, 1:, :]
+    all_neighbors_solid &= neighbor
+
+    neighbor = np.zeros_like(solid, dtype=bool)
+    neighbor[:, 1:, :] = solid[:, :-1, :]
+    all_neighbors_solid &= neighbor
+
+    neighbor = np.zeros_like(solid, dtype=bool)
+    neighbor[:, :, :-1] = solid[:, :, 1:]
+    all_neighbors_solid &= neighbor
+
+    neighbor = np.zeros_like(solid, dtype=bool)
+    neighbor[:, :, 1:] = solid[:, :, :-1]
+    all_neighbors_solid &= neighbor
+
+    internal = solid & all_neighbors_solid
+    surface = solid & ~all_neighbors_solid
+    hidden = int(np.sum(internal))
+    return surface, hidden, total
+
+
 def build_ore_grid(
     ore_cells: list,
     metadata: dict,
@@ -263,21 +309,34 @@ def visualize_merged(
 
     plotter = pv.Plotter()
 
-    # ── Solid voxels (gray wireframe) ──
+    # ── Solid voxels (gray wireframe, only surface cells) ──
     solid_cells = 0
-    if solid_occ is not None and np.any(solid_occ):
+    hidden_solid_cells = 0
+    total_solid_cells = 0
+    surface_occ, hidden_solid_cells, total_solid_cells = extract_surface_voxels(solid_occ)
+    if surface_occ is not None and np.any(surface_occ):
         img = pv.ImageData()
         img.dimensions = np.array([sx + 1, sy + 1, sz + 1])
         img.spacing = (cell_size, cell_size, cell_size)
         img.origin = origin
-        img.cell_data["solid"] = solid_occ.ravel(order="F")
-        solid_mesh = img.threshold(0.5, scalars="solid")
-        solid_cells = solid_mesh.n_cells
-        plotter.add_mesh(solid_mesh, style="wireframe", color="gray", opacity=0.3, label="Solid Voxels")
+        img.cell_data["solid_surface"] = surface_occ.ravel(order="F")
+        solid_mesh = img.threshold(0.5, scalars="solid_surface")
+        solid_cells = int(np.sum(surface_occ))
+        plotter.add_mesh(
+            solid_mesh,
+            style="wireframe",
+            color="gray",
+            opacity=0.3,
+            label=f"Solid Surface ({solid_cells}/{total_solid_cells})",
+        )
 
-        # Count connected regions
+        # Count connected regions on the original solid occupancy grid.
         n_regions = find_connected_regions(solid_occ)
         print(f"Connected solid regions: {n_regions}")
+        print(
+            f"Solid surface voxels: {solid_cells}/{total_solid_cells}; "
+            f"hidden internal voxels: {hidden_solid_cells}"
+        )
 
     # ── Ore overlays (colored surfaces per type) ──
     total_ore_cells = 0
@@ -349,7 +408,8 @@ def visualize_merged(
     # ── HUD ──
     ore_summary = ", ".join(f"{n}({int(np.sum(o))})" for n, o in sorted(ore_grids.items()) if np.any(o))
     hud_lines = [
-        f"Solid: {solid_cells} cells",
+        f"Solid surface: {solid_cells}/{total_solid_cells} cells",
+        f"Solid hidden: {hidden_solid_cells}",
         f"Ore types: {len(ore_grids)}",
         f"Ore cells: {total_ore_cells}",
         f"Contacts: {len(contacts) if contacts else 0}",
@@ -360,10 +420,11 @@ def visualize_merged(
     plotter.add_text("\n".join(hud_lines), position="upper_left", font_size=10)
 
     plotter.add_legend()
-    plotter.show(title="Merged Radar: Ore + Voxels")
+    plotter.show(title="Merged Radar: Ore + Surface Voxels")
 
 
 def main() -> None:
+    print(f"Script version: {SCRIPT_VERSION}")
     grid = prepare_grid(GRID_NAME)
 
     try:
@@ -377,8 +438,8 @@ def main() -> None:
                                          radius=SCAN_RADIUS, 
                                          cell_size=CELL_SIZE,
                                          ore_only=True, 
-                                         boundingBoxX=3000, 
-                                         boundingBoxZ=3000, 
+                                        #  boundingBoxX=3000, 
+                                        #  boundingBoxZ=3000, 
                                         #  boundingBoxY=2000, 
                                          )
         ore_solid, ore_meta, ore_contacts, ore_cells = scan_with_label(
@@ -390,8 +451,8 @@ def main() -> None:
                                            radius=SCAN_RADIUS,
                                            cell_size=CELL_SIZE,
                                            ore_only=False, 
-                                           boundingBoxX=3000, 
-                                           boundingBoxZ=3000, 
+                                        #    boundingBoxX=3000, 
+                                        #    boundingBoxZ=3000, 
                                         #    boundingBoxY=2000, 
                                            )
         vox_solid, vox_meta, vox_contacts, vox_ore = scan_with_label(

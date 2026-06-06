@@ -47,6 +47,19 @@
 
 ---
 
+## Хочешь посмотреть? (GUI / визуализация)
+
+Отдельный трек — для человека. 3D-визуализация радара, веб-дашборд флота,
+десктопные окна мониторинга телеметрии.
+
+**→ `docs/agent-playbook/GUI_VISUALIZATION.md`**
+
+- Веб-дашборд (`start_fleet_dashboard.bat`)
+- 3D-визуализация радара (PyVista: вокселы, руды, A* пути)
+- Десктопные GUI на PySide6 (телеметрия, загрузка CPU)
+
+---
+
 ## Временные файлы
 
 Все временные файлы (сканы, бэкапы, промежуточные данные) — в `tmp/` в корне проекта.
@@ -59,6 +72,7 @@
 | Что | Где |
 |---|---|
 | Playbook (операторы) | `docs/agent-playbook/PLAYBOOK.md` |
+| GUI / визуализация (человеку) | `docs/agent-playbook/GUI_VISUALIZATION.md` |
 | Admin (админы) | `admins/AGENTS.md` |
 | Dev Guide (разработчики) | `docs/agent-dev/DEVGUIDE.md` |
 | Workflows | `docs/workflows/` |

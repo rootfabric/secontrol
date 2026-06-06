@@ -176,6 +176,10 @@ class RadarController:
 
     def scan_contacts(self):
         """Scan only contacts (grids and players), return contacts."""
+        # Cancel any previous scan in progress
+        self.radar.cancel_scan()
+        time.sleep(0.3)
+
         print("Scanning contacts...")
 
         seq = self.radar.scan(
@@ -250,6 +254,10 @@ class RadarController:
         Returns marker items by default. Set return_snapshot=True to get the full
         server response with revision, query center and counters.
         """
+        # Cancel any previous scan in progress
+        self.radar.cancel_scan()
+        time.sleep(0.3)
+
         print("Scanning visible markers/signals...")
         initial_rev = None
         if hasattr(self.radar, "marker_revision"):
@@ -304,6 +312,10 @@ class RadarController:
                           The scan may be interrupted by telemetry resets; this
                           timeout prevents an infinite wait.
         """
+        # Cancel any previous scan in progress
+        self.radar.cancel_scan()
+        time.sleep(0.3)
+
         print(f"Scanning voxels...")
         start_time = time.time()
         initial_radar = self._latest_radar_snapshot()
