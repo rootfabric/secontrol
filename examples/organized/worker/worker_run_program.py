@@ -19,6 +19,14 @@
     # запуск по UUID программы
     python worker_run_program.py --program baab494e32964742b8fd6d78c700aab9
 
+    # запуск с JSON-параметрами
+    python worker_run_program.py --program Drone_test --filename example_app_params.py \
+        --grid-id 127551744966766463 --params '{"speed": 25, "mode": "patrol"}'
+
+    # запуск с параметрами из файла
+    python worker_run_program.py --program Drone_test --filename example_app_params.py \
+        --grid-id 127551744966766463 --params-file params.json
+
     # запуск на конкретном инстансе
     python worker_run_program.py --instance 26ba5aaa-4391-52e0-ae40-1e0a5a77541a \
         --program lamp_blink_rover --grid-id 127551744966766463
@@ -27,6 +35,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 import time
 from typing import Any, Dict, List, Optional
 
@@ -50,6 +60,26 @@ def find_program_uuid(programs: Dict[str, Any], identifier: str) -> Optional[str
         if item.get("name") == identifier:
             return item.get("uuid") or item.get("worker_id")
     return None
+
+
+def load_params(params_text: Optional[str], params_file: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Read launch parameters from --params or --params-file."""
+    if params_text and params_file:
+        raise ValueError("Use either --params or --params-file, not both")
+    raw: Optional[str] = None
+    if params_file:
+        raw = Path(params_file).read_text(encoding="utf-8")
+    elif params_text:
+        raw = params_text
+    if raw is None or not raw.strip():
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"params must be valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"params must be a JSON object, got {type(data).__name__}")
+    return data
 
 
 def parse_args() -> argparse.Namespace:
@@ -76,6 +106,16 @@ def parse_args() -> argparse.Namespace:
         help="Имя файла внутри программы. По умолчанию 01_lamp_blink.py.",
     )
     parser.add_argument(
+        "--params",
+        default=None,
+        help="JSON-объект параметров для запуска, например: '{\"speed\": 25, \"mode\": \"patrol\"}'.",
+    )
+    parser.add_argument(
+        "--params-file",
+        default=None,
+        help="Путь к JSON-файлу с параметрами. Нельзя использовать одновременно с --params.",
+    )
+    parser.add_argument(
         "--wait",
         type=float,
         default=4.0,
@@ -98,6 +138,12 @@ def main() -> None:
     print(f"Программа:   {args.program}")
     print(f"Grid ID:     {args.grid_id or '(из binding контроллера)'}")
     print(f"Файл:        {args.filename}")
+    try:
+        run_params = load_params(args.params, args.params_file)
+    except ValueError as exc:
+        print(f"Ошибка параметров: {exc}")
+        return
+    print(f"Параметры:   {json.dumps(run_params, ensure_ascii=False) if run_params is not None else '(нет)'}")
 
     programs = client.get_programs()
     if not programs or "items" not in programs:
@@ -125,6 +171,7 @@ def main() -> None:
         program_uuid,
         args.filename,
         grid_id=args.grid_id,
+        params=run_params,
     )
     if not run:
         print("Запуск не удался. Подробности см. в логах контроллера.")

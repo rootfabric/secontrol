@@ -34,6 +34,16 @@ undock_distance: 80
 dock_approach_distance: 100
 ```
 
+### Подстановка параметров из запроса пользователя
+
+Все шаги ниже написаны для `ore=Uranium, amount=3000`. Если пользователь просит другую руду или объём — подставь значения в каждое место, где встречается `Uranium` / `3000`:
+
+- `--material Uranium` → `--material <ORE>`
+- `--ore Uranium` → `--ore <ORE>`
+- `amount: 3000` (или другое) → `amount: <AMOUNT>`
+
+Если пользователь просит большой объём (≥50 000 кг), **перед стартом проверь**, что локальный кластер `<ORE>` содержит достаточно руды. Эвристика: `депозиты × 255 кг` за один респаун. Например, 37 Pt депозитов = ~9 435 кг за респаун, для 100 т нужно ~11 респаунов. Если кластер мал — спроси пользователя, лететь ли к другому кластеру.
+
 ---
 
 ## Главные правила безопасности
@@ -52,6 +62,8 @@ dock_approach_distance: 100
 8. После длинной команды всегда анализируй вывод перед следующим шагом.
 9. Если целевая руда не найдена в SharedMap, сначала выполни сканирование руды, затем повтори поиск.
 10. Если база не имеет свободного коннектора, не пытайся парковаться в занятый коннектор.
+11. **Длинные скрипты (v5, mining) запускай с `python -u` (unbuffered stdout),** иначе вывод буферизуется и ты не увидишь прогресс в реальном времени.
+12. **Не верь команде, что v5 «летит», только по логу.** Проверяй позицию корабля через redis (gridinfo) — лог может врать или буферизоваться.
 
 ---
 
@@ -164,8 +176,10 @@ python examples/organized/parking/check_docking_status.py --grid skynet-agent0
 Пример команды с реальным GPS из вывода:
 
 ```bash
-python examples/space_flight/space_navigator_v5.py --grid skynet-agent0 --target="GPS:Uranium_cluster_1:-123456.0:-111222.0:-82333.0:#44FF44:" --max-speed 95 --far-speed 75 --medium-speed 35 --close-speed 8 --arrival 80
+python -u examples/space_flight/space_navigator_v5.py --grid skynet-agent0 --target="GPS:Uranium_cluster_1:-123456.0:-111222.0:-82333.0:#44FF44:" --max-speed 95 --far-speed 75 --medium-speed 35 --close-speed 8 --arrival 80 > tmp/flight_to_ore.log 2>&1
 ```
+
+**Всегда запускай v5 с `python -u` и перенаправляй stdout в файл** (через `>`), не через `Tee-Object` или `Out-String`. Иначе вывод буферизуется и ты не увидишь прогресс в реальном времени.
 
 Важно:
 
@@ -173,7 +187,33 @@ python examples/space_flight/space_navigator_v5.py --grid skynet-agent0 --target
 - не используй `X:Y:Z`;
 - всегда вставляй реальную GPS-строку из `shared_map_deposits.py`.
 
-Если полёт завершился ошибкой или корабль не достиг цели — останови миссию.
+### Fallback: v5 «застрял»
+
+`space_navigator_v5.py` иногда зависает в `MEDIUM` profile: корабль перестаёт двигаться, RC показывает `enabled=False` в стейте, но в command queue копятся команды `goto` (33+ штук). Скрипт при этом работает и «считает», что летит.
+
+**Диагностика stuck:**
+1. Смотри позицию через redis (не в лог):
+   ```python
+   from secontrol.fleet_dashboard.redis_reader import FleetRedisReader
+   r = FleetRedisReader()
+   print(r.get_fleet_status())  # ищи pos для своего grid_id
+   ```
+2. Если позиция не меняется ≥60 сек — v5 застрял.
+
+**Recovery (один раз; если не помогло — останови миссию):**
+1. Убей процесс: `Stop-Process -Id <PID> -Force` (PID из `Get-Process python`).
+2. Очисти command queue RC:
+   ```python
+   import redis
+   r = redis.Redis(host='192.168.0.15', port=6379, db=0, username='<OWNER>', password='<PASS>')
+   r.delete(f'se:<OWNER>:grid:<GRID_ID>:device:<RC_DEVICE_ID>:command')
+   ```
+3. Перезапусти v5 **с другими флагами** (уменьши скорость, увеличь arrival):
+   ```bash
+   python -u examples/space_flight/space_navigator_v5.py --grid skynet-agent0 --target="GPS:..." --max-speed 50 --far-speed 50 --medium-speed 25 --close-speed 3 --arrival 30 > tmp/flight_retry.log 2>&1
+   ```
+
+Если вторая попытка тоже застряла — останови миссию.
 
 ---
 
@@ -196,14 +236,47 @@ python examples/organized/radar/ore_scanner.py --grid skynet-agent0
 Выполни:
 
 ```bash
-python examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid skynet-agent0 --ore Uranium --amount 3000 --scan-radius 1500 --area-size 75 --density-radius 20 --max-points 120 --startup-timeout 90 --no-progress-timeout 60
+python -u examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid skynet-agent0 --ore Uranium --amount 3000 --scan-radius 1500 --area-size 75 --density-radius 20 --max-points 120 --startup-timeout 90 --no-progress-timeout 60 > tmp/mining.log 2>&1
 ```
+
+**Всегда запускай mining с `python -u` и в файл**, чтобы видеть прогресс в реальном времени.
 
 После завершения внимательно проверь вывод.
 
 Успешным результатом считается ситуация, когда скрипт явно показывает, что добыча завершена или нужное количество достигнуто.
 
 Если добыча не началась, нет прогресса, не найдена руда или корабль не может добывать — останови миссию.
+
+### Fallback: mining сразу скипает все точки
+
+С дефолтными `area-size 75` и авто-`empty-cluster-skip-radius` (~53 м) скрипт после первого failed point скипает все соседние точки, и добыча встаёт. Если в логе видишь `Platinum: 0` или `No ore in current area` на каждой итерации при том, что сканер руды показывает депозиты рядом — уменьши зону:
+
+```bash
+python -u examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid skynet-agent0 --ore <ORE> --amount <AMOUNT> --scan-radius 1500 --area-size 8 --density-radius 10 --empty-cluster-skip-radius 10 --min-point-density 3 --max-points 5 --startup-timeout 90 --no-progress-timeout 60 --stone-safety-delta 50 --max-stone-per-ore-ratio 0.2 > tmp/mining_v2.log 2>&1
+```
+
+Что делают добавленные флаги:
+- `--area-size 8` — уменьшает рабочую зону, чтобы `empty-cluster-skip-radius` стал меньше;
+- `--empty-cluster-skip-radius 10` — не скипать точки дальше 10 м после fail;
+- `--min-point-density 3` — принимать разреженные точки (дефолт 6 слишком строгий);
+- `--max-points 5` — не уходить далеко после первых неудач;
+- `--stone-safety-delta 50` / `--max-stone-per-ore-ratio 0.2` — допустить долю камня при добыче вплотную к астероиду.
+
+### Fallback: добыто меньше amount
+
+Скрипт может остановиться на любом объёме (кластер исчерпан, скрипт застрял в retry, истёк таймаут). Если добыто **<80% от amount** — переходи к Шагу 6.5 (decision point) и спроси пользователя. Если **≥80%** — продолжай по плану.
+
+---
+
+## Шаг 6.5. Decision point (только если добыто <80% от amount)
+
+Спроси пользователя через `question` tool, что делать дальше. Варианты:
+
+1. **Продолжить добычу** (если кластер ещё богат — перезапусти mining с тем же amount-достигнутым, скрипт продолжит с респауна).
+2. **Вернуться с тем, что есть** (если mining застрял в retry и добыча не растёт).
+3. **Лететь к другому кластеру** (если локальный исчерпан; используй `shared_map_deposits.py` для поиска следующей точки).
+
+По умолчанию для больших объёмов (≥50 000 кг) — рекомендуй «Вернуться с тем, что есть», если процесс mining не показывает рост за последние 2 минуты.
 
 ---
 
@@ -212,10 +285,10 @@ python examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid sky
 Выполни:
 
 ```bash
-python examples/space_flight/space_navigator_v5.py --grid skynet-agent0 --target="GPS:Base:-137317:-111140:-82039:" --max-speed 95 --far-speed 75 --medium-speed 35 --close-speed 8 --arrival 80
+python -u examples/space_flight/space_navigator_v5.py --grid skynet-agent0 --target="GPS:Base:-137317:-111140:-82039:" --max-speed 95 --far-speed 75 --medium-speed 35 --close-speed 8 --arrival 80 > tmp/flight_to_base.log 2>&1
 ```
 
-Если полёт на базу завершился ошибкой — останови миссию.
+Если полёт на базу завершился ошибкой — примени fallback из Шага 4 (v5 stuck recovery). Если вторая попытка тоже не помогла — останови миссию.
 
 ---
 
@@ -235,11 +308,18 @@ python examples/organized/parking/dock.py skynet-agent0 skynet-farpost0 100 --li
 
 ## Шаг 9. Пристыковаться к базе
 
-Выполни:
+**Сначала проверь дистанцию** от корабля до базы (через `gridinfo` или `check_docking_status`).
 
-```bash
-python examples/organized/parking/dock.py skynet-agent0 skynet-farpost0 100
-```
+- **Если дистанция < 2 × dock_approach_distance** (т.е. < 200 м при approach=100) — корабль уже близко, пропусти long-approach:
+  ```bash
+  python examples/organized/parking/dock.py skynet-agent0 skynet-farpost0 --no-long-approach
+  ```
+  Без `--no-long-approach` v5 попытается отлететь на 500 м и вернуться — это пустая трата времени.
+
+- **Если дистанция ≥ 200 м** — стандартная команда:
+  ```bash
+  python examples/organized/parking/dock.py skynet-agent0 skynet-farpost0 100
+  ```
 
 Успешным результатом считается вывод:
 
@@ -259,41 +339,44 @@ python examples/organized/parking/check_docking_status.py --grid skynet-agent0
 
 ## Шаг 10. Переложить руду на базу
 
-Выполни:
+Используй `pull_from_attached_ships.py` — он гибче `pull_items_from_docked_grid.py`: ищет пристыкованные корабли через коннекторы базы, не требует знать имя корабля заранее, умеет `--target-tag cargo` для авто-выбора контейнера и перебирает несколько целевых контейнеров.
+
+Сначала dry-run (чтобы увидеть, что есть на корабле):
 
 ```bash
-python examples/organized/container/advanced/pull_items_from_docked_grid.py --source-grid skynet-agent0 --target-grid skynet-farpost0
+python examples/organized/container/advanced/pull_from_attached_ships.py --base-grid skynet-farpost0 --target-tag cargo --dry-run
 ```
 
-Если скрипт сообщает, что коннекторы не соединены, не используй `--force` сразу.
+Потом реальный перенос:
 
-Сначала проверь стыковку:
+```bash
+python examples/organized/container/advanced/pull_from_attached_ships.py --base-grid skynet-farpost0 --target-tag cargo
+```
+
+Если скрипт сообщает, что коннекторы не соединены, не паникуй. Сначала проверь стыковку:
 
 ```bash
 python examples/organized/parking/check_docking_status.py --grid skynet-agent0
 ```
 
-Если корабль действительно пристыкован, но перенос не работает, можно повторить перенос с `--force`:
-
-```bash
-python examples/organized/container/advanced/pull_items_from_docked_grid.py --source-grid skynet-agent0 --target-grid skynet-farpost0 --force
-```
+Если корабль действительно пристыкован, но перенос не работает, повтори команду ещё раз. Если и тогда 0 actions — останови миссию.
 
 ---
 
 ## Шаг 11. Финальная проверка
 
-Выполни:
+Проверь, что груз реально ушёл с корабля и пришёл на базу. **Не запускай dry-run после реального переноса** — он покажет 0 и ничего не верифицирует.
 
 ```bash
-python examples/organized/parking/check_docking_status.py --grid skynet-agent0
+python docs/agent-skills/gaming/se-grid-status-report/scripts/grid_report.py skynet-agent0
+python docs/agent-skills/gaming/se-grid-status-report/scripts/grid_report.py skynet-farpost0
 ```
 
-Затем выполни диагностический dry-run переноса:
+Сравни:
+- `agent0`: `<ORE> Ore` должен быть **0** (или близко к 0);
+- `farpost0`: `<ORE> Ore` должен вырасти на добытое количество.
 
-```bash
-python examples/organized/container/advanced/pull_items_from_docked_grid.py --source-grid skynet-agent0 --target-grid skynet-farpost0 --dry-run
-```
+Если на `agent0` остался `<ORE>` — повтори Шаг 10.
 
 В финальном ответе пользователю сообщи:
 
@@ -301,8 +384,9 @@ python examples/organized/container/advanced/pull_items_from_docked_grid.py --so
 Миссия завершена:
 - корабль: skynet-agent0
 - база: skynet-farpost0
-- руда: Uranium
-- цель добычи: 3000
+- руда: <ORE>
+- цель добычи: <AMOUNT>
+- фактически добыто: <XXX> кг
 - стыковка с базой: да/нет
 - перенос ресурсов: выполнен/не выполнен
 - последняя успешная команда: ...
@@ -327,6 +411,8 @@ ore: Uranium
 amount: 3000
 base_gps: GPS:Base:-137317:-111140:-82039:
 ```
+
+Для других руд / объёмов — подставить нужные `<ORE>` и `<AMOUNT>` во все шаги. Для объёмов ≥50 000 кг — сначала оцени размер локального кластера через `shared_map_deposits.py` и предупреди пользователя, если кластер мал (см. «Миссия по умолчанию → Подстановка параметров»).
 
 ---
 
@@ -409,3 +495,11 @@ python examples/space_flight/space_navigator_v5.py --grid skynet-agent0 --target
 Не использовать случайную GPS-цель, если Uranium не найден.
 
 Не переносить ресурсы до успешной стыковки.
+
+Не запускать v5 и mining без `python -u` и без перенаправления в файл — потеряешь логи в реальном времени.
+
+Не верить логу v5 «летит, step=85» без проверки позиции через redis — скрипт может врать.
+
+Не писать `goto` команды напрямую в Redis command queue — используй только `space_navigator_v5.py`.
+
+Не продолжать mining, если процесс не показывает рост инвентаря ≥2 минуты — переходи к Шагу 6.5.

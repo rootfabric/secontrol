@@ -42,8 +42,8 @@ print("Program UUID:", program_uuid)
 run_info = client.run_program(
     program_uuid,
     "example_app_params.py",
-    grid_id=program_uuid,  # пример реального grid_id из твоих логов
-    params={"param1": 1, "param2": "test param"}
+    grid_id="127551744966766463",
+    params={"speed": 25, "mode": "patrol"}
 )
 print("Run:", run_info)
 

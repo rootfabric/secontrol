@@ -235,16 +235,20 @@ class WorkerApiClient:
         self,
         program_uuid: str,
         filename: str,
-        grid_id: str,
+        grid_id: Optional[str] = None,
         params: Optional[dict] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         POST /api/programs/{program_uuid}/run
 
-        Body: { "filename": "...", "grid_id": "...", "params": "..." }
+        Body: { "filename": "...", "grid_id": "...", "params": {...} }
         """
-        payload = {"filename": filename, "grid_id": grid_id}
+        payload = {"filename": filename}
+        if grid_id is not None:
+            payload["grid_id"] = grid_id
         if params is not None:
+            if not isinstance(params, dict):
+                raise TypeError("params must be a dict or None")
             payload["params"] = params
             
         path = f"/programs/{program_uuid}/run"
