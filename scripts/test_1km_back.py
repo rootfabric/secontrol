@@ -92,8 +92,8 @@ def fly_and_monitor(rc, grid, target, speed, label, timeout=300):
 
 def main():
     parser = argparse.ArgumentParser(description="Тест: 1км вперёд и 1км назад")
-    parser.add_argument("--grid", default="skynet-baza0", help="Имя грида")
-    parser.add_argument("--speed", type=float, default=20.0, help="Скорость m/s")
+    parser.add_argument("--grid", default="skynet-scout2", help="Имя грида")
+    parser.add_argument("--speed", type=float, default=100.0, help="Скорость m/s")
     parser.add_argument("--distance", type=float, default=1000.0, help="Дистанция м")
     args = parser.parse_args()
 

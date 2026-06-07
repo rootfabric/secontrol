@@ -13,6 +13,16 @@
 
 ---
 
+## 0. Do not ask instead of testing
+
+Если проверка безопасна, не заменяй её уточняющим вопросом.
+
+Перед выводом `не полетит` или `не могу запускать` сначала выполни read-only diagnostics и, если безопасно, guarded flight check.
+
+Если пользователь спрашивает `пробовать надо на агенте, а ровер уже на базе?`, это достаточно, чтобы проверить `agent` и `rover` read-only командами. Не останавливайся на вопросе `какой корабль использовать?` до проверки фактов.
+
+---
+
 ## 1. Warning signals, not hard blockers
 
 Следующие признаки не доказывают невозможность полёта:
@@ -58,96 +68,53 @@
 
 ```bash
 python docs/agent-skills/gaming/se-grid-status-report/scripts/grid_report.py agent1
+python examples/organized/parking/check_docking_status.py --grid agent1
+python examples/organized/diagnostics/check_flight_ready.py agent1
 ```
 
-Проверь:
+### Step 2. If docked, do not thrust
 
-- точное имя грида;
-- grid id;
-- позицию;
-- скорость;
-- массу/груз, если есть;
-- Remote Control;
-- thrust/battery/fuel summary.
-
-### Step 2. Check docking status
+Если грид пристыкован:
 
 ```bash
 python examples/organized/parking/check_docking_status.py --grid agent1
 ```
 
-Если есть `Connected`, не делай thrust test. Сначала используй canonical undock:
+Если `Connected`, не делай thrust test. Используй canonical undock только когда mission требует полёта:
 
 ```bash
 python examples/organized/parking/smooth_undock.py agent1 skynet-farpost0 80
 ```
 
-### Step 3. Run readiness check, but do not treat it as final proof
+### Step 3. Prefer canonical navigator for movement proof
+
+Для короткого безопасного теста используй малую скорость и близкую цель, если есть свободное пространство:
 
 ```bash
-python examples/organized/diagnostics/check_flight_ready.py agent1
+python examples/space_flight/space_navigator_v5.py --grid agent1 --target="GPS:flight_check:X:Y:Z:" --max-speed 20 --far-speed 20 --medium-speed 10 --close-speed 3 --arrival 20
 ```
 
-`NOT READY FOR FLIGHT` из этого скрипта — diagnostic signal. Перед финальным отказом всё равно нужна фактическая проверка движения, если она безопасна.
+Если в репозитории есть dedicated test script, используй его вместо самописного кода.
 
-### Step 4. Prefer canonical navigator for movement proof
+### Step 4. Observe actual result
 
-Для короткой проверки используй небольшую скорость и маленькую дистанцию. Цель должна быть свободной точкой, а не астероидом/базой.
+Проверяй:
 
-```bash
-python examples/space_flight/space_navigator_v5.py --grid agent1 --target="GPS:flight_check:X:Y:Z:#FF75C9F1:" --max-speed 20 --far-speed 20 --medium-speed 10 --close-speed 3 --arrival 20
-```
+- position delta;
+- speed delta;
+- distance to target;
+- final drift;
+- script output.
 
-Если готового скрипта теста в репозитории нет, допустим короткий RC-specific test через существующий API, но только как diagnostic script в `tmp/` или как уже утверждённый пример.
-
-### Step 5. Verify movement
-
-Считать грид способным двигаться, если выполнено хотя бы одно условие:
-
-- position delta больше 2 м;
-- speed больше 0.5 м/с;
-- navigator явно сообщил прогресс к цели;
-- грид вернулся к стартовой точке после теста.
-
-Считать hard-block подтверждённым только если:
-
-- команды были отправлены;
-- subscriber был найден;
-- прошло 5-15 секунд наблюдения;
-- position delta меньше 2 м;
-- max speed меньше 0.5 м/с;
-- нет другого безопасного способа управления.
+Успехом считается не `enabled=true`, а факт движения.
 
 ---
 
-## 4. Correct reasoning template
+## 4. RC-specific command path
 
-Правильный отчёт:
+Для RC не делай вывод по generic `block_enable`.
 
-```text
-RC telemetry сейчас подозрительная: enabled=false, isFunctional=false.
-Это warning, а не hard-block.
-Проверил docking: не подключён.
-Запустил guarded flight check через RC-specific commands / navigator.
-За 10 секунд speed вырос до 20 м/с, position изменилась на 120 м.
-Вывод: грид способен лететь. Старую telemetry не использовать как отказ.
-```
-
-Неправильный отчёт:
-
-```text
-RC enabled=false, online=false, publish=1 subscriber.
-Это точная сигнатура player offline.
-Fleet paralyzed. Скрипт не запускаю.
-```
-
----
-
-## 5. RC command path
-
-Для Remote Control не делай вывод только по generic block enable.
-
-Предпочтительный порядок:
+Правильная последовательность при ручном API-тесте:
 
 ```text
 rc.handbrake_off()
@@ -157,44 +124,49 @@ rc.enable()
 rc.goto(...)
 ```
 
-После каждой критической команды перечитывай телеметрию. Но финальный критерий — не поле `enabled`, а движение.
-
----
-
-## 6. Thruster classification rule
-
-Не называй двигатель нерабочим только по subtype.
-
-Особенно запрещено:
+После каждой важной команды:
 
 ```text
-SmallBlockSmallThrust выглядит как atmospheric, значит в космосе не полетит.
-```
-
-Разрешено:
-
-```text
-Subtype выглядит подозрительно. Запускаю guarded movement test. Если speed/position изменились, считаю тягу рабочей в текущем окружении.
+send command → wait 1-3s → read telemetry → compare state/speed/position
 ```
 
 ---
 
-## 7. Final stop wording
+## 5. Report template
 
-Если после теста грид реально не двигается, пиши конкретно:
-
-```text
-Команды отправлены, subscriber есть, но за 15 секунд position delta=0.3 м и max speed=0.0 м/с. Грид не подтвердил движение. Следующий безопасный шаг: проверить питание/RC/массу/тягу или ручной bootstrap.
-```
-
-Не пиши:
+Если тест успешен:
 
 ```text
-Игрок offline, значит ничего не работает.
+Flight check passed.
+Grid moved X m, max speed Y m/s. RC telemetry was misleading/stale, so mission can proceed.
 ```
 
-Если flight check не запускался, обязательно напиши почему:
+Если тест неуспешен:
 
 ```text
-Flight check не запускал: корабль пристыкован к базе, connector Connected. Сначала нужен smooth_undock.
+Flight check failed.
+Commands published: ...
+Subscribers: ...
+Observed movement: 0 m
+Observed speed: 0 m/s
+Likely blocker: ...
+Next safe step: ...
 ```
+
+Если тест нельзя выполнить:
+
+```text
+Flight check skipped for safety.
+Reason: connector Connected / no telemetry / no RC / user forbids movement.
+Next safe step: ...
+```
+
+---
+
+## 6. Known correction
+
+Не используй старое правило `SmallBlockSmallThrust cannot move in space` как hard-block.
+
+В текущем окружении был успешный тест small-grid scout с `SmallBlockSmallThrust`: 1 км вперёд, 1 км назад, стабильная скорость около 20 м/с, финальный drift около 0.1 м.
+
+Это не доказывает, что любой атмосферный thruster всегда работает, но доказывает, что subtype string не может быть причиной отказа без теста.

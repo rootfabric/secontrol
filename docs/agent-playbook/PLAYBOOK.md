@@ -65,6 +65,8 @@ python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1
 |---|---|
 | [SE Ore Collection Mission](agents-missions/se-ore-collection-mission.md) | Добыча ресурсов. Добыть N руды (Uranium/Platinum/Iron/...) кораблём, вернуться на базу, пристыковаться, перегрузить cargo. По умолчанию: `ship=skynet-agent0`, `base=skynet-farpost0`, `ore=Uranium`, `amount=3000`. Включает правила остановки при ошибках и запрет на «выдуманные» GPS. |
 
+| [SE Stone Collection Mission](agents-missions/se-stone-collection-mission.md) | Добыча камня. Не ищет рудную жилу; использует любой доступный voxel, наводит Nanobot area и включает фильтр Stone. |
+
 
 ---
 
