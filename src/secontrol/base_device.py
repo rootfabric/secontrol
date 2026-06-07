@@ -431,6 +431,7 @@ class BaseDevice:
     """Base class for all telemetry driven devices."""
 
     device_type: str = "generic"
+    supports_enabled: bool = True
 
     def __init__(self, grid: Grid, metadata: DeviceMetadata) -> None:
         # Слушатели событий устройства: {event_name: [callback, ...]}
@@ -454,13 +455,15 @@ class BaseDevice:
         self.telemetry: Optional[Dict[str, Any]] = None
         self._telemetry_event = threading.Event()
 
-        self._enabled: bool = self._extract_optional_bool(
-            metadata.extra,
-            "enabled",
-            "isEnabled",
-            "isWorking",
-            "isFunctional",
-        ) or False
+        self._enabled: bool = True if not self.supports_enabled else (
+            self._extract_optional_bool(
+                metadata.extra,
+                "enabled",
+                "isEnabled",
+                "isWorking",
+                "isFunctional",
+            ) or False
+        )
         self._show_in_terminal: bool = self._extract_optional_bool(metadata.extra, "showInTerminal") or False
         self._show_in_toolbar: bool = self._extract_optional_bool(metadata.extra, "showInToolbar") or False
         self._show_on_screen: bool = self._extract_optional_bool(metadata.extra, "showOnScreen") or False
@@ -772,6 +775,8 @@ class BaseDevice:
 
     # ------------------------------------------------------------------
     def is_enabled(self) -> bool:
+        if not self.supports_enabled:
+            return True
         if isinstance(self.telemetry, dict) and "enabled" in self.telemetry:
             return bool(self.telemetry["enabled"])
         return self._enabled
@@ -780,19 +785,27 @@ class BaseDevice:
     def enabled(self) -> bool:
         return self.is_enabled()
 
+    def _require_enabled_support(self) -> None:
+        if not self.supports_enabled:
+            raise NotImplementedError(f"{self.__class__.__name__} does not expose a terminal On/Off switch")
+
     def enable(self) -> int:
+        self._require_enabled_support()
         return self.set_enabled(True)
 
     def disable(self) -> int:
+        self._require_enabled_support()
         return self.set_enabled(False)
 
     def toggle_enabled(self) -> int:
+        self._require_enabled_support()
         result = self.send_command({"cmd": "toggle"})
         if result:
             self._update_common_flag("enabled", not self.is_enabled())
         return result
 
     def set_enabled(self, enabled: bool) -> int:
+        self._require_enabled_support()
         command = "enable" if enabled else "disable"
         result = self.send_command({"cmd": command})
         if result:
@@ -893,11 +906,17 @@ class BaseDevice:
     def _merge_common_telemetry(self, telemetry: Dict[str, Any]) -> bool:
         changed = False
 
-        if "enabled" in telemetry:
-            self._enabled = bool(telemetry["enabled"])
+        if self.supports_enabled:
+            if "enabled" in telemetry:
+                self._enabled = bool(telemetry["enabled"])
+            else:
+                telemetry["enabled"] = bool(self._enabled)
+                changed = True
         else:
-            telemetry["enabled"] = bool(self._enabled)
-            changed = True
+            self._enabled = True
+            if "enabled" in telemetry:
+                telemetry.pop("enabled", None)
+                changed = True
 
         if "showInTerminal" in telemetry:
             self._show_in_terminal = bool(telemetry["showInTerminal"])

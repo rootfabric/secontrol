@@ -25,11 +25,9 @@ class CockpitDevice(ContainerDevice):
     """Wrapper around a cockpit block with inventory support."""
 
     device_type = "cockpit"
+    supports_enabled = False
 
     # ----------------------- Telemetry helpers -----------------------
-    def is_enabled(self) -> bool:
-        return bool((self.telemetry or {}).get("enabled", False))
-
     def is_under_control(self) -> bool:
         return bool((self.telemetry or {}).get("isUnderControl", False))
 
@@ -81,12 +79,6 @@ class CockpitDevice(ContainerDevice):
         return super().inventories()
 
     # -------------------------- Commands ----------------------------
-    def set_enabled(self, enabled: bool) -> int:
-        return self.send_command({"cmd": "enable" if enabled else "disable"})
-
-    def toggle_enabled(self) -> int:
-        return self.send_command({"cmd": "toggle"})
-
     def set_handbrake(self, engaged: bool) -> int:
         return self.send_command({"cmd": "handbrake", "state": {"handBrake": bool(engaged)}})
 

@@ -14,6 +14,7 @@ class ContainerDevice(BaseDevice):
     """Inventory-aware base for cargo containers and similar devices."""
 
     device_type = "container"
+    supports_enabled = False
 
     def __init__(self, grid: Grid, metadata: DeviceMetadata) -> None:
         super().__init__(grid, metadata)
