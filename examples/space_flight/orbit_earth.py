@@ -358,6 +358,19 @@ def main() -> None:
         last_log_time = 0.0
         orbit_targets_sent = 0
         stuck_since = None
+        reached_orbit_band = abs(current_altitude_km - args.altitude_km) <= args.safety_band_km
+
+        if not reached_orbit_band:
+            band_low = args.altitude_km - args.safety_band_km
+            band_high = args.altitude_km + args.safety_band_km
+            print(
+                f"[ORBIT] Ship altitude {current_altitude_km:+.2f} km is outside orbit band "
+                f"[{band_low:.0f}, {band_high:.0f}] km."
+            )
+            print(
+                f"[ORBIT] Descent/climb phase: issuing tangent targets; safety band enforced "
+                f"only after orbit band is reached."
+            )
 
         while True:
             now = time.time()
@@ -381,18 +394,27 @@ def main() -> None:
                 + (pos[2] - center[2]) ** 2
             )
             altitude_km = (distance - planet_radius) / 1000.0
-            if abs(altitude_km - args.altitude_km) > args.safety_band_km:
-                print(
-                    f"[ORBIT] ABORT: altitude {altitude_km:+.2f} km deviates from target "
-                    f"{args.altitude_km} km by more than {args.safety_band_km} km."
-                )
-                break
 
             target = compute_tangent_target(pos, center, orbit_radius, arc_length, direction_sign)
             target_name_index += 1
             target_name = f"Orbit{args.altitude_km:.0f}km_{target_name_index:04d}"
             rc.goto(format_gps(target_name, target), speed=args.max_speed, gps_name=target_name)
             orbit_targets_sent += 1
+
+            if not reached_orbit_band:
+                deviation = abs(altitude_km - args.altitude_km)
+                if deviation <= args.safety_band_km:
+                    reached_orbit_band = True
+                    print(
+                        f"\n[ORBIT] Reached orbit band at altitude {altitude_km:+.2f} km "
+                        f"(deviation {deviation:.2f} km). Engaging strict band tracking."
+                    )
+            elif abs(altitude_km - args.altitude_km) > args.safety_band_km:
+                print(
+                    f"[ORBIT] ABORT: altitude {altitude_km:+.2f} km drifted from target "
+                    f"{args.altitude_km} km by more than {args.safety_band_km} km after reaching orbit."
+                )
+                break
 
             angle = angle_in_orbit_plane(pos, center)
             delta_angle = (angle - prev_angle) * direction_sign

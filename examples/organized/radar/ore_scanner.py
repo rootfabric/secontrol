@@ -13,6 +13,7 @@ Ore Scanner — универсальный сканер руд.
 Usage:
     python examples/organized/radar/ore_scanner.py --grid agent1
     python examples/organized/radar/ore_scanner.py --grid agent1 --radius 500
+    python examples/organized/radar/ore_scanner.py --grid agent1 --cell_size 50 --radius 10000  # Грубая сетка но зато далеко и быстро, можно использовать для предворительной разведки
     python examples/organized/radar/ore_scanner.py --grid agent1 --no-redis          # только файл
     python examples/organized/radar/ore_scanner.py --grid agent1 --storage sqlite     # SQLite вместо Redis
     python examples/organized/radar/ore_scanner.py --grid agent1 --full_scan          # + полная геометрия
