@@ -132,6 +132,7 @@ Known correction: small-grid `SmallBlockSmallThrust` may move a small grid in th
 If the user asks for a known operation, use the canonical mission or playbook first:
 
 - ore collection: `docs/agents-missions/se-ore-collection-mission.md`;
+- projector clone alignment (merge/contact, large + small): `docs/agents-missions/se-projector-clone-mission.md`;
 - flight and navigation: `docs/agent-playbook/PLAYBOOK.md`;
 - parking/docking: `examples/organized/parking/` commands;
 - grid status: `docs/agent-skills/gaming/se-grid-status-report/scripts/grid_report.py`;

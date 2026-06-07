@@ -66,6 +66,7 @@ python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1
 | [SE Ore Collection Mission](agents-missions/se-ore-collection-mission.md) | Добыча ресурсов. Добыть N руды (Uranium/Platinum/Iron/...) кораблём, вернуться на базу, пристыковаться, перегрузить cargo. По умолчанию: `ship=skynet-agent0`, `base=skynet-farpost0`, `ore=Uranium`, `amount=3000`. Включает правила остановки при ошибках и запрет на «выдуманные» GPS. |
 
 | [SE Stone Collection Mission](agents-missions/se-stone-collection-mission.md) | Добыча камня. Не ищет рудную жилу; использует любой доступный voxel, наводит Nanobot area и включает фильтр Stone. |
+| [SE Projector Clone Mission](agents-missions/se-projector-clone-mission.md) | Проекция чертежа на Projector с выравниванием по паре Merge Block + Connector. Два скрипта: `align_clone_projection.py` (v17, для LargeProjector) и `align_clone_projection_small.py` (v20, для SmallProjector — сам делает коррекцию UI origin `(-1, -1, 0)`). Поворачивает XML, делает pre-flip 180° вокруг контактной линии, запекает относительный сдвиг внутрь blueprint (не зависит от UI offset), очищает текущую проекцию, грузит XML и подтверждает offset/rotation по телеметрии. |
 
 
 ---
