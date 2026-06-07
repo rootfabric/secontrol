@@ -28,11 +28,13 @@
 ship: skynet-agent0
 base: skynet-farpost0
 ore: Uranium
-amount: 10000
+amount: 10000          # в килограммах (10 тонн)
 base_gps: GPS:Base:-137317:-111140:-82039:
 undock_distance: 80
 dock_approach_distance: 100
 ```
+
+**`amount` всегда указывается в килограммах (кг)**, не в тоннах. Если пользователь говорит "тонна" — умножай на 1000. "1 миллион тон" = 1 000 000 000 кг (обычно пользователь имеет в виду 1 000 000 кг = 1000 т, **уточни если неясно**).
 
 ### Подстановка параметров из запроса пользователя
 
@@ -233,10 +235,19 @@ python examples/organized/radar/ore_scanner.py --grid skynet-agent0
 
 ## Шаг 6. Добыть Uranium
 
-Выполни:
+Размер `scan-radius` зависит от объёма `amount` (это ключевой параметр для больших миссий):
+
+| amount | --scan-radius | почему |
+|---|---|---|
+| ≤ 10 000 кг | 1500 | один локальный кластер (1-2 км) |
+| 10 000 - 100 000 кг | 3000 | несколько ближних кластеров (до 5 км) |
+| 100 000 - 1 000 000 кг | 5000-10000 | нужны дальние кластеры (до 17 км); 1М льда реально за 2-5 мин |
+| > 1 000 000 кг | 10000+ | возможно, нужны несколько рейсов к разным кластерам |
+
+**Сначала определи правильный scan-radius по таблице выше, потом запускай mining:**
 
 ```bash
-python -u examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid skynet-agent0 --ore Uranium --amount 3000 --scan-radius 1500 --area-size 75 --density-radius 20 --max-points 120 --startup-timeout 90 --no-progress-timeout 60 > tmp/mining.log 2>&1
+python -u examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid skynet-agent0 --ore <ORE> --amount <AMOUNT> --scan-radius <RADIUS> --area-size 75 --density-radius 20 --max-points 120 --startup-timeout 90 --no-progress-timeout 60 > tmp/mining.log 2>&1
 ```
 
 **Всегда запускай mining с `python -u` и в файл**, чтобы видеть прогресс в реальном времени.
@@ -247,7 +258,17 @@ python -u examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid 
 
 Если добыча не началась, нет прогресса, не найдена руда или корабль не может добывать — останови миссию.
 
-### Fallback: mining сразу скипает все точки
+### Fallback: 1-я попытка вышла с "no dense point" и добыто <50% amount
+
+Это значит, что **локальный кластер мал для amount**. Увеличь `--scan-radius` в 2-3 раза и перезапусти mining. Например, для 1М кг с `--scan-radius 1500` добылось 609k, после `--scan-radius 2500` — 1.14М. **Не пытайся решить проблему уменьшением `area-size`** — это не тот случай.
+
+### Fallback: добыто меньше amount
+
+Скрипт может остановиться на любом объёме (кластер исчерпан, скрипт застрял в retry, истёк таймаут). Если добыто **<80% от amount** — переходи к Шагу 6.5 (decision point) и спроси пользователя. Если **≥80%** — продолжай по плану.
+
+### Fallback (только для Pt/Pd/Au): mining сразу скипает все точки
+
+**Этот fallback нужен ТОЛЬКО для руд с низкой плотностью (Platinum, Palladium, Gold). Для льда и камня он не нужен.**
 
 С дефолтными `area-size 75` и авто-`empty-cluster-skip-radius` (~53 м) скрипт после первого failed point скипает все соседние точки, и добыча встаёт. Если в логе видишь `Platinum: 0` или `No ore in current area` на каждой итерации при том, что сканер руды показывает депозиты рядом — уменьши зону:
 
@@ -262,10 +283,6 @@ python -u examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid 
 - `--max-points 5` — не уходить далеко после первых неудач;
 - `--stone-safety-delta 50` / `--max-stone-per-ore-ratio 0.2` — допустить долю камня при добыче вплотную к астероиду.
 
-### Fallback: добыто меньше amount
-
-Скрипт может остановиться на любом объёме (кластер исчерпан, скрипт застрял в retry, истёк таймаут). Если добыто **<80% от amount** — переходи к Шагу 6.5 (decision point) и спроси пользователя. Если **≥80%** — продолжай по плану.
-
 ---
 
 ## Шаг 6.5. Decision point (только если добыто <80% от amount)
@@ -275,6 +292,12 @@ python -u examples/organized/drill_nano/mine_ore_robot_safe_live_move.py --grid 
 1. **Продолжить добычу** (если кластер ещё богат — перезапусти mining с тем же amount-достигнутым, скрипт продолжит с респауна).
 2. **Вернуться с тем, что есть** (если mining застрял в retry и добыча не растёт).
 3. **Лететь к другому кластеру** (если локальный исчерпан; используй `shared_map_deposits.py` для поиска следующей точки).
+
+**Threshold для больших amount:**
+
+- amount ≤ 10 000 кг: 80% threshold работает как описано. Если добыто 7 000 из 10 000 — спрашиваем.
+- amount ≥ 100 000 кг: 80% = 80 000+ кг, что в любом случае больше одной типичной миссии. Если добыто ≥80% — **продолжай автоматически**. 
+Спрашивать ничего не надо, если не получается добыть больше трети, лети на другое меторождение если есть рядом(50км) если других месторождений нет, летим домой.
 
 По умолчанию для больших объёмов (≥50 000 кг) — рекомендуй «Вернуться с тем, что есть», если процесс mining не показывает рост за последние 2 минуты.
 
@@ -359,7 +382,52 @@ python examples/organized/container/advanced/pull_from_attached_ships.py --base-
 python examples/organized/parking/check_docking_status.py --grid skynet-agent0
 ```
 
-Если корабль действительно пристыкован, но перенос не работает, повтори команду ещё раз. Если и тогда 0 actions — останови миссию.
+### Если cargo-контейнеры базы заполнены
+
+**Известный баг:** `pull_from_attached_ships.py` падает с `UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'` в `pick_next_container()` когда target container полный, и не переключается на следующий cargo container. Workaround:
+
+1. **Запусти pull ещё раз** — иногда 2-я попытка успешно находит другой target container.
+2. **Если и 2-я попытка падает** — оставшиеся кг застрянут в ship. Зафиксируй это в финальном отчёте, спроси пользователя (продолжать или принять частичный результат).
+3. **Альтернативный скрипт** (если нужно перенести всё):
+   ```bash
+   python examples/organized/container/advanced/pull_items_from_docked_grid.py --source-grid skynet-agent0 --target-grid skynet-farpost0 --force
+   ```
+   Этот скрипт старый, без Unicode-эмодзи в выводе, но менее гибкий (не ищет target по тегу, нужно знать имя контейнера).
+4. **Самый надёжный путь** — увеличить ёмкость cargo-контейнеров базы (построить дополнительные Ore Storage).
+
+**Лимит ёмкости:** Large Cargo Container вмещает ~400-500 т. Если миссия добыла >1М кг, в один контейнер это не влезет. Планируй несколько cargo containers на базе для больших миссий.
+
+## Особенности по типу руды
+
+Разные руды в SE ведут себя по-разному, и миссию нужно адаптировать:
+
+### Ice (лёд)
+- **Высокая скорость респауна** (секунды) — кластеры восстанавливаются быстро.
+- **Большие кластеры** — 10-60 точек в радиусе 1-17 км.
+- **1М кг в одном кластере реально за 2-5 мин** при правильном `--scan-radius` (5000-10000).
+- **Можно безопасно продолжать mining до 100%** даже после нескольких падений скрипта.
+- **Средний rate**: ~3 700 кг/с (против ~668 кг/с для платины).
+- **Совет по mining**: используй `--scan-radius 5000-10000` сразу для amount > 100k. Не нужен fallback с `area-size 8`.
+
+### Platinum / Palladium / Gold
+- **Низкая скорость респауна** (минуты-часы) — кластеры восстанавливаются медленно.
+- **Один кластер не даст >50 т за разумное время** (37 точек × 255 кг × 1 респаун = ~9 400 кг).
+- **Для amount > 50 000 кг — несколько рейсов к разным кластерам** или принимай частичный результат.
+- **Нужен fallback с `area-size 8`** (см. Шаг 6) — пустые точки между депозитами.
+- **Средний rate**: ~668 кг/с.
+
+### Stone (камень)
+- Если в mining логе `Stone/Ore=inf` — увеличь `--max-stone-per-ore-ratio` или смени точку (`--point-strategy density`).
+- Камень часто попадает в зону добычи вплотную к астероиду.
+
+### Uranium
+- **Средняя скорость респауна** (минуты).
+- **Средние кластеры** (5-20 точек).
+- **Mission default** — описан в шагах выше.
+
+### Silicon, Nickel, Cobalt, Iron
+- **Высокая скорость респауна** (секунды-минуты).
+- Используй те же правила, что и для Ice (большие кластеры, высокий rate).
 
 ---
 
@@ -472,11 +540,17 @@ python examples/organized/parking/dock.py skynet-agent0 skynet-farpost0 100 --li
 python examples/organized/parking/check_docking_status.py --grid skynet-agent0
 ```
 
-Если корабль пристыкован, повтори перенос с force:
+Если корабль пристыкован, попробуй в этом порядке:
 
-```bash
-python examples/organized/container/advanced/pull_items_from_docked_grid.py --source-grid skynet-agent0 --target-grid skynet-farpost0 --force
-```
+1. **Перезапусти pull_from_attached_ships.py** — иногда 2-я попытка успешно находит другой target container:
+   ```bash
+   python examples/organized/container/advanced/pull_from_attached_ships.py --base-grid skynet-farpost0 --target-tag cargo
+   ```
+2. **Альтернативный скрипт с --force** (если нужно перенести всё):
+   ```bash
+   python examples/organized/container/advanced/pull_items_from_docked_grid.py --source-grid skynet-agent0 --target-grid skynet-farpost0 --force
+   ```
+3. **Если cargo-контейнеры базы заполнены** — см. секцию "Если cargo-контейнеры базы заполнены" в Шаге 10.
 
 ---
 

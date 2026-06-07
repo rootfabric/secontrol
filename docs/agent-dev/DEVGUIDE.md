@@ -23,6 +23,10 @@ REDIS_USERNAME     # from outenemy.ru/se
 REDIS_PASSWORD     # from outenemy.ru/se
 SE_OWNER_ID        # Space Engineers owner ID
 SE_PLAYER_ID       # Player ID (falls back to owner)
+
+# Для деплоя на воркер (см. docs/agent-dev/WORKER_DEPLOYMENT.md):
+SE_WORKER_BASE_URL        # default: https://www.outenemy.ru/se/worker-controller
+SE_WORKER_INSTANCE_UUID   # UUID инстанса воркера (обязательно)
 ```
 
 Файл `.env` в корне проекта.
@@ -71,6 +75,7 @@ secontrol/
 | `docs/DEVICE_REFERENCE.md` | Справочник устройств (драйверы) |
 | `docs/EXAMPLES.md` | Каталог примеров |
 | `docs/design-docs/index.md` | Дизайн-решения |
+| `docs/agent-dev/WORKER_DEPLOYMENT.md` | Деплой скриптов на se-worker (App-адаптер, лимиты upload, чек-лист) |
 | `docs/exec-plans/tech-debt-tracker.md` | Технический долг |
 
 ---
@@ -221,6 +226,10 @@ REDIS_USERNAME     # from outenemy.ru/se
 REDIS_PASSWORD     # from outenemy.ru/se
 SE_OWNER_ID        # Space Engineers owner ID
 SE_PLAYER_ID       # Player ID (falls back to owner)
+
+# Для деплоя на воркер (см. docs/agent-dev/WORKER_DEPLOYMENT.md):
+SE_WORKER_BASE_URL        # default: https://www.outenemy.ru/se/worker-controller
+SE_WORKER_INSTANCE_UUID   # UUID инстанса воркера (обязательно)
 ```
 
 Файл `.env` в корне проекта.
