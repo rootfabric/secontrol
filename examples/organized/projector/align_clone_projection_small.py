@@ -40,7 +40,7 @@ XSD_NS = "http://www.w3.org/2001/XMLSchema"
 ET.register_namespace("xsi", XSI_NS)
 ET.register_namespace("xsd", XSD_NS)
 
-SCRIPT_VERSION = "align-clone-projection-offset-v25-native-no-ui-correction-2026-06-08"
+SCRIPT_VERSION = "align-clone-projection-offset-v44-forward-contact-2026-06-08"
 
 DIRECTION_TO_VEC: dict[str, tuple[int, int, int]] = {
     "Right": (1, 0, 0),
@@ -154,6 +154,10 @@ class LiveBlock:
     min: Vec3i
     orientation_forward: Optional[Vec3i] = None
     orientation_up: Optional[Vec3i] = None
+    local_position_m: Optional[tuple[float, float, float]] = None
+    world_position_m: Optional[tuple[float, float, float]] = None
+    relative_to_grid_center_m: Optional[tuple[float, float, float]] = None
+    world_axes: Optional[dict[str, tuple[float, float, float]]] = None
 
 
 @dataclass(frozen=True)
@@ -393,11 +397,7 @@ def parse_axis_direction(value: object) -> Optional[Vec3i]:
     return Vec3i(0, 0, sign)
 
 
-def read_orientation_from_mapping(data: object) -> tuple[Optional[Vec3i], Optional[Vec3i]]:
-    if not isinstance(data, dict):
-        return None, None
-    orientation = data.get("orientation") or data.get("Orientation") or data.get("blockOrientation") or data.get("BlockOrientation")
-    source = orientation if isinstance(orientation, dict) else data
+def read_orientation_pair_from_source(source: object) -> tuple[Optional[Vec3i], Optional[Vec3i]]:
     if not isinstance(source, dict):
         return None, None
     forward = (
@@ -409,6 +409,43 @@ def read_orientation_from_mapping(data: object) -> tuple[Optional[Vec3i], Option
     )
     up = source.get("Up") or source.get("up") or source.get("UpVector") or source.get("upVector")
     return parse_axis_direction(forward), parse_axis_direction(up)
+
+
+def read_orientation_from_mapping(data: object) -> tuple[Optional[Vec3i], Optional[Vec3i]]:
+    if not isinstance(data, dict):
+        return None, None
+
+    # IMPORTANT: grid telemetry contains two different orientation fields:
+    #   local_orientation: cardinal block orientation in the grid frame, e.g.
+    #                      {"forward": "Down", "up": "Backward"}
+    #   orientation:       world-space floating vectors, e.g. {"forward": {x,y,z}, ...}
+    # The projector placement math needs the local grid-frame orientation.
+    # Older versions read ``orientation`` first, failed to snap world vectors to
+    # grid axes, and silently fell back to identity axes for SmallProjector.
+    for key in (
+        "local_orientation",
+        "localOrientation",
+        "LocalOrientation",
+        "blockOrientation",
+        "BlockOrientation",
+    ):
+        forward, up = read_orientation_pair_from_source(data.get(key))
+        if forward is not None and up is not None:
+            return forward, up
+
+    forward, up = read_orientation_pair_from_source(data)
+    if forward is not None and up is not None:
+        return forward, up
+
+    # Last-resort fallback only. This may work for payloads where ``orientation``
+    # is already expressed as cardinal grid axes; it intentionally stays after
+    # local_orientation because world vectors are not valid grid-cell axes.
+    for key in ("orientation", "Orientation"):
+        forward, up = read_orientation_pair_from_source(data.get(key))
+        if forward is not None and up is not None:
+            return forward, up
+
+    return None, None
 
 
 def live_block_orientation(block: object) -> tuple[Optional[Vec3i], Optional[Vec3i]]:
@@ -425,6 +462,276 @@ def orientation_to_text(forward: Optional[Vec3i], up: Optional[Vec3i]) -> str:
     f_name = VEC_TO_DIRECTION.get(forward.as_tuple(), str(forward))
     u_name = VEC_TO_DIRECTION.get(up.as_tuple(), str(up))
     return f"Forward={f_name} Up={u_name}"
+
+
+def _float_tuple3(value: object) -> Optional[tuple[float, float, float]]:
+    """Read a 3D vector from telemetry.
+
+    Grid telemetry may encode vectors either as [x, y, z] arrays or as
+    {"x": ..., "y": ..., "z": ...} dictionaries.  v31 only accepted
+    arrays, therefore it printed world forward/up/right as "?" even though
+    the raw grid JSON contained those vectors.
+    """
+    if isinstance(value, dict):
+        try:
+            return (
+                float(value.get("x") if "x" in value else value.get("X")),
+                float(value.get("y") if "y" in value else value.get("Y")),
+                float(value.get("z") if "z" in value else value.get("Z")),
+            )
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(value, (list, tuple)) or len(value) < 3:
+        return None
+    try:
+        return float(value[0]), float(value[1]), float(value[2])
+    except (TypeError, ValueError):
+        return None
+
+
+def _read_from_sources(block: object, key: str) -> object:
+    if hasattr(block, key):
+        value = getattr(block, key)
+        if value is not None:
+            return value
+    for source in (getattr(block, "extra", None), getattr(block, "state", None)):
+        if isinstance(source, dict) and key in source:
+            return source.get(key)
+    return None
+
+
+def read_float3_from_block(block: object, *keys: str) -> Optional[tuple[float, float, float]]:
+    for key in keys:
+        parsed = _float_tuple3(_read_from_sources(block, key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def read_world_axes_from_block(block: object) -> Optional[dict[str, tuple[float, float, float]]]:
+    value = _read_from_sources(block, "orientation") or _read_from_sources(block, "Orientation")
+    if not isinstance(value, dict):
+        return None
+    axes: dict[str, tuple[float, float, float]] = {}
+    for name in ("forward", "backward", "up", "down", "right", "left"):
+        parsed = _float_tuple3(value.get(name) or value.get(name.capitalize()))
+        if parsed is not None:
+            axes[name] = parsed
+    return axes or None
+
+
+def fmt_float3(value: Optional[tuple[float, float, float]], decimals: int = 3) -> str:
+    if value is None:
+        return "?"
+    return f"({value[0]:.{decimals}f}, {value[1]:.{decimals}f}, {value[2]:.{decimals}f})"
+
+
+def float3_add(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+    return a[0] + b[0], a[1] + b[1], a[2] + b[2]
+
+
+def float3_sub(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+    return a[0] - b[0], a[1] - b[1], a[2] - b[2]
+
+
+def float3_scale(a: tuple[float, float, float], value: float) -> tuple[float, float, float]:
+    return a[0] * value, a[1] * value, a[2] * value
+
+
+def float3_len(a: tuple[float, float, float]) -> float:
+    return math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2])
+
+
+def live_block_face_direction(block: LiveBlock) -> Optional[Vec3i]:
+    return block.orientation_forward
+
+
+def world_axis_from_vec3i(block: LiveBlock, value: Optional[Vec3i]) -> Optional[tuple[float, float, float]]:
+    if value is None or block.world_axes is None:
+        return None
+    key = VEC_TO_DIRECTION.get(value.as_tuple())
+    if key is None:
+        return None
+    return block.world_axes.get(key.lower())
+
+
+def projector_local_vec_to_world(projector: LiveBlock, value: Vec3i, grid_step: float) -> Optional[tuple[float, float, float]]:
+    axes = projector.world_axes
+    if not axes:
+        return None
+    right = axes.get("right")
+    up = axes.get("up")
+    backward = axes.get("backward")
+    if right is None or up is None or backward is None:
+        return None
+    return (
+        (right[0] * value.x + up[0] * value.y + backward[0] * value.z) * grid_step,
+        (right[1] * value.x + up[1] * value.y + backward[1] * value.z) * grid_step,
+        (right[2] * value.x + up[2] * value.y + backward[2] * value.z) * grid_step,
+    )
+
+
+def predicted_world_from_projector_frame(
+    projector: LiveBlock,
+    blueprint_projector_min: Vec3i,
+    block_min: Vec3i,
+    offset: Vec3i,
+    rotation_transform: Rotation,
+    grid_step: float,
+) -> Optional[tuple[float, float, float]]:
+    if projector.world_position_m is None:
+        return None
+    projected_local = rotation_transform((block_min - blueprint_projector_min) + offset)
+    delta_world = projector_local_vec_to_world(projector, projected_local, grid_step)
+    if delta_world is None:
+        return None
+    return float3_add(projector.world_position_m, delta_world)
+
+
+def print_live_block_debug(label: str, block: LiveBlock, *, grid_step: float) -> None:
+    print(f"  {label}: {block.subtype or block.block_type} entity={block.entity_id or '?'} name={block.name or '?'}")
+    print(f"    Min cells:          {block.min}")
+    print(f"    Min as meters:      ({block.min.x * grid_step:.3f}, {block.min.y * grid_step:.3f}, {block.min.z * grid_step:.3f})")
+    print(f"    telemetry local_pos:{fmt_float3(block.local_position_m)}")
+    print(f"    world_pos:          {fmt_float3(block.world_position_m)}")
+    print(f"    relative_center:    {fmt_float3(block.relative_to_grid_center_m)}")
+    print(f"    local_orientation:  {orientation_to_text(block.orientation_forward, block.orientation_up)}")
+    if block.world_axes:
+        print(f"    world forward/up/right: f={fmt_float3(block.world_axes.get('forward'))} u={fmt_float3(block.world_axes.get('up'))} r={fmt_float3(block.world_axes.get('right'))}")
+    else:
+        print("    world forward/up/right: ?")
+
+
+def print_live_contact_debug(
+    *,
+    projector: LiveBlock,
+    live_pair: LiveContactPair,
+    projector_to_grid: Rotation,
+    grid_to_projector: Rotation,
+    grid_step: float,
+) -> None:
+    print("Live contact debug:")
+    print_live_block_debug("projector", projector, grid_step=grid_step)
+    print_live_block_debug("merge", live_pair.merge, grid_step=grid_step)
+    print_live_block_debug("connector", live_pair.connector, grid_step=grid_step)
+    print(f"  live merge->connector cells:       {live_pair.vector}")
+    print(f"  live merge->connector projector-local: {grid_to_projector(live_pair.vector)}")
+    if live_pair.merge.world_position_m is not None and live_pair.connector.world_position_m is not None:
+        delta = float3_sub(live_pair.connector.world_position_m, live_pair.merge.world_position_m)
+        print(f"  live merge->connector world delta: {fmt_float3(delta)} len={float3_len(delta):.3f}m")
+    if live_pair.merge.world_position_m is not None and projector.world_position_m is not None:
+        delta = float3_sub(live_pair.merge.world_position_m, projector.world_position_m)
+        print(f"  projector->live merge world delta: {fmt_float3(delta)} len={float3_len(delta):.3f}m")
+    print(f"  projector axes grid: local X->{projector_to_grid(Vec3i(1, 0, 0))}, local Y->{projector_to_grid(Vec3i(0, 1, 0))}, local Z->{projector_to_grid(Vec3i(0, 0, 1))}")
+    print("  live merge model-face candidates:")
+    for face_name in MERGE_MATE_FACE_CHOICES:
+        face_vec = live_model_face_vector(live_pair.merge, face_name)
+        if face_vec is None:
+            print(f"    {face_name:8s}: ?")
+            continue
+        valid = "valid-normal" if is_valid_contact_normal(face_vec, live_pair.vector) else "parallel-to-pair"
+        face_world = world_axis_from_vec3i(projector, face_vec)
+        print(f"    {face_name:8s}: grid={face_vec} world={fmt_float3(face_world)} {valid}")
+
+
+def print_projection_contact_debug(
+    *,
+    live_projector: LiveBlock,
+    blueprint_projector_min: Vec3i,
+    blueprint_pair: ContactPair,
+    live_pair: LiveContactPair,
+    projector_offset: Vec3i,
+    projection_rotation: Vec3i,
+    final_merge: Vec3i,
+    final_connector: Vec3i,
+    final_projected_merge_face: Optional[Vec3i],
+    grid_step: float,
+) -> None:
+    rotation_transform = projection_rotation_transform(projection_rotation)
+    merge_projector_local = rotation_transform((blueprint_pair.merge.min - blueprint_projector_min) + projector_offset)
+    connector_projector_local = rotation_transform((blueprint_pair.connector.min - blueprint_projector_min) + projector_offset)
+    merge_world = predicted_world_from_projector_frame(live_projector, blueprint_projector_min, blueprint_pair.merge.min, projector_offset, rotation_transform, grid_step)
+    connector_world = predicted_world_from_projector_frame(live_projector, blueprint_projector_min, blueprint_pair.connector.min, projector_offset, rotation_transform, grid_step)
+    live_delta_cells = final_merge - live_pair.merge.min
+    live_delta_world = projector_local_vec_to_world(live_projector, live_delta_cells, grid_step)
+    print("Projected contact debug:")
+    print("  NOTE: projected coordinates below are calculated from Python/projector math, not read back from game projection telemetry.")
+    print(f"  blueprint projector anchor Min:       {blueprint_projector_min}")
+    print(f"  blueprint merge original Min:         {blueprint_pair.merge.min}")
+    print(f"  blueprint connector original Min:     {blueprint_pair.connector.min}")
+    print(f"  ProjectionOffset/Rotation:            offset={projector_offset}, rotation={projection_rotation}")
+    print(f"  projected merge projector-local cells:{merge_projector_local}")
+    print(f"  projected conn. projector-local cells:{connector_projector_local}")
+    print(f"  projected merge live-grid Min:        {final_merge}")
+    print(f"  projected connector live-grid Min:    {final_connector}")
+    print(f"  target live merge Min:                {live_pair.merge.min}")
+    print(f"  target live connector Min:            {live_pair.connector.min}")
+    print(f"  projected merge-live delta cells:     {final_merge - live_pair.merge.min}")
+    print(f"  projected conn.-live delta cells:     {final_connector - live_pair.connector.min}")
+    print(f"  projected merge-live delta world by cells: {fmt_float3(live_delta_world)}")
+    print(f"  projected merge world approx:         {fmt_float3(merge_world)}")
+    print(f"  projected connector world approx:     {fmt_float3(connector_world)}")
+    if merge_world is not None and live_pair.merge.world_position_m is not None:
+        delta = float3_sub(merge_world, live_pair.merge.world_position_m)
+        print(f"  projected merge-live world delta:     {fmt_float3(delta)} len={float3_len(delta):.3f}m")
+    if connector_world is not None and live_pair.connector.world_position_m is not None:
+        delta = float3_sub(connector_world, live_pair.connector.world_position_m)
+        print(f"  projected conn.-live world delta:     {fmt_float3(delta)} len={float3_len(delta):.3f}m")
+    print(f"  projected merge face grid direction:  {final_projected_merge_face if final_projected_merge_face is not None else '?'}")
+    if final_projected_merge_face is not None:
+        face_world = world_axis_from_vec3i(live_projector, final_projected_merge_face)
+        print(f"  projected merge face world approx:    {fmt_float3(face_world)}")
+
+
+def print_projection_transform_audit(
+    *,
+    live_projector: LiveBlock,
+    blueprint_projector_min: Vec3i,
+    blueprint_pair: ContactPair,
+    live_pair: LiveContactPair,
+    offset: Vec3i,
+    rotation: Vec3i,
+    projector_to_grid: Rotation,
+    grid_step: float,
+) -> None:
+    """Print several transform conventions side-by-side for diagnosis."""
+    rot = projection_rotation_transform(rotation)
+    rel_merge = blueprint_pair.merge.min - blueprint_projector_min
+    rel_connector = blueprint_pair.connector.min - blueprint_projector_min
+
+    def p1(rel: Vec3i) -> Vec3i:
+        return live_projector.min + projector_to_grid(rot(rel + offset))
+
+    def p2(rel: Vec3i) -> Vec3i:
+        return live_projector.min + projector_to_grid(rot(rel) + offset)
+
+    def p3(rel: Vec3i) -> Vec3i:
+        return live_projector.min + projector_to_grid(rel + offset)
+
+    variants = [
+        ("A assumed game R(rel+offset)", p1),
+        ("B alternative R(rel)+offset", p2),
+        ("C no native rotation rel+offset", p3),
+    ]
+    print("Projection transform audit:")
+    print(f"  live projector Min:       {live_projector.min}  local_pos={fmt_float3(live_projector.local_position_m)}  world={fmt_float3(live_projector.world_position_m)}")
+    print(f"  live projector orient:    {orientation_to_text(live_projector.orientation_forward, live_projector.orientation_up)}")
+    print(f"  projection offset/rot:    offset={offset}, rotation={rotation}")
+    print(f"  blueprint rel merge:      {rel_merge}; rel connector: {rel_connector}")
+    for label, func in variants:
+        m = func(rel_merge)
+        c = func(rel_connector)
+        md = m - live_pair.merge.min
+        cd = c - live_pair.connector.min
+        mw = None
+        if live_projector.world_position_m is not None:
+            mw_delta = projector_local_vec_to_world(live_projector, m - live_projector.min, grid_step)
+            if mw_delta is not None:
+                mw = float3_add(live_projector.world_position_m, mw_delta)
+        print(f"  {label}:")
+        print(f"    merge={m}, connector={c}, pair={c - m}")
+        print(f"    merge-live delta={md}, connector-live delta={cd}")
+        print(f"    merge world approx={fmt_float3(mw)}")
 
 
 def identity_rotation(value: Vec3i) -> Vec3i:
@@ -470,16 +777,48 @@ def parse_direction_arg(value: str) -> Vec3i:
         raise argparse.ArgumentTypeError(f"direction must be one of: {valid}")
     return parsed
 
-def block_forward_vector(block: BlueprintBlock) -> Vec3i:
-    """Return the block Forward direction in the block/grid coordinate frame.
+MERGE_MATE_FACE_CHOICES = ("forward", "backward", "right", "left", "up", "down")
 
-    For a Merge Block this is the important mating-face direction.  Using this
-    direction as the contact side is stricter than collision-based auto side
-    selection: it keeps the projected merge block directly in front of the live
-    merge block instead of allowing the projection to be placed above/below it.
+
+def model_face_vector_from_axes(right: Vec3i, up: Vec3i, forward: Vec3i, face: str) -> Vec3i:
+    value = str(face or "forward").strip().lower()
+    if value == "forward":
+        return forward
+    if value == "backward":
+        return -forward
+    if value == "right":
+        return right
+    if value == "left":
+        return -right
+    if value == "up":
+        return up
+    if value == "down":
+        return -up
+    raise ValueError(f"unsupported merge mate face: {face!r}")
+
+
+def block_model_face_vector(block: BlueprintBlock, face: str = "forward") -> Vec3i:
+    """Return a model-space face direction expressed in blueprint grid cells.
+
+    Space Engineers block orientation maps the model axes Forward/Up/Right to
+    grid directions. Earlier versions assumed that the Merge Block mating face
+    is always model Forward. This diagnostic version can try all six model
+    faces because mods/game blocks may expose their terminal orientation in a
+    way that differs from the actual visible merge plate.
     """
-    _right, _up, forward = block_orientation_axes(block.element)
-    return forward
+    right, up, forward = block_orientation_axes(block.element)
+    return model_face_vector_from_axes(right, up, forward, face)
+
+
+def live_model_face_vector(block: LiveBlock, face: str = "forward") -> Optional[Vec3i]:
+    forward = block.orientation_forward
+    up = block.orientation_up
+    if forward is None or up is None:
+        return None
+    right = vec_cross(forward, up)
+    if right.manhattan() != 1:
+        return None
+    return model_face_vector_from_axes(right, up, forward, face)
 
 
 def is_valid_contact_normal(normal: Vec3i, contact_vector: Vec3i) -> bool:
@@ -651,6 +990,7 @@ def block_to_live(block: object, grid_step: float) -> Optional[LiveBlock]:
         return None
     entity_id = getattr(block, "block_id", None)
     forward, up = live_block_orientation(block)
+    local_position_m = _float_tuple3(local_position)
     return LiveBlock(
         block_type=str(getattr(block, "block_type", "") or ""),
         subtype=str(getattr(block, "subtype", "") or ""),
@@ -663,6 +1003,10 @@ def block_to_live(block: object, grid_step: float) -> Optional[LiveBlock]:
         ),
         orientation_forward=forward,
         orientation_up=up,
+        local_position_m=local_position_m,
+        world_position_m=read_float3_from_block(block, "world_pos", "worldPos", "world_position", "worldPosition"),
+        relative_to_grid_center_m=read_float3_from_block(block, "relative_to_grid_center", "relativeToGridCenter"),
+        world_axes=read_world_axes_from_block(block),
     )
 
 
@@ -673,6 +1017,107 @@ def collect_live_blocks(grid: object, grid_step: float) -> list[LiveBlock]:
         if live is not None:
             result.append(live)
     return result
+
+
+
+def read_xml_orientation(element: ET.Element) -> tuple[Optional[Vec3i], Optional[Vec3i]]:
+    orientation = element.find("BlockOrientation")
+    if orientation is None:
+        return None, None
+    forward_name = orientation.attrib.get("Forward", "")
+    up_name = orientation.attrib.get("Up", "")
+    forward = DIRECTION_TO_VEC.get(forward_name)
+    up = DIRECTION_TO_VEC.get(up_name)
+    if forward is None or up is None:
+        return None, None
+    return Vec3i(*forward), Vec3i(*up)
+
+
+def iter_cube_grids(root: ET.Element) -> list[ET.Element]:
+    cube_grids = root.find("CubeGrids")
+    if cube_grids is None:
+        return []
+    return [grid for grid in list(cube_grids) if local_name(grid.tag) == "CubeGrid"]
+
+
+def collect_live_blocks_from_blueprint_xml(xml: str) -> list[LiveBlock]:
+    """Read live block Min/BlockOrientation from a fresh grid blueprint export.
+
+    Grid telemetry may expose local positions but omit BlockOrientation.  For a
+    projector this is fatal: its local X/Y/Z UI axes can differ from grid X/Y/Z.
+    A grid blueprint export is more authoritative because it serializes each
+    block exactly as Space Engineers stores it.
+    """
+    tree = parse_blueprint_text(xml)
+    root = tree.getroot()
+    result: list[LiveBlock] = []
+    for cube_grid in iter_cube_grids(root):
+        cube_blocks = cube_grid.find("CubeBlocks")
+        if cube_blocks is None:
+            continue
+        for element in list(cube_blocks):
+            min_pos = read_min(element)
+            if min_pos is None:
+                continue
+            forward, up = read_xml_orientation(element)
+            result.append(
+                LiveBlock(
+                    block_type=xsi_type(element),
+                    subtype=child_text(element, "SubtypeName"),
+                    entity_id=parse_int(child_text(element, "EntityId")),
+                    name=child_text(element, "CustomName"),
+                    min=min_pos,
+                    orientation_forward=forward,
+                    orientation_up=up,
+                )
+            )
+    return result
+
+
+def try_refresh_live_frame_from_projector_export(
+    projector: object,
+    *,
+    timeout: float,
+    include_connected: bool,
+    live_projector_id: Optional[int],
+    telemetry_live_blocks: list[LiveBlock],
+) -> tuple[list[LiveBlock], Optional[LiveBlock], str]:
+    """Export the current live grid and use it as the coordinate/orientation frame.
+
+    Returns (live_blocks, live_projector_block, message).  Falls back to the
+    telemetry block list on any error.
+    """
+    telemetry_map = live_blocks_by_entity(telemetry_live_blocks)
+    telemetry_projector = telemetry_map.get(live_projector_id) if live_projector_id is not None else None
+    try:
+        seq_id = projector.request_grid_blueprint(include_connected=include_connected)
+        print(f"live frame export request_grid_blueprint sent: seq_id={seq_id}, include_connected={include_connected}")
+        xml = wait_for_grid_blueprint_xml(projector, timeout)
+        exported_blocks = collect_live_blocks_from_blueprint_xml(xml)
+    except Exception as exc:
+        return telemetry_live_blocks, telemetry_projector, f"live blueprint frame export failed: {exc}; using telemetry positions"
+
+    exported_map = live_blocks_by_entity(exported_blocks)
+    exported_projector = exported_map.get(live_projector_id) if live_projector_id is not None else None
+    if exported_projector is None:
+        return telemetry_live_blocks, telemetry_projector, (
+            f"live blueprint frame export returned {len(exported_blocks)} blocks but did not contain projector "
+            f"entity={live_projector_id}; using telemetry positions"
+        )
+
+    if not exported_blocks:
+        return telemetry_live_blocks, telemetry_projector, "live blueprint frame export returned no blocks; using telemetry positions"
+
+    # Prefer the exported frame as a coherent coordinate system.  Mixing
+    # telemetry coordinates with exported projector orientation can introduce a
+    # one-grid-cell drift if the origins differ.
+    message = (
+        f"live blueprint frame export accepted: blocks={len(exported_blocks)}, "
+        f"projector Min={exported_projector.min}, orientation={orientation_to_text(exported_projector.orientation_forward, exported_projector.orientation_up)}"
+    )
+    if telemetry_projector is not None and telemetry_projector.min != exported_projector.min:
+        message += f"; telemetry projector Min was {telemetry_projector.min}"
+    return exported_blocks, exported_projector, message
 
 
 def live_blocks_by_entity(live_blocks: Iterable[LiveBlock]) -> dict[int, LiveBlock]:
@@ -739,10 +1184,31 @@ def fill_missing_projector_min(cube_blocks: ET.Element, fallback_min: Optional[V
     return filled
 
 
-def remove_blocks_without_min(cube_blocks: ET.Element) -> list[str]:
+
+
+def first_preview_block_origin_min(cube_blocks: ET.Element) -> tuple[Vec3i, str]:
+    """Return the Min that Space Engineers uses for PreviewGrids[0].CubeBlocks.First().
+
+    MyProjectorClipboard recenters the preview so the first preview block is at the
+    projector transform. If the first XML block has no <Min>, VRage deserializes the
+    Vector3I as default (0,0,0). Filling that missing Min with the live projector
+    cell changes the real vanilla origin and breaks small projector placement.
+    """
+    for block in list(cube_blocks):
+        min_pos = read_min(block)
+        subtype = child_text(block, "SubtypeName", "") or "?"
+        entity_id = child_text(block, "EntityId", "?")
+        if min_pos is None:
+            return Vec3i(0, 0, 0), f"first XML block {xsi_type(block)}:{subtype} entity={entity_id} has no Min -> default (0,0,0)"
+        return min_pos, f"first XML block {xsi_type(block)}:{subtype} entity={entity_id} Min={min_pos}"
+    return Vec3i(0, 0, 0), "CubeBlocks is empty -> default (0,0,0)"
+
+def remove_blocks_without_min(cube_blocks: ET.Element, *, preserve_projectors: bool = False) -> list[str]:
     removed: list[str] = []
     for block in list(cube_blocks):
         if read_min(block) is not None:
+            continue
+        if preserve_projectors and is_projector_type(xsi_type(block), child_text(block, "SubtypeName")):
             continue
         removed.append(f"{xsi_type(block)}:{child_text(block, 'SubtypeName', '') or '?'} entity={child_text(block, 'EntityId', '?')}")
         cube_blocks.remove(block)
@@ -942,22 +1408,37 @@ def rotate_steps_around_axis(axis: str, steps: int) -> Rotation:
 def projection_rotation_for_contact_axis(axis: str, preflip: bool) -> Vec3i:
     if not preflip:
         return Vec3i(0, 0, 0)
+    # ProjectionRotation uses source-code yaw/pitch/roll fields:
+    # x=yaw around local Y, y=pitch around local X, z=roll around local Z.
     if axis == "x":
-        return Vec3i(2, 0, 0)
-    if axis == "y":
         return Vec3i(0, 2, 0)
+    if axis == "y":
+        return Vec3i(2, 0, 0)
     if axis == "z":
         return Vec3i(0, 0, 2)
     raise ValueError(f"unsupported contact axis: {axis}")
 
 
 def projection_rotation_transform(rotation: Vec3i) -> Rotation:
-    # The projector stores rotation as 90-degree steps. The transform below is
-    # deterministic for all cube rotations reachable through X/Y/Z projector steps.
-    rx = rotate_steps_around_axis("x", rotation.x)
-    ry = rotate_steps_around_axis("y", rotation.y)
-    rz = rotate_steps_around_axis("z", rotation.z)
-    return compose_rotations(compose_rotations(rx, ry), rz)
+    # Space Engineers does NOT interpret ProjectionRotation as simple
+    # rotate-X / rotate-Y / rotate-Z UI fields.  Vanilla MyProjectorBase does:
+    #
+    #   Vector3 angles = ProjectionRotation * RotationAngleStepDeg;
+    #   Quaternion.CreateFromYawPitchRoll(angles.X, angles.Y, angles.Z);
+    #
+    # Therefore:
+    #   rotation.x is yaw   -> local Y axis
+    #   rotation.y is pitch -> local X axis
+    #   rotation.z is roll  -> local Z axis
+    #
+    # With Space Engineers/XNA row-vector matrix convention, yaw/pitch/roll is
+    # applied as yaw, then pitch, then roll in projector-local coordinates.
+    # For the common 180-degree flip around local X this yields (0, 2, 0),
+    # not the old incorrect (0, 2, 2).
+    yaw_y = rotate_steps_around_axis("y", rotation.x)
+    pitch_x = rotate_steps_around_axis("x", rotation.y)
+    roll_z = rotate_steps_around_axis("z", rotation.z)
+    return compose_rotations(compose_rotations(yaw_y, pitch_x), roll_z)
 
 
 def rotations_are_equal(first: Rotation, second: Rotation) -> bool:
@@ -975,6 +1456,49 @@ def find_projection_rotation_for_transform(desired_transform: Rotation) -> Vec3i
                 if rotations_are_equal(projection_rotation_transform(candidate), desired_transform):
                     return candidate
     raise ValueError("cannot represent prepared blueprint rotation with projector ProjectionRotation steps")
+
+
+def find_projection_rotation_matching_pairs(pairs: list[tuple[Vec3i, Vec3i]]) -> Optional[Vec3i]:
+    """Find a native ProjectionRotation matching all source->target direction pairs.
+
+    ProjectionRotation uses the Space Engineers yaw/pitch/roll convention, so
+    this enumerates actual projector rotations instead of assuming X/Y/Z UI
+    fields are direct axes.  Pairs are expressed in projector-local cells.
+    """
+    for x in range(4):
+        for y in range(4):
+            for z in range(4):
+                candidate = Vec3i(x, y, z)
+                transform = projection_rotation_transform(candidate)
+                if all(transform(source) == target for source, target in pairs):
+                    return candidate
+    return None
+
+
+def choose_merge_mate_face_for_contact(
+    blueprint_merge: BlueprintBlock,
+    rotation_transform: Rotation,
+    projector_to_grid: Rotation,
+    contact_normal: Optional[Vec3i],
+    requested_face: str,
+) -> str:
+    """Resolve the merge mating face after the contact side is known.
+
+    For small-grid projector alignment the important rule is face-to-face:
+    the projected merge face must point back toward the live merge block, i.e.
+    projected_face == -contact_normal.  If the user did not force a face,
+    select the model face that satisfies that rule.
+    """
+    if requested_face != "auto":
+        return requested_face
+    if contact_normal is None or contact_normal.manhattan() != 1:
+        return "forward"
+    wanted = -contact_normal
+    for face_name in MERGE_MATE_FACE_CHOICES:
+        projected_face = projector_to_grid(rotation_transform(block_model_face_vector(blueprint_merge, face_name)))
+        if projected_face == wanted:
+            return face_name
+    return "forward"
 
 
 def prepared_projection_direction_transform(source_vector: Vec3i, target_vector: Vec3i, *, preflip: bool) -> Rotation:
@@ -1368,6 +1892,21 @@ def choose_placement(
     return candidates[0]
 
 
+def inverse_rotation(rotation: Rotation) -> Rotation:
+    """Return the inverse of a cube-grid rotation function.
+
+    Space Engineers applies projector UI offset in projector-local blueprint
+    coordinates first, then applies ProjectionRotation to the shifted blueprint.
+    To compute such an offset from a desired grid-space contact point we need
+    the inverse of the requested native ProjectionRotation.
+    """
+    basis = (Vec3i(1, 0, 0), Vec3i(0, 1, 0), Vec3i(0, 0, 1))
+    for _matrix, candidate in cube_rotations():
+        if all(candidate(rotation(axis)) == axis for axis in basis):
+            return candidate
+    raise ValueError("cannot invert projector rotation transform")
+
+
 def predicted_position_with_rotation(
     live_projector_min: Vec3i,
     blueprint_projector_min: Vec3i,
@@ -1377,11 +1916,20 @@ def predicted_position_with_rotation(
     anchor_mode: str = "grid-origin",
     projector_to_grid: Rotation = identity_rotation,
 ) -> Vec3i:
+    # Space Engineers source formula from MyProjectorClipboard.UpdateGridTransformations():
+    #   worldMatrix = ProjectionRotation * projector.WorldMatrix
+    #   worldMatrix.Translation -= Transform(ProjectionOffset * GridSize, projector.WorldMatrix.GetOrientation())
+    #   worldMatrix.Translation += worldMatrix.Translation - GridIntegerToWorld(firstBlock.Position, worldMatrix)
+    # Therefore the effective block position is:
+    #   projector + R(block - firstBlock) - projectorOrientation(offset)
+    # Offset is NOT rotated by ProjectionRotation.  It is subtracted in projector-local axes.
     if anchor_mode == "projector-block":
-        return live_projector_min + projector_to_grid(rotation_transform(block_min - blueprint_projector_min) + offset)
+        rotated_rel = rotation_transform(block_min - blueprint_projector_min)
+        return live_projector_min + projector_to_grid(rotated_rel - offset)
     if anchor_mode == "projector-origin":
-        return live_projector_min + projector_to_grid(rotation_transform(block_min) + offset)
-    return rotation_transform(block_min) + offset
+        rotated_rel = rotation_transform(block_min)
+        return live_projector_min + projector_to_grid(rotated_rel - offset)
+    return rotation_transform(block_min) - offset
 
 
 def compute_offset_for_target_with_rotation(
@@ -1393,15 +1941,19 @@ def compute_offset_for_target_with_rotation(
     anchor_mode: str = "grid-origin",
     grid_to_projector: Rotation = identity_rotation,
 ) -> Vec3i:
+    # In the vanilla projector formula offset is subtracted after rotating the blueprint,
+    # and offset itself is expressed in projector-local axes.  Solve:
+    #   targetLocal = R(contact - anchor) - offset
+    #   offset = R(contact - anchor) - targetLocal
     if anchor_mode == "projector-block":
-        current_local = rotation_transform(blueprint_contact_min - blueprint_projector_min)
         target_local = grid_to_projector(target_contact_min - live_projector_min)
-        return target_local - current_local
+        rotated_contact_rel = rotation_transform(blueprint_contact_min - blueprint_projector_min)
+        return rotated_contact_rel - target_local
     if anchor_mode == "projector-origin":
-        current_local = rotation_transform(blueprint_contact_min)
         target_local = grid_to_projector(target_contact_min - live_projector_min)
-        return target_local - current_local
-    return target_contact_min - rotation_transform(blueprint_contact_min)
+        rotated_contact_rel = rotation_transform(blueprint_contact_min)
+        return rotated_contact_rel - target_local
+    return rotation_transform(blueprint_contact_min) - target_contact_min
 
 
 def choose_placement_projector_rotation(
@@ -1504,6 +2056,899 @@ def choose_placement_projector_rotation(
     candidates.sort(key=lambda item: (item.collisions, -item.predicted_center_score, item.normal.as_tuple()))
     return candidates[0]
 
+
+
+def contact_alignment_report(
+    *,
+    final_merge: Vec3i,
+    final_connector: Vec3i,
+    projected_merge_face: Optional[Vec3i],
+    live_pair: LiveContactPair,
+    placement: PlacementCandidate,
+    contact_gap: int,
+) -> bool:
+    """Print a strict contact check for the projected Merge/Connector pair.
+
+    The important distinction is that the projected blocks should not overlap the
+    live blocks.  In normal opposite mode they must be exactly one contact-gap
+    away from the live pair, and both projected blocks must have the same delta
+    from their corresponding live blocks.
+    """
+    merge_delta_to_target = final_merge - placement.target_merge
+    connector_delta_to_target = final_connector - placement.target_connector
+    merge_delta_to_live = final_merge - live_pair.merge.min
+    connector_delta_to_live = final_connector - live_pair.connector.min
+    expected_live_delta = placement.normal * contact_gap
+    pair_vector = final_connector - final_merge
+
+    merge_target_ok = merge_delta_to_target == Vec3i(0, 0, 0)
+    connector_target_ok = connector_delta_to_target == Vec3i(0, 0, 0)
+    merge_live_ok = merge_delta_to_live == expected_live_delta
+    connector_live_ok = connector_delta_to_live == expected_live_delta
+    pair_ok = pair_vector == live_pair.vector
+    expected_projected_face = -expected_live_delta if expected_live_delta != Vec3i(0, 0, 0) else None
+    face_ok = True
+    if projected_merge_face is not None and expected_projected_face is not None:
+        face_ok = projected_merge_face == expected_projected_face
+    all_ok = merge_target_ok and connector_target_ok and merge_live_ok and connector_live_ok and pair_ok and face_ok
+
+    print("Contact verification:")
+    print(f"  live merge Min:             {live_pair.merge.min}")
+    print(f"  live connector Min:         {live_pair.connector.min}")
+    print(f"  projected merge Min:        {final_merge}")
+    print(f"  projected connector Min:    {final_connector}")
+    print(f"  expected projected merge:   {placement.target_merge}")
+    print(f"  expected projected connector:{placement.target_connector}")
+    print(f"  merge target delta:         {merge_delta_to_target} {'OK' if merge_target_ok else 'FAIL'}")
+    print(f"  connector target delta:     {connector_delta_to_target} {'OK' if connector_target_ok else 'FAIL'}")
+    print(f"  expected live contact delta:{expected_live_delta}")
+    print(f"  merge-live delta:           {merge_delta_to_live} {'OK' if merge_live_ok else 'FAIL'}")
+    print(f"  connector-live delta:       {connector_delta_to_live} {'OK' if connector_live_ok else 'FAIL'}")
+    print(f"  projected pair vector:      {pair_vector}; live pair vector: {live_pair.vector} {'OK' if pair_ok else 'FAIL'}")
+    if projected_merge_face is None or expected_projected_face is None:
+        print("  projected merge face:      ? (face verification unavailable)")
+    else:
+        print(f"  projected merge face:       {projected_merge_face}; expected: {expected_projected_face} {'OK' if face_ok else 'FAIL'}")
+    print(f"  CONTACT VERIFY:             {'PASS' if all_ok else 'FAIL'}")
+    return all_ok
+
+
+def _dict_int_value(data: dict, names: tuple[str, ...]) -> Optional[int]:
+    for name in names:
+        parsed = parse_int(data.get(name))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _extract_named_vec3(data: dict, names: tuple[str, ...]) -> Optional[Vec3i]:
+    for name in names:
+        value = data.get(name)
+        parsed = telemetry_vec3(value)
+        if parsed is not None:
+            return parsed
+        if isinstance(value, dict):
+            parsed = telemetry_vec3(value.get("min") or value.get("Min") or value.get("position") or value.get("Position"))
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _walk_dicts(value: object) -> Iterable[dict]:
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_dicts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_dicts(child)
+
+
+def _projection_report_entries_for_entity(report: dict, entity_id: Optional[int]) -> list[dict]:
+    if entity_id is None:
+        return []
+    result: list[dict] = []
+    id_keys = (
+        "entityId",
+        "EntityId",
+        "id",
+        "Id",
+        "blockId",
+        "BlockId",
+        "sourceEntityId",
+        "originalEntityId",
+        "projectedEntityId",
+    )
+    for item in _walk_dicts(report):
+        if _dict_int_value(item, id_keys) == entity_id:
+            result.append(item)
+    return result
+
+
+def _summarize_projection_report_entry(entry: dict) -> str:
+    position = _extract_named_vec3(entry, ("min", "Min", "position", "Position", "localPosition", "local_pos", "projectedMin", "projectedPosition"))
+    status_parts: list[str] = []
+    for key in ("status", "state", "reason", "buildable", "isBuildable", "missing", "remaining", "definition", "subtype", "SubtypeName"):
+        if key in entry:
+            status_parts.append(f"{key}={entry.get(key)}")
+    position_text = f"pos={position}" if position is not None else "pos=?"
+    details = ", ".join(status_parts[:8]) if status_parts else "no status fields"
+    return f"{position_text}; {details}"
+
+
+def scan_projection_contact_report(
+    projector: object,
+    *,
+    wait: float,
+    max_blocks: int,
+    merge_entity_id: Optional[int],
+    connector_entity_id: Optional[int],
+    output_path: Optional[Path] = None,
+) -> None:
+    """Ask the plugin for a projection report and try to locate contact blocks.
+
+    This is the only check that can use the projector plugin's view after the
+    blueprint has been loaded.  Some plugin builds only report missing blocks and
+    component counts, so absence of contact EntityId entries is diagnostic rather
+    than a hard failure.
+    """
+    report: dict = {}
+
+    # New plugin path: asks the C# projector device to return actual projected-grid
+    # data, not only Python-calculated coordinates. Older plugin builds will simply
+    # ignore this command; then we fall back to the old projection_report wrapper.
+    sender = getattr(projector, "send_command", None)
+    if callable(sender):
+        try:
+            seq_id = sender({
+                "cmd": "projection_contact_report",
+                "state": {
+                    "sourceMergeEntityId": int(merge_entity_id) if merge_entity_id is not None else None,
+                    "sourceConnectorEntityId": int(connector_entity_id) if connector_entity_id is not None else None,
+                    "contact": True,
+                    "includeProjectedBlocks": True,
+                    "maxBlocks": int(max_blocks),
+                },
+            })
+            print(f"projection_contact_report request sent: seq_id={seq_id}")
+            time.sleep(max(0.0, wait))
+            refresh_projector_telemetry(projector, timeout=1.0)
+        except Exception as exc:
+            print(f"WARNING: projection_contact_report request failed: {exc}")
+
+    getter = getattr(projector, "projection_report", None)
+    if callable(getter):
+        try:
+            report = getter()
+        except Exception:
+            report = {}
+
+    if not isinstance(report, dict) or not report:
+        scanner = getattr(projector, "scan_projection_report", None)
+        if callable(scanner):
+            try:
+                report = scanner(wait=wait, max_blocks=max_blocks)
+            except Exception as exc:
+                print(f"WARNING: projection report scan failed: {exc}")
+                report = {}
+        else:
+            requester = getattr(projector, "request_projection_report", None)
+            if callable(requester):
+                try:
+                    seq_id = requester(max_blocks=max_blocks)
+                    print(f"projection_report request sent: seq_id={seq_id}")
+                    time.sleep(max(0.0, wait))
+                    refresh_projector_telemetry(projector, timeout=1.0)
+                except Exception as exc:
+                    print(f"WARNING: projection report request failed: {exc}")
+            getter = getattr(projector, "projection_report", None)
+            if callable(getter):
+                try:
+                    report = getter()
+                except Exception:
+                    report = {}
+
+    if not isinstance(report, dict) or not report:
+        print("Projection contact report: unavailable or empty")
+        return
+
+    if output_path is not None:
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"Projection contact report saved: {output_path}")
+        except Exception as exc:
+            print(f"WARNING: failed to save projection report: {exc}")
+
+    print(f"Projection contact report keys: {', '.join(sorted(str(key) for key in report.keys())[:20])}")
+    source = report.get("source")
+    if source:
+        print(f"Projection contact report source: {source}")
+    actual = report.get("actualProjected")
+    if isinstance(actual, dict):
+        print(
+            "Projection actual projected grids: "
+            f"available={actual.get('available')} gridCount={actual.get('gridCount')} reason={actual.get('reason', '')}"
+        )
+        grids = actual.get("grids")
+        if isinstance(grids, list):
+            for grid_index, grid_data in enumerate(grids[:3], 1):
+                if not isinstance(grid_data, dict):
+                    continue
+                print(
+                    f"  actual grid[{grid_index}]: id={grid_data.get('gridId')} "
+                    f"name={grid_data.get('gridName')} blockCount={grid_data.get('blockCount')} "
+                    f"listed={grid_data.get('listedBlockCount')}"
+                )
+                blocks = grid_data.get("blocks")
+                if isinstance(blocks, list):
+                    shown = 0
+                    for block in blocks:
+                        if not isinstance(block, dict):
+                            continue
+                        text = f"{block.get('type')}/{block.get('subtype')}".lower()
+                        if block.get("selectedContact") or "merge" in text or "connector" in text:
+                            print(f"    actual block: {_summarize_projection_report_entry(block)} entity={block.get('entityId')}")
+                            shown += 1
+                        if shown >= 10:
+                            break
+    members = report.get("projectorReflectionMembers")
+    if isinstance(members, list) and members:
+        print("Projection projector reflection members with projection/grid names:")
+        for member in members[:30]:
+            if isinstance(member, dict):
+                print(
+                    f"  {member.get('kind')} {member.get('name')} type={member.get('type')} "
+                    f"valueType={member.get('valueType')} isNull={member.get('isNull')}"
+                )
+    for label, entity_id in (("merge", merge_entity_id), ("connector", connector_entity_id)):
+        entries = _projection_report_entries_for_entity(report, entity_id)
+        if not entries:
+            print(f"Projection contact report: {label} entity={entity_id or '?'} not found")
+            continue
+        print(f"Projection contact report: {label} entity={entity_id} entries={len(entries)}")
+        for index, entry in enumerate(entries[:5], 1):
+            print(f"  {label}[{index}]: {_summarize_projection_report_entry(entry)}")
+
+
+
+def build_projection_probe_candidates(
+    *,
+    live_projector_min: Vec3i,
+    blueprint_projector_min: Vec3i,
+    blueprint_pair: ContactPair,
+    live_pair: LiveContactPair,
+    base_offset: Vec3i,
+    base_rotation: Vec3i,
+    base_normal: Vec3i,
+    anchor_mode: str,
+    contact_gap: int,
+    projector_to_grid: Rotation,
+    grid_to_projector: Rotation,
+    radius: int,
+    rotation_mode: str,
+    normal_mode: str,
+    limit: int,
+) -> list[dict]:
+    """Build projector transform candidates for C# game-side probing.
+
+    The Python math has repeatedly been wrong because the game applies projector
+    transforms through internal code.  This list deliberately includes nearby
+    offsets, contact-side alternatives and all rotations that preserve the
+    merge/connector vector.  The plugin then tests them in the live game and
+    ranks by BuildableBlocksCount.
+    """
+    radius = max(0, int(radius))
+    limit = max(1, int(limit))
+
+    if rotation_mode == "current":
+        rotations = [base_rotation]
+    else:
+        rotations = []
+        for x in range(4):
+            for y in range(4):
+                for z in range(4):
+                    candidate = Vec3i(x, y, z)
+                    if rotation_mode == "contact":
+                        transformed_pair = projector_to_grid(projection_rotation_transform(candidate)(blueprint_pair.vector))
+                        if transformed_pair != live_pair.vector:
+                            continue
+                    rotations.append(candidate)
+        if not rotations:
+            rotations = [base_rotation]
+
+    if normal_mode == "current":
+        normals = [base_normal]
+    else:
+        normals = normal_candidates(live_pair.vector, "auto")
+
+    seen: set[tuple[int, int, int, int, int, int]] = set()
+    result: list[dict] = []
+
+    def add_candidate(offset: Vec3i, rotation: Vec3i, label: str, priority: int) -> None:
+        key = offset.as_tuple() + rotation.as_tuple()
+        if key in seen:
+            return
+        seen.add(key)
+        result.append({
+            "label": label,
+            "offset": {"x": offset.x, "y": offset.y, "z": offset.z},
+            "rotation": {"x": rotation.x, "y": rotation.y, "z": rotation.z},
+            "priority": priority,
+        })
+
+    add_candidate(base_offset, base_rotation, "python-current", 0)
+
+    # Try the exact analytically computed candidates first.
+    priority = 10
+    exact_candidates: list[tuple[Vec3i, Vec3i, Vec3i, str, int]] = []
+    for rotation in rotations:
+        transform = projection_rotation_transform(rotation)
+        transformed_pair = projector_to_grid(transform(blueprint_pair.vector))
+        if transformed_pair != live_pair.vector:
+            continue
+        for normal in normals:
+            if normal.dot(live_pair.vector) != 0:
+                continue
+            target_merge = live_pair.merge.min + normal * contact_gap
+            try:
+                offset = compute_offset_for_target_with_rotation(
+                    live_projector_min,
+                    blueprint_projector_min,
+                    blueprint_pair.merge.min,
+                    target_merge,
+                    transform,
+                    anchor_mode,
+                    grid_to_projector,
+                )
+            except Exception:
+                continue
+            exact_candidates.append((offset, rotation, normal, f"exact normal={normal} rot={rotation}", priority))
+            priority += 1
+
+    # Current predicted transform first, then the rest.
+    for offset, rotation, normal, label, prio in exact_candidates:
+        add_candidate(offset, rotation, label, prio)
+
+    # Add small offset neighborhoods around each exact candidate. This compensates
+    # for projector origin/model-origin differences without hardcoding them.
+    for offset, rotation, normal, label, prio in exact_candidates:
+        for dx in range(-radius, radius + 1):
+            for dy in range(-radius, radius + 1):
+                for dz in range(-radius, radius + 1):
+                    if dx == 0 and dy == 0 and dz == 0:
+                        continue
+                    candidate_offset = Vec3i(offset.x + dx, offset.y + dy, offset.z + dz)
+                    add_candidate(candidate_offset, rotation, f"near {label} d=({dx},{dy},{dz})", prio + 100)
+                    if len(result) >= limit:
+                        return result
+
+    return result[:limit]
+
+
+def run_projection_probe(
+    projector: object,
+    candidates: list[dict],
+    *,
+    wait: float,
+    apply_best: bool,
+    max_candidates: int,
+) -> dict:
+    if not candidates:
+        print("Projection probe: no candidates generated")
+        return {}
+
+    print(f"Projection probe: sending {len(candidates)} candidates, apply_best={apply_best}")
+    sender = getattr(projector, "send_command", None)
+    if not callable(sender):
+        print("Projection probe: projector.send_command is unavailable")
+        return {}
+
+    try:
+        seq_id = sender({
+            "cmd": "projection_probe",
+            "state": {
+                "candidates": candidates[:max_candidates],
+                "applyBest": bool(apply_best),
+                "restoreOriginal": not bool(apply_best),
+                "maxCandidates": int(max_candidates),
+            },
+        })
+        print(f"projection_probe request sent: seq_id={seq_id}")
+    except Exception as exc:
+        print(f"WARNING: projection_probe request failed: {exc}")
+        return {}
+
+    deadline = time.time() + max(0.1, float(wait))
+    report: dict = {}
+    while time.time() <= deadline:
+        time.sleep(0.25)
+        refresh_projector_telemetry(projector, timeout=0.75)
+        getter = getattr(projector, "projection_report", None)
+        if callable(getter):
+            try:
+                candidate_report = getter()
+            except Exception:
+                candidate_report = {}
+            if isinstance(candidate_report, dict) and candidate_report.get("source") == "projection_probe_v36":
+                report = candidate_report
+                break
+
+    if not report:
+        print("Projection probe: no v36 probe report returned. Check that the v36 plugin is deployed and restarted.")
+        telemetry = getattr(projector, "telemetry", None) or {}
+        print(f"  supportsProjectionProbe: {telemetry.get('supportsProjectionProbe')}")
+        print(f"  projectorContactReportVersion: {telemetry.get('projectorContactReportVersion')}")
+        return {}
+
+    print(
+        "Projection probe result: "
+        f"candidates={report.get('candidateCount')} bestIndex={report.get('bestIndex')} "
+        f"bestBuildable={report.get('bestBuildableBlocks')} "
+        f"bestRemaining={report.get('bestRemainingBlocks')} "
+        f"bestOffset={report.get('bestOffset')} bestRotation={report.get('bestRotation')} "
+        f"finalMode={report.get('finalMode')}"
+    )
+    results = report.get("results")
+    if isinstance(results, list):
+        def score(item: object) -> tuple[int, int, int]:
+            if not isinstance(item, dict):
+                return (-1, -1, -10**9)
+            return (
+                int(item.get("buildableBlocks") or 0),
+                int(item.get("totalBlocks") or 0),
+                -int(item.get("remainingBlocks") or 0),
+            )
+        top = sorted([item for item in results if isinstance(item, dict)], key=score, reverse=True)[:10]
+        print("Projection probe top candidates:")
+        for item in top:
+            print(
+                f"  #{item.get('index')} buildable={item.get('buildableBlocks')} "
+                f"remaining={item.get('remainingBlocks')} total={item.get('totalBlocks')} "
+                f"offset={item.get('requestedOffset')} rotation={item.get('requestedRotation')} "
+                f"label={item.get('label')}"
+            )
+    return report
+
+
+
+def _coerce_int_for_probe(value: object, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
+def _vec_from_any_for_probe(value: object) -> Optional[Vec3i]:
+    return telemetry_vec3(value)
+
+
+def read_projector_telemetry_raw(projector: object, *, require_id: bool = True) -> dict:
+    """Read the freshest projector telemetry directly from Redis.
+
+    The normal BaseDevice object can be stale when the projector is located on an
+    aggregated subgrid. This helper scans telemetry keys by entity id and updates
+    ``projector.telemetry`` with the best snapshot it can find.
+    """
+    redis = getattr(projector, "redis", None)
+    if redis is None:
+        return getattr(projector, "telemetry", None) or {}
+
+    device_id = projector_device_id(projector)
+    candidates: list[str] = []
+    key = getattr(projector, "telemetry_key", None)
+    if key:
+        candidates.append(str(key))
+
+    raw_client = getattr(redis, "client", None) or getattr(redis, "_client", None)
+    if device_id is not None and raw_client is not None:
+        patterns = [
+            f"*:{device_id}:telemetry",
+            f"se:*:*:{device_id}:telemetry",
+            f"se:*:grid:*:*:{device_id}:telemetry",
+        ]
+        for pattern in patterns:
+            try:
+                for raw_key in raw_client.scan_iter(match=pattern, count=100):
+                    if isinstance(raw_key, bytes):
+                        raw_key = raw_key.decode("utf-8", "replace")
+                    key_text = str(raw_key)
+                    if key_text not in candidates:
+                        candidates.append(key_text)
+            except Exception:
+                pass
+
+    best: dict = {}
+    get_json = getattr(redis, "get_json", None)
+    for key_text in candidates:
+        if not callable(get_json):
+            continue
+        try:
+            snapshot = get_json(key_text)
+        except Exception:
+            continue
+        if not isinstance(snapshot, dict):
+            continue
+        if require_id and device_id is not None:
+            sid = parse_int(snapshot.get("id") or snapshot.get("entityId") or snapshot.get("blockId"))
+            if sid is not None and sid != device_id:
+                continue
+        # Prefer snapshots that actually contain projector-specific fields.
+        if not best:
+            best = snapshot
+        score_new = sum(1 for k in ("offset", "rotation", "isProjecting", "totalBlocks", "buildableBlocks", "projectorContactReportVersion", "supportsProjectionProbe", "projectionReport") if k in snapshot)
+        score_old = sum(1 for k in ("offset", "rotation", "isProjecting", "totalBlocks", "buildableBlocks", "projectorContactReportVersion", "supportsProjectionProbe", "projectionReport") if k in best)
+        if score_new >= score_old:
+            best = snapshot
+
+    if best:
+        try:
+            projector.telemetry = best
+        except Exception:
+            pass
+        return best
+    return getattr(projector, "telemetry", None) or {}
+
+
+def wait_for_projector_raw_transform(
+    projector: object,
+    expected_offset: Vec3i,
+    expected_rotation: Vec3i,
+    *,
+    timeout: float,
+    poll: float = 0.15,
+) -> dict:
+    deadline = time.time() + max(0.1, float(timeout))
+    last: dict = {}
+    while time.time() <= deadline:
+        try:
+            projector.update()
+        except Exception:
+            pass
+        time.sleep(max(0.02, float(poll)))
+        last = read_projector_telemetry_raw(projector)
+        actual_offset = _vec_from_any_for_probe(last.get("offset"))
+        actual_rotation = _vec_from_any_for_probe(last.get("rotation"))
+        if actual_offset == expected_offset and actual_rotation == expected_rotation:
+            return last
+    return last or read_projector_telemetry_raw(projector)
+
+
+def apply_projector_transform_absolute_no_fallback(
+    projector: object,
+    offset: Vec3i,
+    rotation: Vec3i,
+    *,
+    wait: float,
+    settle_after_match: float = 0.0,
+) -> dict:
+    """Set absolute projector transform without nudge/move fallback.
+
+    The older fallback could over-shift if telemetry was late. During probing we
+    must test exactly the requested candidate, so only absolute setters are used.
+    After offset/rotation appear in telemetry, wait a little more because
+    buildableBlocks/projectionReport often update one game tick later.
+    """
+    try:
+        projector.set_rotation(rotation.x, rotation.y, rotation.z)
+    except Exception as exc:
+        print(f"WARNING: probe set_rotation failed for {rotation}: {exc}")
+    time.sleep(0.05)
+    try:
+        projector.set_offset(offset.x, offset.y, offset.z)
+    except Exception as exc:
+        print(f"WARNING: probe set_offset failed for {offset}: {exc}")
+    try:
+        projector.set_enabled(True)
+    except Exception:
+        pass
+
+    telemetry = wait_for_projector_raw_transform(projector, offset, rotation, timeout=wait)
+    if settle_after_match > 0:
+        time.sleep(float(settle_after_match))
+        try:
+            projector.update()
+        except Exception:
+            pass
+        time.sleep(0.10)
+        telemetry = read_projector_telemetry_raw(projector)
+    return telemetry
+
+
+def _projection_report_missing_entity_ids(telemetry: dict) -> set[int]:
+    report = telemetry.get("projectionReport") if isinstance(telemetry, dict) else None
+    if not isinstance(report, dict):
+        return set()
+    missing = report.get("missingBlocks")
+    if not isinstance(missing, list):
+        return set()
+    result: set[int] = set()
+    for item in missing:
+        if not isinstance(item, dict):
+            continue
+        entity_id = parse_int(item.get("entityId") or item.get("entityID") or item.get("id"))
+        if entity_id is not None:
+            result.add(entity_id)
+    return result
+
+
+def _projection_report_has_missing_list(telemetry: dict) -> bool:
+    report = telemetry.get("projectionReport") if isinstance(telemetry, dict) else None
+    return isinstance(report, dict) and isinstance(report.get("missingBlocks"), list)
+
+
+def _parse_terminal_remaining_block_counts(detailed_info: str) -> dict[str, int]:
+    """Parse projector DetailedInfo "Blocks remaining" section.
+
+    This is important because projector.BuildableBlocksCount can be >0 even for a
+    visually wrong pose. The terminal text is produced by the game projector
+    itself and tells which block display names are still missing after the live
+    offset/rotation was applied.
+    """
+    text = str(detailed_info or "")
+    result: dict[str, int] = {}
+    in_section = False
+    for raw_line in text.replace("\r", "\n").split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if "blocks remaining" in lower or "remaining blocks" in lower or "осталось блок" in lower:
+            in_section = True
+            continue
+        if not in_section:
+            continue
+        if ":" not in line:
+            # The section is usually a compact list of "Name: N" lines. Once a
+            # new non-list section starts, stop parsing to avoid false positives.
+            if result:
+                break
+            continue
+        name, value = line.rsplit(":", 1)
+        name = name.strip()
+        value = value.strip()
+        try:
+            count = int(float(value.replace(",", ".")))
+        except Exception:
+            continue
+        if name:
+            result[name] = count
+    return result
+
+
+def _terminal_block_missing(counts: dict[str, int], kind: str) -> Optional[bool]:
+    """Return whether a contact block kind is still listed in DetailedInfo."""
+    if not counts:
+        return None
+    needles: tuple[str, ...]
+    if kind == "merge":
+        needles = ("merge", "мердж")
+    elif kind == "connector":
+        needles = ("connector", "коннектор", "соединител")
+    else:
+        return None
+    for name, count in counts.items():
+        lower = name.lower()
+        if any(n in lower for n in needles):
+            return count > 0
+    return False
+
+
+def _contact_probe_status(telemetry: dict, merge_entity_id: Optional[int], connector_entity_id: Optional[int]) -> dict:
+    # First try the explicit projectionReport.missingBlocks entity list. In the
+    # current plugin this list can be stale or untransformed, so do not rely on
+    # it exclusively.
+    report_known = _projection_report_has_missing_list(telemetry)
+    missing_ids = _projection_report_missing_entity_ids(telemetry) if report_known else set()
+
+    def report_status(entity_id: Optional[int]) -> Optional[bool]:
+        if entity_id is None or not report_known:
+            return None
+        return entity_id in missing_ids
+
+    report_merge_missing = report_status(merge_entity_id)
+    report_connector_missing = report_status(connector_entity_id)
+
+    # Stronger live signal: the game-generated projector DetailedInfo tells
+    # which display names remain after the *actual* offset/rotation was applied.
+    # This catches exactly the case where BuildableBlocksCount increases for a
+    # wrong pose but Merge/Connector are still not aligned.
+    terminal_counts = _parse_terminal_remaining_block_counts(str(telemetry.get("detailedInfo") or ""))
+    terminal_merge_missing = _terminal_block_missing(terminal_counts, "merge")
+    terminal_connector_missing = _terminal_block_missing(terminal_counts, "connector")
+
+    merge_missing = terminal_merge_missing if terminal_merge_missing is not None else report_merge_missing
+    connector_missing = terminal_connector_missing if terminal_connector_missing is not None else report_connector_missing
+    known = merge_missing is not None or connector_missing is not None or report_known
+
+    ready = 0
+    if merge_missing is False:
+        ready += 1
+    if connector_missing is False:
+        ready += 1
+    missing_count = 0
+    if merge_missing is True:
+        missing_count += 1
+    if connector_missing is True:
+        missing_count += 1
+    return {
+        "contactStatusKnown": known,
+        "contactStatusSource": "terminalDetailedInfo" if terminal_counts else ("projectionReport" if report_known else "unknown"),
+        "mergeMissing": merge_missing,
+        "connectorMissing": connector_missing,
+        "terminalMergeMissing": terminal_merge_missing,
+        "terminalConnectorMissing": terminal_connector_missing,
+        "terminalMissingCounts": terminal_counts,
+        "reportMergeMissing": report_merge_missing,
+        "reportConnectorMissing": report_connector_missing,
+        "contactReadyCount": ready,
+        "contactMissingCount": missing_count,
+    }
+
+
+def _projection_probe_score(item: dict) -> tuple[int, int, int, int, int, int, int]:
+    contact_ready = _coerce_int_for_probe(item.get("contactReadyCount"), 0)
+    contact_known = 1 if bool(item.get("contactStatusKnown")) else 0
+    buildable = _coerce_int_for_probe(item.get("buildableBlocks"), 0)
+    total = _coerce_int_for_probe(item.get("totalBlocks"), 0)
+    remaining = _coerce_int_for_probe(item.get("remainingBlocks"), 999999)
+    is_projecting = 1 if bool(item.get("isProjecting")) else 0
+    # Goal first: make the projected merge/connector not appear in missingBlocks.
+    # Then prefer more buildable blocks and fewer remaining blocks.
+    return (contact_ready, contact_known, buildable, is_projecting, total, -remaining, -_coerce_int_for_probe(item.get("index"), 999999))
+
+
+def run_client_side_projection_probe(
+    projector: object,
+    candidates: list[dict],
+    *,
+    wait_per_candidate: float,
+    settle_after_match: float,
+    apply_best: bool,
+    max_candidates: int,
+    merge_entity_id: Optional[int],
+    connector_entity_id: Optional[int],
+) -> dict:
+    if not candidates:
+        print("Client projection probe: no candidates generated")
+        return {}
+
+    limit = min(len(candidates), max(0, int(max_candidates)))
+    if limit <= 0:
+        print("Client projection probe: candidate limit is zero")
+        return {}
+
+    original = read_projector_telemetry_raw(projector)
+    original_offset = _vec_from_any_for_probe(original.get("offset")) or Vec3i(0, 0, 0)
+    original_rotation = _vec_from_any_for_probe(original.get("rotation")) or Vec3i(0, 0, 0)
+
+    print(
+        f"Client projection probe: testing {limit} candidates by live set_offset/set_rotation; "
+        f"original offset={original_offset}, rotation={original_rotation}; "
+        f"wait={wait_per_candidate:.2f}s settle={settle_after_match:.2f}s; contact-aware scoring enabled"
+    )
+
+    results: list[dict] = []
+    best: Optional[dict] = None
+    last_best_buildable = -1
+
+    for index, candidate in enumerate(candidates[:limit]):
+        offset = candidate.get("offset")
+        rotation = candidate.get("rotation")
+        label = str(candidate.get("label") or "")
+        if not isinstance(offset, dict) or not isinstance(rotation, dict):
+            continue
+        try:
+            off = Vec3i(int(offset.get("x", 0)), int(offset.get("y", 0)), int(offset.get("z", 0)))
+            rot = Vec3i(int(rotation.get("x", 0)), int(rotation.get("y", 0)), int(rotation.get("z", 0)))
+        except Exception:
+            continue
+
+        telemetry = apply_projector_transform_absolute_no_fallback(
+            projector,
+            off,
+            rot,
+            wait=wait_per_candidate,
+            settle_after_match=settle_after_match,
+        )
+        actual_offset = _vec_from_any_for_probe(telemetry.get("offset"))
+        actual_rotation = _vec_from_any_for_probe(telemetry.get("rotation"))
+        contact_status = _contact_probe_status(telemetry, merge_entity_id, connector_entity_id)
+        item = {
+            "index": index,
+            "label": label,
+            "requestedOffset": {"x": off.x, "y": off.y, "z": off.z},
+            "requestedRotation": {"x": rot.x, "y": rot.y, "z": rot.z},
+            "actualOffset": {"x": actual_offset.x, "y": actual_offset.y, "z": actual_offset.z} if actual_offset else None,
+            "actualRotation": {"x": actual_rotation.x, "y": actual_rotation.y, "z": actual_rotation.z} if actual_rotation else None,
+            "isProjecting": bool(telemetry.get("isProjecting")),
+            "buildableBlocks": _coerce_int_for_probe(telemetry.get("buildableBlocks"), 0),
+            "remainingBlocks": _coerce_int_for_probe(telemetry.get("remainingBlocks"), 0),
+            "totalBlocks": _coerce_int_for_probe(telemetry.get("totalBlocks"), 0),
+            **contact_status,
+            "detailedInfo": str(telemetry.get("detailedInfo") or "")[:500],
+        }
+        results.append(item)
+        if best is None or _projection_probe_score(item) > _projection_probe_score(best):
+            best = item
+            buildable = _coerce_int_for_probe(item.get("buildableBlocks"), 0)
+            if buildable != last_best_buildable or index < 5:
+                print(
+                    f"  new best #{index}: contactReady={item.get('contactReadyCount')}/2 "
+                    f"source={item.get('contactStatusSource')} mergeMissing={item.get('mergeMissing')} connectorMissing={item.get('connectorMissing')} "
+                    f"buildable={item['buildableBlocks']} remaining={item['remainingBlocks']} "
+                    f"total={item['totalBlocks']} offset={item['requestedOffset']} rotation={item['requestedRotation']} "
+                    f"actualOffset={item.get('actualOffset')} actualRotation={item.get('actualRotation')} label={label}"
+                )
+                last_best_buildable = buildable
+
+        if index < 5 or (index + 1) % 50 == 0:
+            print(
+                f"  probe #{index + 1}/{limit}: contactReady={item.get('contactReadyCount')}/2 "
+                f"source={item.get('contactStatusSource')} mergeMissing={item.get('mergeMissing')} connectorMissing={item.get('connectorMissing')} "
+                f"buildable={item['buildableBlocks']} remaining={item['remainingBlocks']} total={item['totalBlocks']} "
+                f"offset={item['requestedOffset']} rotation={item['requestedRotation']} actualOffset={item.get('actualOffset')}"
+            )
+
+    if best is None:
+        print("Client projection probe: no valid candidates were tested")
+        return {}
+
+    best_offset_dict = best.get("requestedOffset") or {}
+    best_rotation_dict = best.get("requestedRotation") or {}
+    best_offset = Vec3i(int(best_offset_dict.get("x", 0)), int(best_offset_dict.get("y", 0)), int(best_offset_dict.get("z", 0)))
+    best_rotation = Vec3i(int(best_rotation_dict.get("x", 0)), int(best_rotation_dict.get("y", 0)), int(best_rotation_dict.get("z", 0)))
+
+    if apply_best:
+        final_telemetry = apply_projector_transform_absolute_no_fallback(
+            projector, best_offset, best_rotation, wait=wait_per_candidate, settle_after_match=settle_after_match
+        )
+        final_mode = "best_applied_client"
+    else:
+        final_telemetry = apply_projector_transform_absolute_no_fallback(
+            projector, original_offset, original_rotation, wait=wait_per_candidate, settle_after_match=settle_after_match
+        )
+        final_mode = "original_restored_client"
+
+    report = {
+        "source": "client_projection_probe_v39_terminal_contact",
+        "candidateCount": len(results),
+        "bestIndex": best.get("index"),
+        "bestOffset": best.get("requestedOffset"),
+        "bestRotation": best.get("requestedRotation"),
+        "bestBuildableBlocks": best.get("buildableBlocks"),
+        "bestRemainingBlocks": best.get("remainingBlocks"),
+        "bestTotalBlocks": best.get("totalBlocks"),
+        "finalMode": final_mode,
+        "finalTelemetry": final_telemetry,
+        "finalContactStatus": _contact_probe_status(final_telemetry, merge_entity_id, connector_entity_id),
+        "results": results,
+    }
+
+    print(
+        "Client projection probe result: "
+        f"candidates={report['candidateCount']} bestIndex={report['bestIndex']} "
+        f"bestContactReady={best.get('contactReadyCount')}/2 "
+        f"bestContactSource={best.get('contactStatusSource')} "
+        f"bestMergeMissing={best.get('mergeMissing')} bestConnectorMissing={best.get('connectorMissing')} "
+        f"bestBuildable={report['bestBuildableBlocks']} bestRemaining={report['bestRemainingBlocks']} "
+        f"bestOffset={report['bestOffset']} bestRotation={report['bestRotation']} "
+        f"bestActualOffset={best.get('actualOffset')} bestActualRotation={best.get('actualRotation')} finalMode={final_mode} "
+        f"finalContact={report['finalContactStatus']}"
+    )
+    top = sorted(results, key=_projection_probe_score, reverse=True)[:10]
+    print("Client projection probe top candidates:")
+    for item in top:
+        print(
+            f"  #{item.get('index')} contactReady={item.get('contactReadyCount')}/2 "
+            f"source={item.get('contactStatusSource')} mergeMissing={item.get('mergeMissing')} connectorMissing={item.get('connectorMissing')} "
+            f"buildable={item.get('buildableBlocks')} remaining={item.get('remainingBlocks')} total={item.get('totalBlocks')} "
+            f"offset={item.get('requestedOffset')} rotation={item.get('requestedRotation')} "
+            f"actualOffset={item.get('actualOffset')} actualRotation={item.get('actualRotation')} label={item.get('label')}"
+        )
+    return report
 
 def finalize_blueprint(root: ET.Element, display_name: str) -> str:
     if "xmlns:xsd" not in root.attrib:
@@ -2232,6 +3677,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-calibrate-offset-axes", dest="no_calibrate_offset_axes", action="store_true", default=True, help="Do not measure projector local offset axes; enabled by default because ProjectionMatrix is usually unavailable")
     parser.add_argument("--contact-gap", type=non_negative_int, default=1, help="Grid-cell gap for opposite mode. For face-to-face merge/connector use 1")
     parser.add_argument("--normal", choices=("auto", "+x", "-x", "+y", "-y", "+z", "-z", "x", "y", "z"), default="auto", help="Contact side for opposite mode. Use --normal=-z or --normal -z for negative directions; auto chooses the side with least collision")
+    parser.add_argument("--merge-mate-face", choices=("auto",) + MERGE_MATE_FACE_CHOICES, default="auto", help="Which model face of the blueprint Merge Block is the real mating plate. Default auto selects the face that points back along the selected contact normal.")
     parser.add_argument("--no-preflip", action="store_true", help="Do not rotate blueprint 180 degrees around the merge/connector line before applying offset")
     parser.add_argument("--blueprint-projector-min", type=parse_vec3i_text, default=None, help="Manual projector anchor inside blueprint, for example 0,1,0")
     parser.add_argument("--projector-forward", type=parse_direction_arg, default=None, help="Manual live projector BlockOrientation Forward axis, for example Forward, Backward, Left, Right, Up, Down")
@@ -2242,6 +3688,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--keep", action="store_true", help="Pass keep=True to load_blueprint_xml")
     parser.add_argument("--wait", type=positive_float, default=2.0, help="Seconds to wait after load before telemetry check")
     parser.add_argument("--offset-wait", type=positive_float, default=4.0, help="Seconds to wait for offset telemetry confirmation")
+    parser.add_argument("--runtime-transform-mode", choices=("auto", "apply", "none"), default="auto", help="How to handle set_offset/set_rotation after load. auto skips runtime re-apply when the final transform was embedded into XML, because some projector bridges apply the embedded transform during load and then rotate again when set_rotation is sent.")
     parser.add_argument("--wake-timeout", type=positive_float, default=3.0, help="Seconds to wait while waking the grid")
     parser.add_argument("--skip-reset", action="store_true", help="Do not call reset_projection before loading")
     parser.add_argument("--manual-offset", type=parse_vec3i_text, default=None, help="Override calculated ProjectionOffset, for example 0,0,-1")
@@ -2258,6 +3705,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--redis-export", nargs=2, metavar=("NAME", "OUTPUT"), default=None, help="Export saved Redis blueprint by name to a local .sbc file and exit")
     parser.add_argument("--grid-export-timeout", type=positive_float, default=15.0, help="Seconds to wait for --redis-save-grid export result")
     parser.add_argument("--no-grid-export-include-connected", action="store_true", help="When saving from grid, export only the projector grid, not connected grids")
+    parser.add_argument("--no-live-blueprint-frame", action="store_true", help="Do not export the live grid before placement. By default the script reads live projector Min/BlockOrientation from a fresh grid blueprint export so projector position and rotation are part of the math.")
+    parser.add_argument("--live-frame-include-connected", action="store_true", help="When reading the live projector frame, include connected grids in the temporary export. Default is only the projector grid to avoid mixing coordinate frames.")
+    parser.add_argument("--verify-contact", choices=("on", "off"), default="on", help="Verify that the final projected Merge/Connector cells match the target live contact cells before upload")
+    parser.add_argument("--strict-contact-verify", action="store_true", help="Abort before upload if the calculated contact verification fails")
+    parser.add_argument("--no-projection-report-after-load", action="store_true", help="Do not request projection_report after loading the blueprint")
+    parser.add_argument("--projection-report-wait", type=positive_float, default=3.0, help="Seconds to wait for projection_report after load")
+    parser.add_argument("--projection-report-max-blocks", type=non_negative_int, default=300, help="Maximum blocks requested from projection_report diagnostics")
+    parser.add_argument("--projection-report-output", default="", help="Optional path to save raw projection_report JSON; default writes next to the prepared .sbc when a report is returned")
+    parser.add_argument("--projection-probe", action="store_true", help="After loading, ask the v36 plugin to test multiple offset/rotation candidates in the live game and rank them by BuildableBlocksCount")
+    parser.add_argument("--projection-probe-radius", type=non_negative_int, default=1, help="Offset search radius around each calculated candidate for --projection-probe")
+    parser.add_argument("--projection-probe-max-candidates", type=non_negative_int, default=500, help="Maximum live projector candidates sent to the plugin probe")
+    parser.add_argument("--projection-probe-wait", type=positive_float, default=8.0, help="Seconds to wait for v36 projection_probe report")
+    parser.add_argument("--projection-probe-rotations", choices=("current", "contact", "all"), default="contact", help="Which ProjectionRotation candidates to test: current, contact-vector-preserving, or all 64 UI rotations")
+    parser.add_argument("--projection-probe-normals", choices=("current", "all"), default="all", help="Which contact side normals to test during --projection-probe")
+    parser.add_argument("--no-projection-probe-apply-best", action="store_true", help="Do not leave the best live-tested candidate applied; restore original transform instead")
+    parser.add_argument("--projection-probe-mode", choices=("auto", "plugin", "client"), default="auto", help="Use v36 plugin-side probe, Python client-side probe, or auto fallback to client when plugin report is not returned")
+    parser.add_argument("--projection-probe-client-wait", type=positive_float, default=0.75, help="Seconds to wait until offset/rotation telemetry matches each client-side probe candidate")
+    parser.add_argument("--projection-probe-client-settle", type=positive_float, default=0.75, help="Extra seconds to wait after offset/rotation match so buildableBlocks and projectionReport settle")
     return parser
 
 
@@ -2411,8 +3876,27 @@ def main() -> int:
             live_projector = live_projector_block_from_device(projector, live_by_entity_map, grid_step)
             live_projector_min = live_projector.min
             print(f"Main grid: {grid.name} ({grid.grid_id})")
-            print(f"Live blocks known: {len(live_blocks)}")
-            print(f"Projector: {projector.name} ({live_projector_id or '?'}) at {live_projector_min}")
+            print(f"Live blocks known from telemetry: {len(live_blocks)}")
+            print(f"Projector from telemetry: {projector.name} ({live_projector_id or '?'}) at {live_projector_min}; orientation={orientation_to_text(live_projector.orientation_forward, live_projector.orientation_up)}")
+
+            if not args.no_live_blueprint_frame:
+                live_blocks, exported_projector, live_frame_message = try_refresh_live_frame_from_projector_export(
+                    projector,
+                    timeout=args.grid_export_timeout,
+                    include_connected=args.live_frame_include_connected,
+                    live_projector_id=live_projector_id,
+                    telemetry_live_blocks=live_blocks,
+                )
+                print(live_frame_message)
+                live_by_entity_map = live_blocks_by_entity(live_blocks)
+                if exported_projector is not None:
+                    live_projector = exported_projector
+                    live_projector_min = exported_projector.min
+            else:
+                print("Live blueprint frame export disabled; using telemetry projector frame")
+
+            print(f"Live blocks used for placement: {len(live_blocks)}")
+            print(f"Projector frame used: {projector.name} ({live_projector_id or '?'}) at {live_projector_min}; orientation={orientation_to_text(live_projector.orientation_forward, live_projector.orientation_up)}")
             projector_ui_correction = resolve_projector_ui_origin_correction(
                 projector,
                 args.projector_subtype,
@@ -2426,10 +3910,13 @@ def main() -> int:
                 print("Projector UI origin correction: (0, 0, 0)")
 
         fixed_projector_element_ids = collect_missing_projector_min_elements(cube_blocks)
+        source_first_origin_min, source_first_origin_message = first_preview_block_origin_min(cube_blocks)
+        print(f"Game projection origin from source before cleanup: {source_first_origin_min} ({source_first_origin_message})")
         if fixed_projector_element_ids:
             print(
                 "Detected projector blocks without Min in source XML: "
-                f"{len(fixed_projector_element_ids)}; their filled Min will be kept as a fixed anchor"
+                f"{len(fixed_projector_element_ids)}; in native projector mode they must remain without Min "
+                "because VRage uses default (0,0,0) as the preview first-block origin"
             )
 
         filled = fill_missing_min_from_live(cube_blocks, live_by_entity_map)
@@ -2437,11 +3924,15 @@ def main() -> int:
             print(f"Filled missing Min from live grid: {filled}")
 
         projector_min_fallback = args.blueprint_projector_min or live_projector_min
-        filled_projector = fill_missing_projector_min(cube_blocks, projector_min_fallback)
-        if filled_projector:
-            print(f"Filled missing projector Min from fallback anchor: {filled_projector} at {projector_min_fallback}")
+        filled_projector = 0
+        if args.rotation_mode == "xml":
+            filled_projector = fill_missing_projector_min(cube_blocks, projector_min_fallback)
+            if filled_projector:
+                print(f"Filled missing projector Min from fallback anchor: {filled_projector} at {projector_min_fallback}")
+        else:
+            print("Native projector mode: preserving missing projector Min; this keeps vanilla first-block origin at default (0,0,0)")
 
-        removed_invalid = remove_blocks_without_min(cube_blocks)
+        removed_invalid = remove_blocks_without_min(cube_blocks, preserve_projectors=(args.rotation_mode != "xml"))
         if removed_invalid:
             print("WARNING: removed blocks without Min:")
             for item in removed_invalid:
@@ -2494,6 +3985,7 @@ def main() -> int:
 
         projector_to_grid: Rotation = identity_rotation
         grid_to_projector: Rotation = identity_rotation
+        orientation_ok = False
         target_contact_vector = live_pair.vector
         if args.ignore_projector_orientation or args.anchor_mode == "grid-origin" or live_projector is None:
             print("Projector orientation compensation: disabled")
@@ -2510,6 +4002,15 @@ def main() -> int:
                 print(f"Manual projector orientation override: {orientation_to_text(args.projector_forward, args.projector_up)}")
             print(f"Projector orientation compensation: {'enabled' if orientation_ok else 'identity fallback'}; {orientation_message}")
             print(f"Prepared contact vector in projector-local cells: {target_contact_vector}")
+
+        if live_projector is not None:
+            print_live_contact_debug(
+                projector=live_projector,
+                live_pair=live_pair,
+                projector_to_grid=projector_to_grid,
+                grid_to_projector=grid_to_projector,
+                grid_step=grid_step,
+            )
 
         preflip = not args.no_preflip
         contact_axis = target_contact_vector.axis_name()
@@ -2537,9 +4038,44 @@ def main() -> int:
                 preflip=preflip,
             )
             projection_rotation = find_projection_rotation_for_transform(desired_rotation_transform)
+
+            # Tighten the native rotation with the real connector forward vector.
+            # The relative merge->connector vector alone can be correct while the
+            # projected connector/merge are turned by the wrong face.  The docking
+            # contact must be face-to-face: projected connector Forward must point
+            # opposite to the live connector Forward.
+            live_connector_forward = live_model_face_vector(live_pair.connector, "forward")
+            blueprint_connector_forward = block_model_face_vector(blueprint_pair.connector, "forward")
+            if live_connector_forward is not None and is_valid_contact_normal(live_connector_forward, live_pair.vector):
+                desired_connector_forward = grid_to_projector(-live_connector_forward)
+                constrained_rotation = find_projection_rotation_matching_pairs([
+                    (blueprint_pair.vector, target_contact_vector),
+                    (blueprint_connector_forward, desired_connector_forward),
+                ])
+                if constrained_rotation is not None:
+                    if constrained_rotation != projection_rotation:
+                        print(
+                            "Native rotation adjusted by connector Forward contact: "
+                            f"old={projection_rotation}, new={constrained_rotation}, "
+                            f"blueprintConnectorForward={blueprint_connector_forward}, "
+                            f"targetProjectedConnectorForward={desired_connector_forward}"
+                        )
+                    projection_rotation = constrained_rotation
+                    desired_rotation_transform = projection_rotation_transform(projection_rotation)
+                else:
+                    print(
+                        "WARNING: no ProjectionRotation satisfies both pair-vector and connector Forward contact; "
+                        f"pair {blueprint_pair.vector}->{target_contact_vector}, "
+                        f"connectorForward {blueprint_connector_forward}->{desired_connector_forward}. "
+                        "Using pair-vector rotation only."
+                    )
+
             print(f"Contact axis: {contact_axis}")
             print(f"Pre-flip around contact line: {preflip}")
             print("Rotation mode: native projector ProjectionRotation; original block coordinates/orientations are preserved")
+            print("Native rotation convention: source-code yaw/pitch/roll; ProjectionRotation.X=yaw(Y), Y=pitch(X), Z=roll(Z)")
+            print("Native offset convention: ProjectionOffset is subtracted in projector-local axes after native rotation matrix is built")
+            print("Forward contact rule: projected Connector Forward must be opposite live Connector Forward")
             print(f"Native rotation transform: {describe_rotation_on_basis(desired_rotation_transform)}")
 
         if args.manual_rotation is not None:
@@ -2549,20 +4085,59 @@ def main() -> int:
             print(f"ProjectionRotation to apply: {projection_rotation}")
 
         preferred_contact_normal: Optional[Vec3i] = None
+        projected_merge_face_for_normal: Optional[Vec3i] = None
+        face_rotation_for_debug = projection_rotation_transform(projection_rotation) if args.rotation_mode != "xml" else identity_rotation
         if args.contact_mode != "overlay" and args.normal == "auto":
-            if args.rotation_mode == "xml":
-                preferred_contact_normal = projector_to_grid(block_forward_vector(blueprint_pair.merge))
-            else:
-                rotation_transform_for_normal = projection_rotation_transform(projection_rotation)
-                preferred_contact_normal = projector_to_grid(rotation_transform_for_normal(block_forward_vector(blueprint_pair.merge)))
-            if is_valid_contact_normal(preferred_contact_normal, live_pair.vector):
-                print(f"Auto contact normal: using projected merge face direction {preferred_contact_normal}")
-            else:
+            # Use the live connector Forward vector as the contact side.  This is
+            # the unambiguous docking face of the connector.  The projected
+            # connector Forward is constrained above to point back along -normal.
+            live_connector_forward_for_normal = live_model_face_vector(live_pair.connector, "forward")
+            if live_connector_forward_for_normal is not None and is_valid_contact_normal(live_connector_forward_for_normal, live_pair.vector):
+                preferred_contact_normal = live_connector_forward_for_normal
                 print(
-                    "WARNING: projected merge face direction is not a valid contact normal; "
-                    f"face={preferred_contact_normal}, contact_vector={live_pair.vector}; falling back to collision-based auto side"
+                    "Auto contact normal: using live Connector Forward; "
+                    f"connectorForward={live_connector_forward_for_normal}, contact_normal={preferred_contact_normal}"
                 )
-                preferred_contact_normal = None
+            else:
+                # Fallback to the old merge-face based side only when connector
+                # orientation is unavailable or invalid.
+                fallback_face = "forward" if args.merge_mate_face == "auto" else args.merge_mate_face
+                if args.rotation_mode == "xml":
+                    projected_merge_face_for_normal = projector_to_grid(block_model_face_vector(blueprint_pair.merge, fallback_face))
+                else:
+                    projected_merge_face_for_normal = projector_to_grid(face_rotation_for_debug(block_model_face_vector(blueprint_pair.merge, fallback_face)))
+                preferred_contact_normal = -projected_merge_face_for_normal
+                if is_valid_contact_normal(preferred_contact_normal, live_pair.vector):
+                    print(
+                        "Auto contact normal fallback: using side opposite projected merge face; "
+                        f"projected_face={projected_merge_face_for_normal}, contact_normal={preferred_contact_normal}"
+                    )
+                else:
+                    print(
+                        "WARNING: neither connector Forward nor projected merge face gives a valid contact normal; "
+                        f"projected_face={projected_merge_face_for_normal}, normal={preferred_contact_normal}, "
+                        f"contact_vector={live_pair.vector}; falling back to collision-based auto side"
+                    )
+                    preferred_contact_normal = None
+
+        selected_merge_mate_face = choose_merge_mate_face_for_contact(
+            blueprint_pair.merge,
+            face_rotation_for_debug,
+            projector_to_grid,
+            preferred_contact_normal,
+            args.merge_mate_face,
+        )
+        args.merge_mate_face = selected_merge_mate_face
+
+        print("Projected merge model-face candidates after native rotation:")
+        for face_name in MERGE_MATE_FACE_CHOICES:
+            face_vec = block_model_face_vector(blueprint_pair.merge, face_name)
+            projected_face = projector_to_grid(face_rotation_for_debug(face_vec))
+            preferred_side = -projected_face
+            contact_match = "CONTACT-FACE" if preferred_contact_normal is not None and projected_face == -preferred_contact_normal else ""
+            valid = "valid-normal" if is_valid_contact_normal(preferred_side, live_pair.vector) else "invalid/parallel-to-pair"
+            print(f"  {face_name:8s}: projected_face={projected_face}, preferred contact_normal={preferred_side} {valid} {contact_match}")
+        print(f"Selected merge mating face model axis: {args.merge_mate_face}")
 
         blueprint_projector = choose_blueprint_projector_block(
             blocks,
@@ -2578,7 +4153,22 @@ def main() -> int:
         print(f"Live projector anchor:      {live_projector_min}")
         print(f"Offset anchor mode:         {args.anchor_mode}")
         if args.anchor_mode == "projector-block":
-            print("Projector anchor rule: blueprint coordinates are measured relative to the projector block inside the loaded blueprint")
+            print("Projector anchor rule: native projector math uses the first preview block as the effective origin, not the blueprint projector block")
+
+        game_projection_origin_min = blueprint_projector_min
+        if args.rotation_mode != "xml":
+            game_projection_origin_min = source_first_origin_min
+            print(f"Game projection origin from SE source formula: {game_projection_origin_min} ({source_first_origin_message})")
+            if game_projection_origin_min != blueprint_projector_min:
+                print(
+                    "NOTE: this differs from the blueprint projector anchor; vanilla MyProjectorClipboard "
+                    "recenters the preview using PreviewGrids[0].CubeBlocks.First(). Do not fill missing "
+                    "SmallProjector Min with the live projector cell in native mode."
+                )
+
+        projection_math_anchor_min = game_projection_origin_min if args.rotation_mode != "xml" else blueprint_projector_min
+        if projection_math_anchor_min != blueprint_projector_min:
+            print(f"Projection math anchor used for native SE formula: {projection_math_anchor_min}")
 
         if args.rotation_mode == "xml":
             placement = choose_placement(
@@ -2602,7 +4192,7 @@ def main() -> int:
                 live_blocks,
                 blueprint_pair,
                 live_pair,
-                blueprint_projector_min,
+                game_projection_origin_min,
                 live_projector_min,
                 projection_rotation,
                 contact_mode=args.contact_mode,
@@ -2756,11 +4346,14 @@ def main() -> int:
                     projector_offset = add_vec3i(projector_offset, correction_to_apply)
                     print(f"Projector UI offset after origin correction: {projector_offset}")
 
+        if args.rotation_mode != "xml" and projection_math_anchor_min != blueprint_projector_min:
+            print(f"Final prediction uses SE first-block anchor {projection_math_anchor_min}, not blueprint projector anchor {blueprint_projector_min}")
+
         if args.rotation_mode == "projector":
             final_rotation_transform = projection_rotation_transform(projection_rotation)
             final_merge = predicted_position_with_rotation(
                 live_projector_min,
-                blueprint_projector_min,
+                projection_math_anchor_min,
                 blueprint_pair.merge.min,
                 projector_offset,
                 final_rotation_transform,
@@ -2769,7 +4362,7 @@ def main() -> int:
             )
             final_connector = predicted_position_with_rotation(
                 live_projector_min,
-                blueprint_projector_min,
+                projection_math_anchor_min,
                 blueprint_pair.connector.min,
                 projector_offset,
                 final_rotation_transform,
@@ -2779,7 +4372,7 @@ def main() -> int:
         else:
             final_merge = predicted_position(
                 live_projector_min,
-                blueprint_projector_min,
+                projection_math_anchor_min,
                 blueprint_pair.merge.min,
                 projector_offset,
                 args.anchor_mode,
@@ -2787,20 +4380,62 @@ def main() -> int:
             )
             final_connector = predicted_position(
                 live_projector_min,
-                blueprint_projector_min,
+                projection_math_anchor_min,
                 blueprint_pair.connector.min,
                 projector_offset,
                 args.anchor_mode,
                 projector_to_grid,
             )
 
+        if args.rotation_mode == "projector":
+            final_projected_merge_face = projector_to_grid(final_rotation_transform(block_model_face_vector(blueprint_pair.merge, args.merge_mate_face)))
+        else:
+            final_projected_merge_face = projector_to_grid(block_model_face_vector(blueprint_pair.merge, args.merge_mate_face))
+
         print(f"Final predicted merge with embedded transform:     {final_merge}")
         print(f"Final predicted connector with embedded transform: {final_connector}")
+        print(f"Final projected merge face direction:              {final_projected_merge_face}")
+        if live_projector is not None:
+            print_projection_contact_debug(
+                live_projector=live_projector,
+                blueprint_projector_min=projection_math_anchor_min,
+                blueprint_pair=blueprint_pair,
+                live_pair=live_pair,
+                projector_offset=projector_offset,
+                projection_rotation=projection_rotation,
+                final_merge=final_merge,
+                final_connector=final_connector,
+                final_projected_merge_face=final_projected_merge_face,
+                grid_step=grid_step,
+            )
+            print_projection_transform_audit(
+                live_projector=live_projector,
+                blueprint_projector_min=projection_math_anchor_min,
+                blueprint_pair=blueprint_pair,
+                live_pair=live_pair,
+                offset=projector_offset,
+                rotation=projection_rotation,
+                projector_to_grid=projector_to_grid,
+                grid_step=grid_step,
+            )
         if final_merge != placement.target_merge or final_connector != placement.target_connector:
             print(
                 "WARNING: final embedded projector transform does not match the requested contact targets; "
                 f"merge target={placement.target_merge}, connector target={placement.target_connector}"
             )
+
+        if args.verify_contact == "on":
+            contact_ok = contact_alignment_report(
+                final_merge=final_merge,
+                final_connector=final_connector,
+                projected_merge_face=final_projected_merge_face,
+                live_pair=live_pair,
+                placement=placement,
+                contact_gap=args.contact_gap,
+            )
+            if args.strict_contact_verify and not contact_ok:
+                print("ERROR: strict contact verification failed; upload skipped", file=sys.stderr)
+                return 2
 
         embedded_count = embed_projector_transform(blocks, projector_offset, projection_rotation)
         if embedded_count:
@@ -2851,13 +4486,72 @@ def main() -> int:
         seq_id = projector.load_blueprint_xml(xml, keep=args.keep)
         print(f"load_blueprint_xml sent: seq_id={seq_id}")
         time.sleep(args.wait)
-        apply_projector_transform(projector, projector_offset, projection_rotation, args.offset_wait)
+        runtime_mode = args.runtime_transform_mode
+        if runtime_mode == "auto":
+            runtime_mode = "none" if embedded_count > 0 else "apply"
+        if runtime_mode == "apply":
+            print("Runtime projector transform apply: enabled")
+            apply_projector_transform(projector, projector_offset, projection_rotation, args.offset_wait)
+        else:
+            print(
+                "Runtime projector transform apply: skipped; "
+                "offset/rotation are embedded into the loaded XML, so set_rotation/set_offset are not sent again"
+            )
+
+        if args.projection_probe:
+            probe_candidates = build_projection_probe_candidates(
+                live_projector_min=live_projector_min,
+                blueprint_projector_min=projection_math_anchor_min,
+                blueprint_pair=blueprint_pair,
+                live_pair=live_pair,
+                base_offset=projector_offset,
+                base_rotation=projection_rotation,
+                base_normal=placement.normal,
+                anchor_mode=args.anchor_mode,
+                contact_gap=args.contact_gap,
+                projector_to_grid=projector_to_grid,
+                grid_to_projector=grid_to_projector,
+                radius=args.projection_probe_radius,
+                rotation_mode=args.projection_probe_rotations,
+                normal_mode=args.projection_probe_normals,
+                limit=args.projection_probe_max_candidates,
+            )
+            probe_report = {}
+            if args.projection_probe_mode in ("auto", "plugin"):
+                probe_report = run_projection_probe(
+                    projector,
+                    probe_candidates,
+                    wait=args.projection_probe_wait,
+                    apply_best=not args.no_projection_probe_apply_best,
+                    max_candidates=args.projection_probe_max_candidates,
+                )
+            if args.projection_probe_mode == "client" or (args.projection_probe_mode == "auto" and not probe_report):
+                if args.projection_probe_mode == "auto":
+                    print("Projection probe: falling back to Python client-side probing using live telemetry")
+                probe_report = run_client_side_projection_probe(
+                    projector,
+                    probe_candidates,
+                    wait_per_candidate=args.projection_probe_client_wait,
+                    settle_after_match=args.projection_probe_client_settle,
+                    apply_best=not args.no_projection_probe_apply_best,
+                    max_candidates=args.projection_probe_max_candidates,
+                    merge_entity_id=blueprint_pair.merge.entity_id,
+                    connector_entity_id=blueprint_pair.connector.entity_id,
+                )
+            if probe_report:
+                try:
+                    report_path = Path(output_path).with_suffix(".projection-probe-report.json")
+                    report_path.write_text(json.dumps(probe_report, ensure_ascii=False, indent=2), encoding="utf-8")
+                    print(f"Projection probe raw report saved: {report_path}")
+                except Exception as exc:
+                    print(f"WARNING: failed to save projection probe report: {exc}")
         time.sleep(0.5)
         try:
             projector.update()
         except Exception:
             pass
-        telemetry = getattr(projector, "telemetry", None) or {}
+        time.sleep(0.25)
+        telemetry = read_projector_telemetry_raw(projector)
         print("Projector telemetry:")
         print(f"  isProjecting:    {bool_from_telemetry(telemetry.get('isProjecting'))}")
         print(f"  projectedGrid:   {bool_from_telemetry(telemetry.get('projectedGridName'))}")
@@ -2866,6 +4560,16 @@ def main() -> int:
         print(f"  totalBlocks:     {bool_from_telemetry(telemetry.get('totalBlocks'))}")
         print(f"  remainingBlocks: {bool_from_telemetry(telemetry.get('remainingBlocks'))}")
         print(f"  buildableBlocks: {bool_from_telemetry(telemetry.get('buildableBlocks'))}")
+        if not args.no_projection_report_after_load:
+            report_output = Path(args.projection_report_output).expanduser().resolve() if args.projection_report_output else output_path.with_suffix(".projection-report.json")
+            scan_projection_contact_report(
+                projector,
+                wait=args.projection_report_wait,
+                max_blocks=args.projection_report_max_blocks,
+                merge_entity_id=blueprint_pair.merge.entity_id,
+                connector_entity_id=blueprint_pair.connector.entity_id,
+                output_path=report_output,
+            )
         print("Projection loaded, projector enabled, offset applied.")
         return 0
 
