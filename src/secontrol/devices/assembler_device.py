@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Iterable, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from secontrol.base_device import DEVICE_TYPE_MAP, DeviceMetadata
 from secontrol.devices.container_device import ContainerDevice
-from secontrol.inventory import InventorySnapshot
+from secontrol.inventory import InventoryItem, InventorySnapshot
 from secontrol.grids import Grid
 from secontrol.item_types import Item
 
@@ -112,6 +113,145 @@ def _float_close(a: float, b: float, *, tolerance: float = 1e-6) -> bool:
     return abs(float(a) - float(b)) <= tolerance
 
 
+def _split_definition_id(value: Any) -> tuple[str, str]:
+    text = str(value or "").strip()
+    if not text:
+        return ("", "")
+    if "/" in text:
+        type_id, subtype = text.rsplit("/", 1)
+        return (type_id.strip(), subtype.strip())
+    return ("", text)
+
+
+def _material_key(payload: Any) -> tuple[str, str]:
+    """Return a stable (type, subtype) key for inventory/blueprint material payloads."""
+    if isinstance(payload, InventoryItem):
+        return (str(payload.type or ""), str(payload.subtype or ""))
+    if not isinstance(payload, dict):
+        return ("", "")
+
+    definition_id = (
+        payload.get("id")
+        or payload.get("itemId")
+        or payload.get("definitionId")
+        or payload.get("contentId")
+    )
+    definition_type, definition_subtype = _split_definition_id(definition_id)
+
+    type_id = (
+        payload.get("type")
+        or payload.get("Type")
+        or payload.get("typeId")
+        or payload.get("itemType")
+        or payload.get("contentType")
+        or definition_type
+        or ""
+    )
+    subtype = (
+        payload.get("subtype")
+        or payload.get("subType")
+        or payload.get("SubtypeName")
+        or payload.get("name")
+        or payload.get("itemSubtype")
+        or definition_subtype
+        or ""
+    )
+
+    parsed_type, parsed_subtype = _split_definition_id(type_id)
+    if parsed_type and not definition_type:
+        type_id = parsed_type
+        if not subtype:
+            subtype = parsed_subtype
+    return (str(type_id), str(subtype))
+
+
+def _material_amount(payload: Any) -> float:
+    if isinstance(payload, InventoryItem):
+        return float(payload.amount or 0.0)
+    if not isinstance(payload, dict):
+        return 0.0
+    try:
+        return float(payload.get("amount", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _merge_material_amounts(target: Dict[tuple[str, str], float], items: Iterable[Any], *, multiplier: float = 1.0) -> None:
+    for item in items:
+        key = _material_key(item)
+        if not key[0] and not key[1]:
+            continue
+        target[key] = target.get(key, 0.0) + _material_amount(item) * float(multiplier)
+
+
+def _material_label(key: tuple[str, str]) -> str:
+    item_type, subtype = key
+    if item_type and subtype:
+        return f"{item_type}/{subtype}"
+    return subtype or item_type or "?"
+
+
+@dataclass(frozen=True)
+class ProductionMaterialLine:
+    """One material line from an assembler production/disassembly check."""
+
+    type: str
+    subtype: str
+    required: float
+    available: float
+
+    @property
+    def missing(self) -> float:
+        return max(0.0, self.required - self.available)
+
+    @property
+    def ok(self) -> bool:
+        return self.missing <= 1e-6
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.type,
+            "subtype": self.subtype,
+            "required": self.required,
+            "available": self.available,
+            "missing": self.missing,
+            "ok": self.ok,
+        }
+
+
+@dataclass(frozen=True)
+class ProductionCapabilityCheck:
+    """Detailed answer to: can this assembler currently produce/disassemble an item?"""
+
+    blueprint_id: str
+    blueprint_subtype: str
+    amount: float
+    mode: str
+    can_produce: bool
+    reason: str
+    materials: List[ProductionMaterialLine]
+    queue_enabled: Optional[bool] = None
+    disassemble_enabled: Optional[bool] = None
+    blueprint: Optional[Dict[str, Any]] = None
+
+    @property
+    def missing(self) -> List[ProductionMaterialLine]:
+        return [line for line in self.materials if not line.ok]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "blueprintId": self.blueprint_id,
+            "blueprintSubtype": self.blueprint_subtype,
+            "amount": self.amount,
+            "mode": self.mode,
+            "canProduce": self.can_produce,
+            "reason": self.reason,
+            "queueEnabled": self.queue_enabled,
+            "disassembleEnabled": self.disassemble_enabled,
+            "materials": [line.to_dict() for line in self.materials],
+        }
+
+
 class AssemblerDevice(ContainerDevice):
     """Inventory-enabled wrapper for assemblers."""
 
@@ -173,6 +313,331 @@ class AssemblerDevice(ContainerDevice):
             print(f"     Type: {blueprint_type}")
 
         print("-" * 70)
+
+
+    # -------------------- Blueprint/material checks --------------------
+    def queue_enabled(self) -> bool | None:
+        telemetry = self.telemetry or {}
+        if "queueEnabled" not in telemetry:
+            return None
+        return bool(telemetry.get("queueEnabled"))
+
+    def set_queue_enabled(self, enabled: bool | None = None) -> int:
+        """Set/toggle Space Engineers 'Use Production Queue'.
+
+        This requires server-side plugin support for cmd='queue_enabled'. Older
+        plugins will accept the Redis message but will not change telemetry, so
+        use :meth:`set_queue_enabled_verified` when you need confirmation.
+        """
+        result = self._send_bool_command("queue_enabled", enabled, "QueueEnabled", "queueEnabled")
+        print(f"Assembler {self.name} ({self.device_id}): set_queue_enabled({enabled}) -> sent {result} messages")
+        return result
+
+    def set_queue_enabled_verified(self, enabled: bool, *, timeout: float = 3.0) -> bool:
+        current = self.queue_enabled()
+        if current is not None and current == bool(enabled):
+            return True
+        sent = self.set_queue_enabled(bool(enabled))
+        if sent <= 0:
+            return False
+        return self._wait_until(lambda: self.queue_enabled() == bool(enabled), timeout=timeout)
+
+    def get_blueprint(self, blueprint: Any, *, request: bool = False) -> Optional[Dict[str, Any]]:
+        """Find a blueprint by full id, blueprint subtype, display name or result subtype."""
+        blueprint_id = self.resolve_blueprint_id(blueprint, request=request)
+        wanted = str(blueprint or "").strip().lower()
+        wanted_subtype = _blueprint_subtype(blueprint_id).lower()
+
+        for entry in self.blueprints or []:
+            bp_id = str(entry.get("blueprintId") or "").strip()
+            bp_subtype = _blueprint_subtype(bp_id).lower()
+            display_name = str(entry.get("displayName") or "").strip().lower()
+            if wanted in {bp_id.lower(), bp_subtype, display_name} or wanted_subtype == bp_subtype:
+                return dict(entry)
+
+            results = entry.get("results") if isinstance(entry.get("results"), list) else []
+            for result in results:
+                if not isinstance(result, dict):
+                    continue
+                result_key = _material_key(result)
+                result_subtype = result_key[1].lower()
+                if wanted and wanted == result_subtype:
+                    return dict(entry)
+                if wanted_subtype and wanted_subtype == result_subtype:
+                    return dict(entry)
+        return None
+
+    def blueprint_output_amount(self, blueprint: Any, *, request: bool = False) -> float:
+        entry = self.get_blueprint(blueprint, request=request)
+        if not entry:
+            return 1.0
+        requested = str(blueprint or "").strip().lower()
+        requested_subtype = _blueprint_subtype(requested).lower()
+        results = entry.get("results") if isinstance(entry.get("results"), list) else []
+        fallback = 1.0
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            amount = _material_amount(result)
+            if amount > 0.0 and fallback == 1.0:
+                fallback = amount
+            result_subtype = _material_key(result)[1].lower()
+            if requested_subtype and result_subtype == requested_subtype:
+                return amount if amount > 0.0 else 1.0
+            if requested and result_subtype == requested:
+                return amount if amount > 0.0 else 1.0
+        return fallback if fallback > 0.0 else 1.0
+
+    def blueprint_requirements(self, blueprint: Any, amount: float = 1.0, *, request: bool = False) -> Dict[tuple[str, str], float]:
+        """Return required prerequisite materials for the requested output amount."""
+        entry = self.get_blueprint(blueprint, request=request)
+        if not entry:
+            return {}
+        output_amount = self.blueprint_output_amount(blueprint, request=False)
+        scale = float(amount) / output_amount if output_amount > 0 else float(amount)
+        requirements: Dict[tuple[str, str], float] = {}
+        prerequisites = entry.get("prerequisites") if isinstance(entry.get("prerequisites"), list) else []
+        _merge_material_amounts(requirements, prerequisites, multiplier=scale)
+        return requirements
+
+    def blueprint_results(self, blueprint: Any, amount: float = 1.0, *, request: bool = False) -> Dict[tuple[str, str], float]:
+        """Return resulting items for the requested blueprint amount."""
+        entry = self.get_blueprint(blueprint, request=request)
+        if not entry:
+            return {}
+        output_amount = self.blueprint_output_amount(blueprint, request=False)
+        scale = float(amount) / output_amount if output_amount > 0 else float(amount)
+        results: Dict[tuple[str, str], float] = {}
+        raw_results = entry.get("results") if isinstance(entry.get("results"), list) else []
+        _merge_material_amounts(results, raw_results, multiplier=scale)
+        return results
+
+    def _iter_source_items(
+        self,
+        source: Any = None,
+        *,
+        source_inventory: str | int | InventorySnapshot | None = None,
+        include_grid_inventory: bool = False,
+    ) -> List[InventoryItem]:
+        if source is None:
+            if include_grid_inventory:
+                result: List[InventoryItem] = []
+                for device in getattr(self.grid, "devices", {}).values():
+                    if device is self:
+                        input_inventory = self.input_inventory()
+                        if input_inventory:
+                            result.extend(input_inventory.items)
+                        continue
+                    if not hasattr(device, "inventory_items"):
+                        continue
+                    try:
+                        result.extend(device.inventory_items())
+                    except Exception:
+                        pass
+                return [InventoryItem(item.type, item.subtype, item.amount, item.display_name) for item in result]
+
+            input_inventory = self.input_inventory()
+            if input_inventory:
+                return [InventoryItem(item.type, item.subtype, item.amount, item.display_name) for item in input_inventory.items]
+            return self.inventory_items()
+
+        if isinstance(source, InventorySnapshot):
+            return [InventoryItem(item.type, item.subtype, item.amount, item.display_name) for item in source.items]
+
+        if isinstance(source, InventoryItem):
+            return [InventoryItem(source.type, source.subtype, source.amount, source.display_name)]
+
+        if isinstance(source, dict):
+            return [InventoryItem.from_payload(source)]
+
+        if hasattr(source, "inventory_items"):
+            try:
+                return list(source.inventory_items(source_inventory))
+            except TypeError:
+                return list(source.inventory_items())
+
+        if isinstance(source, Sequence) and not isinstance(source, (str, bytes, bytearray)):
+            result: List[InventoryItem] = []
+            for entry in source:
+                result.extend(self._iter_source_items(entry, source_inventory=source_inventory))
+            return result
+
+        raise ValueError(f"Unsupported material source: {source!r}")
+
+    def available_materials(
+        self,
+        source: Any = None,
+        *,
+        source_inventory: str | int | InventorySnapshot | None = None,
+        include_grid_inventory: bool = False,
+    ) -> Dict[tuple[str, str], float]:
+        """Aggregate materials by (type, subtype) for production checks.
+
+        By default this uses the assembler input inventory, which matches the
+        production-screen idea of stored materials. With include_grid_inventory=True
+        it aggregates visible inventories on the loaded grid; that is useful for a
+        rough logistics check, but it does not prove conveyor reachability.
+        """
+        result: Dict[tuple[str, str], float] = {}
+        _merge_material_amounts(
+            result,
+            self._iter_source_items(
+                source,
+                source_inventory=source_inventory,
+                include_grid_inventory=include_grid_inventory,
+            ),
+        )
+        return result
+
+    def production_check(
+        self,
+        blueprint: Any,
+        amount: float = 1.0,
+        *,
+        source: Any = None,
+        source_inventory: str | int | InventorySnapshot | None = None,
+        include_grid_inventory: bool = False,
+        require_queue_enabled: bool = False,
+        request_blueprints: bool = True,
+    ) -> ProductionCapabilityCheck:
+        """Return the same useful information as red/normal blueprint coloring.
+
+        can_produce=True means all blueprint prerequisites are present in the
+        selected material source. It does not guarantee that conveyors are routed
+        correctly unless the selected source is exactly the assembler input.
+        """
+        try:
+            blueprint_id = self.resolve_blueprint_id(blueprint, request=request_blueprints)
+        except Exception:
+            blueprint_id = _canonical_blueprint_id(blueprint)
+        bp = self.get_blueprint(blueprint_id, request=request_blueprints)
+        if not bp:
+            return ProductionCapabilityCheck(
+                blueprint_id=blueprint_id,
+                blueprint_subtype=_blueprint_subtype(blueprint_id),
+                amount=float(amount),
+                mode="assemble",
+                can_produce=False,
+                reason="blueprint_not_found",
+                materials=[],
+                queue_enabled=self.queue_enabled(),
+                disassemble_enabled=self.disassemble_enabled(),
+                blueprint=None,
+            )
+
+        required = self.blueprint_requirements(blueprint_id, amount, request=False)
+        available = self.available_materials(
+            source,
+            source_inventory=source_inventory,
+            include_grid_inventory=include_grid_inventory,
+        )
+        lines = [
+            ProductionMaterialLine(
+                type=key[0],
+                subtype=key[1],
+                required=needed,
+                available=available.get(key, 0.0),
+            )
+            for key, needed in sorted(required.items(), key=lambda pair: _material_label(pair[0]))
+        ]
+        materials_ok = all(line.ok for line in lines)
+        queue_ok = (not require_queue_enabled) or (self.queue_enabled() is not False)
+        can_produce = bool(materials_ok and queue_ok)
+        if not materials_ok:
+            reason = "missing_materials"
+        elif not queue_ok:
+            reason = "queue_disabled"
+        else:
+            reason = "ok"
+        return ProductionCapabilityCheck(
+            blueprint_id=blueprint_id,
+            blueprint_subtype=_blueprint_subtype(blueprint_id),
+            amount=float(amount),
+            mode="assemble",
+            can_produce=can_produce,
+            reason=reason,
+            materials=lines,
+            queue_enabled=self.queue_enabled(),
+            disassemble_enabled=self.disassemble_enabled(),
+            blueprint=bp,
+        )
+
+    def can_produce(self, blueprint: Any, amount: float = 1.0, **kwargs: Any) -> bool:
+        return self.production_check(blueprint, amount, **kwargs).can_produce
+
+    def disassembly_check(
+        self,
+        blueprint: Any,
+        amount: float = 1.0,
+        *,
+        source: Any = None,
+        source_inventory: str | int | InventorySnapshot | None = None,
+        include_grid_inventory: bool = False,
+        request_blueprints: bool = True,
+    ) -> ProductionCapabilityCheck:
+        """Check whether the selected source contains items that can be disassembled."""
+        try:
+            blueprint_id = self.resolve_blueprint_id(blueprint, request=request_blueprints)
+        except Exception:
+            blueprint_id = _canonical_blueprint_id(blueprint)
+        bp = self.get_blueprint(blueprint_id, request=request_blueprints)
+        if not bp:
+            return ProductionCapabilityCheck(
+                blueprint_id=blueprint_id,
+                blueprint_subtype=_blueprint_subtype(blueprint_id),
+                amount=float(amount),
+                mode="disassemble",
+                can_produce=False,
+                reason="blueprint_not_found",
+                materials=[],
+                queue_enabled=self.queue_enabled(),
+                disassemble_enabled=self.disassemble_enabled(),
+                blueprint=None,
+            )
+
+        results = self.blueprint_results(blueprint_id, amount, request=False)
+        available = self.available_materials(
+            source,
+            source_inventory=source_inventory,
+            include_grid_inventory=include_grid_inventory,
+        )
+        lines = [
+            ProductionMaterialLine(
+                type=key[0],
+                subtype=key[1],
+                required=needed,
+                available=available.get(key, 0.0),
+            )
+            for key, needed in sorted(results.items(), key=lambda pair: _material_label(pair[0]))
+        ]
+        can_disassemble = all(line.ok for line in lines)
+        return ProductionCapabilityCheck(
+            blueprint_id=blueprint_id,
+            blueprint_subtype=_blueprint_subtype(blueprint_id),
+            amount=float(amount),
+            mode="disassemble",
+            can_produce=can_disassemble,
+            reason="ok" if can_disassemble else "missing_items_to_disassemble",
+            materials=lines,
+            queue_enabled=self.queue_enabled(),
+            disassemble_enabled=self.disassemble_enabled(),
+            blueprint=bp,
+        )
+
+    def can_disassemble(self, blueprint: Any, amount: float = 1.0, **kwargs: Any) -> bool:
+        return self.disassembly_check(blueprint, amount, **kwargs).can_produce
+
+    def assemble(self, blueprint: Any, amount: Optional[float] = None, *, verify: bool = True, timeout: float = 3.0) -> bool | int:
+        """High-level helper: force assembly mode and add an item to the queue."""
+        if verify:
+            return self.add_queue_item_verified(blueprint, amount, timeout=timeout, disassemble=False)
+        return self.add_queue_item(blueprint, amount, disassemble=False)
+
+    def disassemble(self, blueprint: Any, amount: Optional[float] = None, *, verify: bool = True, timeout: float = 3.0) -> bool | int:
+        """High-level helper: force disassembly mode and add an item to the queue."""
+        if verify:
+            return self.add_queue_item_verified(blueprint, amount, timeout=timeout, disassemble=True)
+        return self.add_queue_item(blueprint, amount, disassemble=True)
 
     # -------------------------- Commands ----------------------------
     def set_enabled(self, enabled: bool) -> int:

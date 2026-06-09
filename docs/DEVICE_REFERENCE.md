@@ -147,6 +147,10 @@ Base for all inventory-aware devices. Also used by ConnectorDevice, AssemblerDev
 | `find_items_by_type(type, ...)` | `list[InventoryItem]` | Filter by type |
 | `find_items_by_subtype(subtype, ...)` | `list[InventoryItem]` | Filter by subtype |
 | `find_items_by_display_name(name, ...)` | `list[InventoryItem]` | Filter by display name |
+| `queue()` | `list[dict]` | Generic queue telemetry if present |
+| `clear_queue_verified(timeout=3.0)` | `bool` | Clear queue and confirm telemetry changed |
+| `remove_queue_item_verified(index, amount=None, timeout=3.0)` | `bool` | Remove from queue and confirm telemetry changed |
+| `add_queue_item_verified(item, amount=None, timeout=3.0)` | `bool` | Add generic queue item and confirm telemetry changed |
 | `has_tag(tag)` | `bool` | Check tag (from name `[tag]` or custom data) |
 | `tags` | `set[str]` | Current tags |
 
@@ -184,9 +188,17 @@ from secontrol.devices.assembler_device import AssemblerDevice
 | `set_enabled(bool)` | `int` | Enable/disable |
 | `toggle_enabled()` | `int` | Toggle |
 | `set_use_conveyor(bool)` | `int` | Toggle conveyor system |
+| `queue_enabled()` | `bool \| None` | Current Use Production Queue flag if reported by telemetry |
+| `set_queue_enabled(bool)` | `int` | Python side for Use Production Queue; requires plugin support |
+| `set_queue_enabled_verified(bool, timeout=3.0)` | `bool` | Set queueEnabled and verify by telemetry |
 | `clear_queue()` | `int` | Clear production queue |
 | `remove_queue_item(index, amount=None)` | `int` | Remove queue item by index |
 | `add_queue_item(blueprint, amount=None)` | `int` | Add to queue (str, tuple, or dict) |
+| `add_queue_item_verified(blueprint, amount=None, disassemble=None, timeout=3.0)` | `bool` | Add to queue and confirm telemetry changed |
+| `add_disassemble_item(blueprint, amount=None)` | `int` | Add disassembly task |
+| `add_disassemble_item_verified(blueprint, amount=None, timeout=3.0)` | `bool` | Add disassembly task and confirm telemetry changed |
+| `assemble(blueprint, amount=None, verify=True)` | `bool \| int` | Force assembly mode and add queue item |
+| `disassemble(blueprint, amount=None, verify=True)` | `bool \| int` | Force disassembly mode and add queue item |
 | `add_queue_items(items)` | `int` | Add multiple items |
 | `request_blueprints()` | `int` | Request available blueprints |
 | `queue()` | `list[dict]` | Current queue |
@@ -197,6 +209,13 @@ from secontrol.devices.assembler_device import AssemblerDevice
 | `input_inventory()` | `InventorySnapshot \| None` | Input inventory |
 | `output_inventory()` | `InventorySnapshot \| None` | Output inventory |
 | `blueprints` | `list[dict] \| None` | Available blueprints |
+| `get_blueprint(blueprint, request=False)` | `dict \| None` | Find blueprint by id, subtype, display name or result subtype |
+| `blueprint_requirements(blueprint, amount=1)` | `dict` | Required ingots/materials for amount |
+| `available_materials(source=None, include_grid_inventory=False)` | `dict` | Aggregated materials by `(type, subtype)` |
+| `production_check(blueprint, amount=1, ...)` | `ProductionCapabilityCheck` | Detailed red/normal production check |
+| `can_produce(blueprint, amount=1, ...)` | `bool` | Quick production availability check |
+| `disassembly_check(blueprint, amount=1, ...)` | `ProductionCapabilityCheck` | Detailed disassembly availability check |
+| `can_disassemble(blueprint, amount=1, ...)` | `bool` | Quick disassembly check |
 
 ### RefineryDevice — `device_type = "refinery"` (extends ContainerDevice)
 

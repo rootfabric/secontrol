@@ -91,6 +91,8 @@ Prerequisites: `pip install -e ".[dev]"`, Redis connection, Space Engineers gate
 | Script | What it does |
 |---|---|
 | `container_simple_item_mover.py` | Move items between containers using tags in container names (`[ore]`, `[ingot]`) |
+| `containers_show.py` | Show contents of all containers on a grid |
+| `grid_sort_items.py` | One-shot sort: distribute every item into 4 dedicated containers (ore / component / ingot / misc). `--auto-rename` picks the most-empty cargo container for a missing category. Skips turrets, reactors, conveyor sorters |
 
 ### container/intermediate/
 

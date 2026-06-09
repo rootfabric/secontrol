@@ -135,8 +135,25 @@ def get_device_name(device: Any) -> str:
     return str(getattr(device, "name", None) or getattr(device, "device_id", "unknown"))
 
 
+def _belongs_to_main_grid(device: Any, grid: Any) -> bool:
+    target_grid_id = str(getattr(grid, "grid_id", "") or "")
+    if not target_grid_id:
+        return False
+    if str(getattr(device, "grid_id", "") or "") != target_grid_id:
+        return False
+    telemetry = getattr(device, "telemetry", None) or {}
+    tel_grid = str(telemetry.get("gridId", "") or "")
+    if tel_grid and tel_grid != target_grid_id:
+        return False
+    return True
+
+
 def get_assemblers(grid: Any, *, name_filter: str | None = None) -> list[AssemblerDevice]:
-    assemblers = [device for device in grid.devices.values() if isinstance(device, AssemblerDevice)]
+    assemblers = [
+        device
+        for device in grid.devices.values()
+        if isinstance(device, AssemblerDevice) and _belongs_to_main_grid(device, grid)
+    ]
     if name_filter:
         needle = name_filter.lower()
         assemblers = [asm for asm in assemblers if needle in get_device_name(asm).lower()]

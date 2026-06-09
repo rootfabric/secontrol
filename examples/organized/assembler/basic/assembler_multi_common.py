@@ -98,8 +98,71 @@ def count_in_inventory(grid: Any, item_type: Any) -> float:
     return total
 
 
-def find_assemblers(grid: Any, *, name_filter: str = "", only_ready: bool = True) -> list[AssemblerDevice]:
-    assemblers = [device for device in grid.devices.values() if isinstance(device, AssemblerDevice)]
+def device_belongs_to_grid(device: Any, grid: Any, *, include_subgrids: bool = False) -> bool:
+    """True если device реально принадлежит указанному гриду.
+
+    Поведение по умолчанию (include_subgrids=False) берёт только устройства,
+    чей metadata.grid_id совпадает с grid.grid_id. Это страхует от случая,
+    когда к гриду через Merge Block / Projector / docking пристыкован subgrid
+    с собственными ассемблерами — без фильтра их устройства попадают в
+    grid.devices (см. Grid._aggregate_devices_from_subgrids) и скрипт
+    обслуживания производства добавит задания в чужой, нерабочий конструктор.
+
+    Дополнительно сверяемся с telemetry.gridId, если оно пришло из плагина —
+    это защищает от ситуации, когда block был перемещён в другой грид, а
+    metadata в кеше ещё старые.
+    """
+    target_grid_id = str(getattr(grid, "grid_id", "") or "")
+    if not target_grid_id:
+        return False
+
+    device_grid_id = str(getattr(device, "grid_id", "") or "")
+    if device_grid_id != target_grid_id:
+        if not include_subgrids:
+            return False
+        # include_subgrids: разрешаем subgrid только если metadata явно ссылается
+        # на subgrid (а не на чужой main grid). Иначе отсекаем чужие гриды.
+        # Здесь device_grid_id != target_grid_id, но если он пустой — пропускаем.
+        if not device_grid_id:
+            return False
+
+    telemetry = getattr(device, "telemetry", None) or {}
+    telemetry_grid_id = str(telemetry.get("gridId", "") or "")
+    if telemetry_grid_id and telemetry_grid_id != target_grid_id:
+        if not include_subgrids:
+            return False
+        if not device_grid_id:
+            return False
+
+    return True
+
+
+def find_assemblers(
+    grid: Any,
+    *,
+    name_filter: str = "",
+    only_ready: bool = True,
+    include_subgrids: bool = False,
+) -> list[AssemblerDevice]:
+    """Найти ассемблеры на гриде.
+
+    По умолчанию берём ТОЛЬКО ассемблеры, принадлежащие самому гриду
+    (metadata.grid_id == grid.grid_id). Ассемблеры пристыкованных subgrid'ов
+    (через Merge Block / Projector preview / docking) игнорируются — у них
+    своя логистика, свои контейнеры, и без материалов они не производят.
+
+    Чтобы включить их обратно (для редких случаев, когда subgrid пристыкован
+    и разделяет ресурсы), передайте include_subgrids=True.
+    """
+    target_grid_id = str(getattr(grid, "grid_id", "") or "")
+    assemblers: list[AssemblerDevice] = []
+    for device in grid.devices.values():
+        if not isinstance(device, AssemblerDevice):
+            continue
+        if not device_belongs_to_grid(device, grid, include_subgrids=include_subgrids):
+            continue
+        assemblers.append(device)
+
     if name_filter:
         needle = name_filter.lower()
         assemblers = [a for a in assemblers if needle in str(a.name or "").lower()]

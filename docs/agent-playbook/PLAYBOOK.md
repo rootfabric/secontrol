@@ -28,6 +28,9 @@ python examples/organized/radar/shared_map/shared_map_sync.py --grid agent0
 # Слить все ресурсы со всех припаркованных кораблей (запускается на базе)
 python examples/organized/container/advanced/pull_from_attached_ships.py --base-grid skynet-farpost0 --target-tag cargo
 
+# Включить все пассивные устройства на гриде (батареи, коннекторы, панели, двигатели и т.д.)
+python docs/agent-skills/gaming/se-grid-enable-devices/scripts/enable_devices.py skynet-farpost0
+
 # Лететь к ближайшему астероиду
 python examples/space_flight/space_navigator_v4.py --grid agent0 --nearest-asteroid
 ```
@@ -67,6 +70,21 @@ python examples/organized/radar/shared_map/shared_map_sync.py --grid agent1
 
 | [SE Stone Collection Mission](agents-missions/se-stone-collection-mission.md) | Добыча камня. Не ищет рудную жилу; использует любой доступный voxel, наводит Nanobot area и включает фильтр Stone. |
 | [SE Projector Clone Mission](agents-missions/se-projector-clone-mission.md) | Проекция чертежа на Projector с выравниванием по паре Merge Block + Connector. Два скрипта: `align_clone_projection.py` (v17, для LargeProjector) и `align_clone_projection_small.py` (v20, для SmallProjector — сам делает коррекцию UI origin `(-1, -1, 0)`). Поворачивает XML, делает pre-flip 180° вокруг контактной линии, запекает относительный сдвиг внутрь blueprint (не зависит от UI offset), очищает текущую проекцию, грузит XML и подтверждает offset/rotation по телеметрии. |
+
+
+---
+
+## Каталог скиллов (skills)
+
+Короткие CLI-утилиты под одну частую задачу: поиск грида, отчёт о состоянии, массовое включение. Каждый скилл — отдельная папка в `docs/agent-skills/gaming/<name>/` со своим `SKILL.md` (полное описание + грабли) и `scripts/`. Если запрос оператора совпадает с задачей скилла — бери его, не собирай ad-hoc скрипт.
+
+| Скилл | Когда использовать | Скрипт |
+|---|---|---|
+| [se-grid-find-by-name](../agent-skills/gaming/se-grid-find-by-name/SKILL.md) | Оператор называет грид вслух ("фарпост", "agent0"), а id неизвестен. Substring-поиск + `--id-only` для пайплайнов. | `python docs/agent-skills/gaming/se-grid-find-by-name/scripts/find_grid.py [подстрока]` |
+| [se-grid-status-report](../agent-skills/gaming/se-grid-status-report/scripts/grid_report.py) | Обзор грида: блоки/устройства, повреждения, водород/батареи/уран, инвентарь, готовность к полёту. | `python docs/agent-skills/gaming/se-grid-status-report/scripts/grid_report.py [grid]` |
+| [se-grid-enable-devices](../agent-skills/gaming/se-grid-enable-devices/SKILL.md) | "Оживить" корабль/базу: `enable()` по всем выключенным пассивным устройствам (батареи, коннекторы, панели, двигатели, гироскопы, сенсоры, антенны, маяки, реакторы, лампы, оре-детекторы) + read-after-write. Оружие, туррели, буры, нанобуры, верфи, ассемблеры, газогенераторы, колёса, проекторы по умолчанию пропускаются. | `python docs/agent-skills/gaming/se-grid-enable-devices/scripts/enable_devices.py <grid>` |
+
+> **Соглашение:** новые одноразовые скрипты для типовых задач оформляй как скилл, а не как временный файл в `tmp/`. Шаблон: папка в `docs/agent-skills/gaming/<name>/`, `SKILL.md` с описанием/примерами/граблями, `scripts/<name>.py` с рабочим CLI. Только тогда агент, читающий эту инструкцию, найдёт его в каталоге.
 
 
 ---
@@ -263,8 +281,35 @@ python examples/organized/assembler/basic/maintain_components.py --grid farpost0
 # Свой файл целей
 python examples/organized/assembler/basic/maintain_components.py --grid farpost0 --config my_targets.json
 
+# Пересортировать очередь ассемблера: дефицитные компоненты — в начало,
+# остальные — сохраняются в исходном порядке. Цели из production_targets.json,
+# дефицит = (inventory + sum_of_already_queued) < target.
+python examples/organized/assembler/basic/sort_queue_by_inventory.py --grid farpost0 --dry-run
+python examples/organized/assembler/basic/sort_queue_by_inventory.py --grid farpost0
+
+# Только один ассемблер (очереди остальных в подсчёт дефицита не идут)
+python examples/organized/assembler/basic/sort_queue_by_inventory.py --grid farpost0 --assembler-name "Assembler 2" --dry-run
+
+# Плоская цель: 100 единиц на КАЖДЫЙ компонент из production_targets.json
+python examples/organized/assembler/basic/sort_queue_by_inventory.py --grid farpost0 --flat-target 100 --dry-run
+
 # Показать содержимое контейнеров грида
 python examples/organized/container/basic/containers_show.py --grid farpost0
+
+# Рассортировать все предметы на гриде в 4 контейнера (руда/компоненты/слитки/прочее)
+python examples/organized/container/basic/grid_sort_items.py --grid farpost0
+python examples/organized/container/basic/grid_sort_items.py --grid farpost0 --dry-run
+python examples/organized/container/basic/grid_sort_items.py --grid farpost0 \
+    --ore-name "[Ore]" --component-name "[Component]" \
+    --ingot-name "[Ingot]" --misc-name "[Misc]"
+
+# Если контейнер [Misc] не размечен — пусть скрипт сам переименует самый
+# пустой cargo-контейнер в [Misc Storage]. DESTRUCTIVE: меняет имя блока.
+python examples/organized/container/basic/grid_sort_items.py --grid farpost0 --auto-rename
+
+# Что скрипт НЕ трогает: турели (large_turret/interior_turret) сохраняют
+# заряженные патроны/ракеты, реакторы сохраняют урановое топливо,
+# conveyor sorters содержат слоты фильтров, а не реальные предметы.
 
 # Перегрузить ресурсы с корабля на базу (корабль должен быть пристыкован)
 python examples/organized/container/advanced/pull_items_from_docked_grid.py --source-grid skynet-agent0 --target-grid skynet-farpost0

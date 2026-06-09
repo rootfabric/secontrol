@@ -97,7 +97,18 @@ def count_in_inventory(grid, item_type) -> float:
 
 
 def find_assembler(grid) -> AssemblerDevice | None:
-    assemblers = [device for device in grid.devices.values() if isinstance(device, AssemblerDevice)]
+    target_grid_id = str(getattr(grid, "grid_id", "") or "")
+    assemblers: list[AssemblerDevice] = []
+    for device in grid.devices.values():
+        if not isinstance(device, AssemblerDevice):
+            continue
+        if str(getattr(device, "grid_id", "") or "") != target_grid_id:
+            continue
+        telemetry = getattr(device, "telemetry", None) or {}
+        tel_grid = str(telemetry.get("gridId", "") or "")
+        if tel_grid and tel_grid != target_grid_id:
+            continue
+        assemblers.append(device)
     if not assemblers:
         return None
 

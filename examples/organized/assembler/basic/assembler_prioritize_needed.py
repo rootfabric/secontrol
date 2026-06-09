@@ -342,7 +342,18 @@ def queue_entry_component(entry: dict[str, Any]) -> str | None:
 
 
 def find_assemblers(grid, *, assembler_id: str | None = None, name: str | None = None) -> list[AssemblerDevice]:
-    assemblers = [d for d in grid.devices.values() if isinstance(d, AssemblerDevice)]
+    target_grid_id = str(getattr(grid, "grid_id", "") or "")
+    assemblers: list[AssemblerDevice] = []
+    for d in grid.devices.values():
+        if not isinstance(d, AssemblerDevice):
+            continue
+        if str(getattr(d, "grid_id", "") or "") != target_grid_id:
+            continue
+        telemetry = getattr(d, "telemetry", None) or {}
+        tel_grid = str(telemetry.get("gridId", "") or "")
+        if tel_grid and tel_grid != target_grid_id:
+            continue
+        assemblers.append(d)
 
     if assembler_id:
         needle = str(assembler_id).strip()

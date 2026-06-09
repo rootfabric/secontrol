@@ -13,10 +13,18 @@ from secontrol.devices.assembler_device import AssemblerDevice
 
 
 def find_assembler(grid) -> AssemblerDevice | None:
-    """Найти первый доступный конструктор на гриде."""
+    """Найти первый конструктор, принадлежащий самому гриду (исключая subgrid'ы)."""
+    target_grid_id = str(getattr(grid, "grid_id", "") or "")
     for device in grid.devices.values():
-        if isinstance(device, AssemblerDevice):
-            return device
+        if not isinstance(device, AssemblerDevice):
+            continue
+        if str(getattr(device, "grid_id", "") or "") != target_grid_id:
+            continue
+        telemetry = getattr(device, "telemetry", None) or {}
+        tel_grid = str(telemetry.get("gridId", "") or "")
+        if tel_grid and tel_grid != target_grid_id:
+            continue
+        return device
     return None
 
 

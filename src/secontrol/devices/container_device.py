@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from secontrol.base_device import BaseDevice, DEVICE_TYPE_MAP
@@ -357,6 +358,196 @@ class ContainerDevice(BaseDevice):
             source_inventory=source_inventory,
             destination_inventory=destination_inventory,
         )
+
+
+    # ------------------------------------------------------------------
+    # Generic production queue helpers
+    # ------------------------------------------------------------------
+    def queue(self) -> List[Dict[str, Any]]:
+        """Return normalized queue entries if the device exposes a queue in telemetry.
+
+        This is intentionally generic: assemblers and refineries may override the
+        command payloads, but inventory-like production devices can still expose
+        their telemetry queue through this base helper.
+        """
+
+        entries = (self.telemetry or {}).get("queue")
+        if isinstance(entries, list):
+            return [dict(entry) for entry in entries if isinstance(entry, dict)]
+        return []
+
+    def is_queue_empty(self) -> bool:
+        telemetry = self.telemetry or {}
+        if "isQueueEmpty" in telemetry:
+            return bool(telemetry.get("isQueueEmpty"))
+        return len(self.queue()) == 0
+
+    def print_queue(self) -> None:
+        queue = self.queue()
+        if not queue:
+            print(f"{self.name} ({self.device_id}): Queue is empty")
+            return
+
+        print(f"{self.name} ({self.device_id}): Queue ({len(queue)} items):")
+        print("-" * 70)
+        for fallback_index, entry in enumerate(queue):
+            index = entry.get("index", fallback_index)
+            name = (
+                entry.get("blueprintSubtype")
+                or entry.get("subtype")
+                or entry.get("itemId")
+                or entry.get("blueprintId")
+                or "N/A"
+            )
+            amount = entry.get("amount", "N/A")
+            print(f"[{index}] {name} x{amount}")
+        print("-" * 70)
+
+    def _wait_until(self, predicate, *, timeout: float = 3.0, poll: float = 0.15) -> bool:
+        deadline = time.time() + max(0.0, float(timeout))
+        attempt = 0
+        while time.time() <= deadline:
+            try:
+                if predicate():
+                    return True
+            except Exception:
+                pass
+
+            attempt += 1
+            force_update = attempt % 4 == 0
+            try:
+                self.wait_for_telemetry(
+                    timeout=min(0.5, max(0.05, deadline - time.time())),
+                    wait_for_new=True,
+                    need_update=force_update,
+                )
+            except Exception:
+                pass
+            time.sleep(max(0.01, float(poll)))
+
+        try:
+            self.wait_for_telemetry(timeout=0.5, wait_for_new=False, need_update=True)
+        except Exception:
+            pass
+        try:
+            return bool(predicate())
+        except Exception:
+            return False
+
+    @staticmethod
+    def _queue_signature(queue: List[Dict[str, Any]]) -> Tuple[Tuple[int, str, float], ...]:
+        signature: List[Tuple[int, str, float]] = []
+        for fallback_index, entry in enumerate(queue):
+            try:
+                index = int(entry.get("index", fallback_index))
+            except (TypeError, ValueError):
+                index = fallback_index
+            label = str(
+                entry.get("blueprintId")
+                or entry.get("blueprintSubtype")
+                or entry.get("subtype")
+                or entry.get("itemId")
+                or ""
+            )
+            try:
+                amount = float(entry.get("amount", 0.0))
+            except (TypeError, ValueError):
+                amount = 0.0
+            signature.append((index, label, amount))
+        return tuple(signature)
+
+    def clear_queue(self) -> int:
+        return self.send_command({"cmd": "queue_clear"})
+
+    def clear_queue_verified(self, *, timeout: float = 3.0) -> bool:
+        if self.telemetry is not None and not self.queue():
+            return True
+        sent = self.clear_queue()
+        if sent <= 0:
+            return False
+        return self._wait_until(lambda: len(self.queue()) == 0, timeout=timeout)
+
+    def remove_queue_item(self, index: int, amount: Optional[float] = None) -> int:
+        state: Dict[str, Any] = {"index": int(index)}
+        if amount is not None:
+            state["amount"] = float(amount)
+        command = {"cmd": "queue_remove"}
+        command.update(state)
+        command["state"] = dict(state)
+        return self.send_command(command)
+
+    def remove_queue_item_verified(self, index: int, amount: Optional[float] = None, *, timeout: float = 3.0) -> bool:
+        before_queue = self.queue()
+        before_signature = self._queue_signature(before_queue)
+        try:
+            before_item = next((entry for entry in before_queue if int(entry.get("index", -1)) == int(index)), None)
+        except Exception:
+            before_item = None
+        if before_item is None:
+            return False
+
+        sent = self.remove_queue_item(index, amount)
+        if sent <= 0:
+            return False
+
+        def changed() -> bool:
+            after_queue = self.queue()
+            after_signature = self._queue_signature(after_queue)
+            if after_signature != before_signature:
+                return True
+            if amount is None:
+                return not any(int(entry.get("index", -1)) == int(index) for entry in after_queue)
+            try:
+                before_amount = float(before_item.get("amount", 0.0))
+            except (TypeError, ValueError):
+                before_amount = 0.0
+            after_item = next((entry for entry in after_queue if int(entry.get("index", -1)) == int(index)), None)
+            if after_item is None:
+                return True
+            try:
+                after_amount = float(after_item.get("amount", 0.0))
+            except (TypeError, ValueError):
+                after_amount = before_amount
+            return after_amount < before_amount - 1e-6
+
+        return self._wait_until(changed, timeout=timeout)
+
+    def add_queue_item(self, item: Any, amount: Optional[float] = None) -> int:
+        if isinstance(item, dict):
+            payload = dict(item)
+        elif isinstance(item, str):
+            payload = {"blueprintId": item}
+        elif isinstance(item, (tuple, list)) and item:
+            payload = {"blueprintId": item[0]}
+            if len(item) > 1 and amount is None:
+                amount = item[1]
+        else:
+            raise ValueError(f"Unsupported queue item format: {item!r}")
+
+        if amount is not None:
+            payload["amount"] = float(amount)
+        elif "amount" not in payload:
+            payload["amount"] = 1.0
+        else:
+            payload["amount"] = float(payload["amount"])
+
+        command = {"cmd": "queue_add"}
+        command.update(payload)
+        command["state"] = dict(payload)
+        return self.send_command(command)
+
+    def add_queue_item_verified(self, item: Any, amount: Optional[float] = None, *, timeout: float = 3.0) -> bool:
+        before_signature = self._queue_signature(self.queue())
+        sent = self.add_queue_item(item, amount)
+        if sent <= 0:
+            return False
+        return self._wait_until(lambda: self._queue_signature(self.queue()) != before_signature, timeout=timeout)
+
+    def add_queue_items(self, items: Iterable[Any]) -> int:
+        sent = 0
+        for entry in items:
+            sent += self.add_queue_item(entry)
+        return sent
 
     # ------------------------------------------------------------------
     # Query helpers

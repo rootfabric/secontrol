@@ -498,6 +498,40 @@ python examples/organized/assembler/basic/maintain_components.py --grid farpost0
 
 Не ставь слишком маленькую задержку между командами: в плагине есть лимит обработки команд на устройство.
 
+## Фильтрация по гриду: только main-grid, не subgrid'и
+
+Все скрипты обслуживания конструкторов работают **только с конструкторами, принадлежащими самому гриду**. Ассемблеры пристыкованных subgrid'ов (через Merge Block / Projector preview / docking) **игнорируются**.
+
+Зачем: в `grid.devices` лежат не только устройства самого грида, но и устройства всех его subgrid'ов (см. `Grid._aggregate_devices_from_subgrids` в `src/secontrol/grids.py:1407`). Если в `grid.devices` subgrid'а есть ассемблер — он попадал в `find_assemblers(...)` и скрипт обслуживания производства добавлял задания в чужой, нерабочий конструктор без материалов/энергии/конвейера.
+
+Проверено на `skynet-farpost0`: в его `grid.devices` лежат 3 устройства из subgrid `skynet-scout5` (projector, merge block, connector с `metadata.grid_id=95485199559246202`, не равным `grid_id=80828718952705651`). Если у такого subgrid появится ассемблер — без фильтра он попадёт в очередь farpost.
+
+Централизованный фильтр — `assembler_multi_common.device_belongs_to_grid(device, grid, include_subgrids=False)` и обёртка `find_assemblers(..., include_subgrids=False)`. Проверяется **и** `metadata.grid_id`, **и** `telemetry.gridId` (если плагин его прислал) — это страховка от ситуации, когда блок перенесён в другой грид, а metadata в кеше ещё старые.
+
+Чтобы включить subgrid'и обратно (для редких случаев, когда subgrid пристыкован и разделяет ресурсы), в multi-скриптах есть флаг:
+
+```python
+find_assemblers(grid, include_subgrids=True)
+```
+
+В CLI сейчас флаг не вынесен — если понадобится, добавляется в argparse отдельной опцией в конкретном скрипте.
+
+Скрипты, в которых фильтр применён:
+
+```text
+examples/organized/assembler/basic/assembler_multi_common.py            (центральная)
+examples/organized/assembler/basic/assembler_unjam.py
+examples/organized/assembler/basic/assembler_prioritize_needed.py
+examples/organized/assembler/basic/maintain_components.py
+examples/organized/assembler/basic/maintain_components_multi.py
+examples/organized/assembler/basic/optimize_assembler_queue.py
+examples/organized/assembler/basic/produce_projector_missing_components.py
+examples/organized/assembler/intermediate/assembler_queue_control.py
+examples/organized/assembler/intermediate/assembler_queue_viewer.py
+examples/organized/assembler/intermediate/assembler_queue_clear.py
+examples/organized/assembler/advanced/assembler_produce.py
+```
+
 ## Какие скрипты использовать
 
 Рекомендуемые:

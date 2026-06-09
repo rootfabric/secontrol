@@ -62,21 +62,34 @@ def _count_items(containers: Iterable[ContainerDevice], target_item: Item) -> fl
 
 
 def _find_assembler(grid) -> BaseDevice | None:
+    target_grid_id = str(getattr(grid, "grid_id", "") or "")
     finder = getattr(grid, "find_devices_by_type", None)
     if callable(finder):
         try:
             for candidate in finder("assembler"):  # type: ignore[misc]
-                if isinstance(candidate, BaseDevice):
-                    return candidate
+                if not isinstance(candidate, BaseDevice):
+                    continue
+                if target_grid_id and str(getattr(candidate, "grid_id", "") or "") != target_grid_id:
+                    continue
+                telemetry = getattr(candidate, "telemetry", None) or {}
+                tel_grid = str(telemetry.get("gridId", "") or "")
+                if tel_grid and tel_grid != target_grid_id:
+                    continue
+                return candidate
         except Exception:
             pass
     for device in grid.devices.values():
         device_type = getattr(device, "device_type", "")
-        if device_type == "assembler":
-            return device
-        name = getattr(device, "name", None) or ""
-        if "assembler" in name.lower():
-            return device
+        is_assembler = device_type == "assembler" or "assembler" in (getattr(device, "name", None) or "").lower()
+        if not is_assembler:
+            continue
+        if target_grid_id and str(getattr(device, "grid_id", "") or "") != target_grid_id:
+            continue
+        telemetry = getattr(device, "telemetry", None) or {}
+        tel_grid = str(telemetry.get("gridId", "") or "")
+        if tel_grid and tel_grid != target_grid_id:
+            continue
+        return device
     return None
 
 
