@@ -51,6 +51,9 @@ PASSIVE_TYPES: set[str] = {
     "ai_recorder",
     "ai_flight_autopilot",
     "oxygentank",
+    "gas_tank",
+    "solarpanel",
+    "hydrogenengine",
 }
 
 ACTIVE_TYPES: set[str] = {

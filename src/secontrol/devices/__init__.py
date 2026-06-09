@@ -41,6 +41,7 @@ _BUILTIN_MODULES = [
     "conveyor_sorter_device",
     "display_device",
     "gas_generator_device",
+    "gas_tank_device",
     "gyro_device",
     "lamp_device",
     "large_turret_device",

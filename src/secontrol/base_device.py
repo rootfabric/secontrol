@@ -812,6 +812,65 @@ class BaseDevice:
             self._update_common_flag("enabled", bool(enabled))
         return result
 
+    def set_enabled_verified(self, enabled: bool, *, timeout: float = 3.0) -> bool:
+        self._require_enabled_support()
+        expected = bool(enabled)
+        before_timestamp = self._timestamp_value(self.telemetry)
+        self._telemetry_event.clear()
+
+        sent = self.set_enabled(expected)
+        if sent <= 0:
+            return False
+
+        deadline = time.time() + max(0.0, float(timeout))
+        attempt = 0
+        while time.time() <= deadline:
+            telemetry = self.telemetry if isinstance(self.telemetry, dict) else {}
+            if self._is_fresh_telemetry(telemetry, before_timestamp) and bool(telemetry.get("enabled", False)) == expected:
+                return True
+
+            remaining = deadline - time.time()
+            if remaining <= 0.0:
+                break
+
+            attempt += 1
+            if attempt % 4 == 0:
+                try:
+                    self.update()
+                except Exception:
+                    pass
+
+            self._telemetry_event.wait(timeout=min(0.35, max(0.02, remaining)))
+            self._telemetry_event.clear()
+
+        try:
+            self.update()
+            self._telemetry_event.wait(timeout=0.5)
+        except Exception:
+            pass
+
+        telemetry = self.telemetry if isinstance(self.telemetry, dict) else {}
+        return self._is_fresh_telemetry(telemetry, before_timestamp) and bool(telemetry.get("enabled", False)) == expected
+
+    def enable_verified(self, *, timeout: float = 3.0) -> bool:
+        return self.set_enabled_verified(True, timeout=timeout)
+
+    def disable_verified(self, *, timeout: float = 3.0) -> bool:
+        return self.set_enabled_verified(False, timeout=timeout)
+
+    @staticmethod
+    def _timestamp_value(telemetry: Any) -> str:
+        if not isinstance(telemetry, dict):
+            return ""
+        value = telemetry.get("timestamp")
+        return "" if value is None else str(value)
+
+    @classmethod
+    def _is_fresh_telemetry(cls, telemetry: Dict[str, Any], before_timestamp: str) -> bool:
+        if not before_timestamp:
+            return True
+        return cls._timestamp_value(telemetry) != before_timestamp
+
     # ------------------------------------------------------------------
     def show_in_terminal(self) -> Optional[bool]:
         return self._read_bool_flag("showInTerminal")
@@ -1250,6 +1309,7 @@ TYPE_ALIASES = {
     "MyObjectBuilder_CargoContainer": "container",
     "MyObjectBuilder_Cockpit": "cockpit",
     "MyObjectBuilder_OxygenGenerator": "gas_generator",
+    "MyObjectBuilder_OxygenTank": "gas_tank",
     "MyObjectBuilder_Refinery": "refinery",
     "MyObjectBuilder_Assembler": "assembler",
     "MyObjectBuilder_ConveyorSorter": "conveyor_sorter",
@@ -1283,6 +1343,10 @@ TYPE_ALIASES = {
     "radioantenna": "antenna",
     "cockpit": "cockpit",
     "oxygen_generator": "gas_generator",
+    "oxygen_tank": "gas_tank",
+    "oxygentank": "gas_tank",
+    "gas_tank": "gas_tank",
+    "hydrogen_tank": "gas_tank",
     "gas_generator": "gas_generator",
     "conveyorsorter": "conveyor_sorter",
     "conveyor_sorter": "conveyor_sorter",

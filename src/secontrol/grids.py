@@ -1694,6 +1694,7 @@ class Grid:
             "container": "cargo_container",
             # Connectors публикуют телеметрию как 'ship_connector'
             "connector": "ship_connector",
+            "gas_tank": "oxygen_tank",
             # Text panels (LCD) используют сегмент 'text_panel'
             "textpanel": "text_panel",
             # Wheels публикуют телеметрию как 'motor_suspension'
