@@ -40,6 +40,46 @@ GridCallback = Callable[["GridState"], None]
 GridRemovedCallback = Callable[["GridState"], None]
 
 
+def _normalize_identity_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).strip().lower().split())
+
+
+def _extract_identity_tag(value: Any, kind: str) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value)
+    if not text:
+        return None
+    pattern = rf"\[\s*se:{re.escape(kind)}:([^\]]+)\]"
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    tag = match.group(1).strip().lower()
+    return tag or None
+
+
+def _read_grid_candidate_id(candidate: Dict[str, Any]) -> Optional[str]:
+    raw_id = (
+        candidate.get("id")
+        or candidate.get("gridId")
+        or candidate.get("grid_id")
+        or candidate.get("entityId")
+        or candidate.get("gridEntityId")
+    )
+    if raw_id in (None, ""):
+        return None
+    return str(raw_id)
+
+
+def _read_grid_candidate_name(candidate: Dict[str, Any]) -> Optional[str]:
+    raw_name = candidate.get("name") or candidate.get("gridName") or candidate.get("displayName")
+    if raw_name in (None, ""):
+        return None
+    return str(raw_name)
+
+
 @dataclass
 class GridState:
     """Снимок состояния одного грида."""
@@ -190,15 +230,47 @@ class Grid:
         self.grid_id = grid_id
         self.player_id = player_id
         self.name = name or f"Grid_{grid_id}"
+        self.stable_grid_tag = _extract_identity_tag(self.name, "grid")
         self.grid_key = f"se:{owner_id}:grid:{grid_id}:gridinfo"
         self.metadata: Optional[Dict[str, Any]] = None
         self.is_subgrid: bool = False
         self.devices: Dict[str, BaseDevice] = {}
         # NEW: индекс по числовому id
         self.devices_by_num: Dict[int, BaseDevice] = {}
+        self.devices_by_stable_key: Dict[str, BaseDevice] = {}
+        self.device_aliases: Dict[str, str] = {}
+        self.grid_aliases: set[str] = {str(grid_id)}
         self.blocks: Dict[int, BlockInfo] = {}
         self._damage_channel = f"se:{owner_id}:grid:{grid_id}:damage"
         self._damage_subscriptions: list[Any] = []
+        self.identity_suspect = False
+        self.identity_suspect_reason: Optional[str] = None
+        self.identity_generation = 0
+        self.last_gridinfo_at = time.monotonic()
+        self.last_rebind_at = 0.0
+        self.rebind_cooldown_s = 1.0
+        self._identity_lock = threading.RLock()
+
+        self._runtime_boot_key = f"se:{owner_id}:runtime:server_boot"
+        self._runtime_restart_key = f"se:{owner_id}:runtime:server_restart"
+        self._runtime_restart_channel = f"se.{owner_id}.runtime.server_restart"
+        self._runtime_boot_id = self._read_runtime_boot_id()
+        self._runtime_last_check_at = 0.0
+        self._runtime_check_interval_s = 2.0
+        self._runtime_subscription = None
+        self._runtime_channel_subscription = None
+        try:
+            self._runtime_subscription = self.redis.subscribe_to_key(
+                self._runtime_restart_key, self._on_runtime_restart
+            )
+        except Exception:
+            self._runtime_subscription = None
+        try:
+            self._runtime_channel_subscription = self.redis.subscribe_to_channel(
+                self._runtime_restart_channel, self._on_runtime_restart
+            )
+        except Exception:
+            self._runtime_channel_subscription = None
 
         # Event listeners: event name -> list of callbacks
         # Callback signature: (grid: Grid, payload: Any, source_event: str) -> None
@@ -249,6 +321,198 @@ class Grid:
             time.sleep(interval)
 
         return False
+
+    def _on_runtime_restart(self, key: str, payload: Optional[Any], event: str) -> None:
+        boot_id = self._extract_boot_id(payload)
+        if boot_id and boot_id != self._runtime_boot_id:
+            self._runtime_boot_id = boot_id
+        self.mark_identity_suspect("server runtime restart event")
+
+    def _read_runtime_boot_id(self) -> Optional[str]:
+        try:
+            return self._extract_boot_id(self.redis.get_json(self._runtime_boot_key))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_boot_id(payload: Optional[Any]) -> Optional[str]:
+        if isinstance(payload, dict):
+            value = payload.get("bootId") or payload.get("boot_id")
+            if value not in (None, ""):
+                return str(value)
+        if isinstance(payload, str):
+            try:
+                parsed = json.loads(payload)
+            except Exception:
+                return None
+            if isinstance(parsed, dict):
+                value = parsed.get("bootId") or parsed.get("boot_id")
+                if value not in (None, ""):
+                    return str(value)
+        return None
+
+    def mark_identity_suspect(self, reason: str) -> None:
+        self.identity_suspect = True
+        self.identity_suspect_reason = reason
+        self.identity_generation += 1
+
+    def _runtime_boot_changed(self, *, force: bool = False) -> bool:
+        now = time.monotonic()
+        if not force and now - self._runtime_last_check_at < self._runtime_check_interval_s:
+            return False
+        self._runtime_last_check_at = now
+        boot_id = self._read_runtime_boot_id()
+        if boot_id and boot_id != self._runtime_boot_id:
+            self._runtime_boot_id = boot_id
+            self.mark_identity_suspect("server boot id changed")
+            return True
+        return False
+
+    def before_command(self) -> None:
+        self._runtime_boot_changed()
+        if self.identity_suspect:
+            self.ensure_current_binding(force=True)
+
+    def ensure_current_binding(self, *, force: bool = False) -> bool:
+        with self._identity_lock:
+            self._runtime_boot_changed(force=force)
+            if not force and not self.identity_suspect:
+                return True
+
+            now = time.monotonic()
+            if force and now - self.last_rebind_at < self.rebind_cooldown_s:
+                return True
+            self.last_rebind_at = now
+
+            try:
+                candidates = self.redis.list_grids(self.owner_id)
+            except Exception:
+                candidates = []
+
+            match = self._find_matching_grid(candidates)
+            if match is None:
+                try:
+                    current = self.redis.get_json(self.grid_key)
+                except Exception:
+                    current = None
+                if isinstance(current, dict):
+                    self._on_grid_change(self.grid_key, current, "identity-check")
+                    return True
+                return False
+
+            new_grid_id = _read_grid_candidate_id(match)
+            if not new_grid_id:
+                return False
+
+            new_name = _read_grid_candidate_name(match)
+            if str(new_grid_id) != str(self.grid_id):
+                self._rebind_grid_id(str(new_grid_id), new_name)
+            else:
+                payload = self.redis.get_json(self.grid_key)
+                if isinstance(payload, dict):
+                    self._on_grid_change(self.grid_key, payload, "identity-check")
+
+            self.identity_suspect = False
+            self.identity_suspect_reason = None
+            return True
+
+    def _find_matching_grid(self, candidates: Iterable[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        current_name = _normalize_identity_text(self.name)
+        current_tag = self.stable_grid_tag
+        current_id = str(self.grid_id)
+        exact_id = None
+        exact_name = None
+        tag_match = None
+
+        for candidate in candidates or []:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_id = _read_grid_candidate_id(candidate)
+            candidate_name = _read_grid_candidate_name(candidate)
+            candidate_name_norm = _normalize_identity_text(candidate_name)
+            candidate_tag = _extract_identity_tag(candidate_name, "grid")
+
+            if candidate_id and str(candidate_id) == current_id:
+                exact_id = candidate
+            if current_tag and candidate_tag and candidate_tag == current_tag:
+                tag_match = candidate
+            elif current_name and candidate_name_norm and candidate_name_norm == current_name:
+                exact_name = candidate
+
+        return tag_match or exact_name or exact_id
+
+    def _rebind_grid_id(self, new_grid_id: str, new_name: Optional[str] = None) -> None:
+        old_grid_id = str(self.grid_id)
+        self.grid_aliases.add(old_grid_id)
+        self.grid_id = str(new_grid_id)
+        if new_name:
+            self.name = str(new_name)
+            tag = _extract_identity_tag(self.name, "grid")
+            if tag:
+                self.stable_grid_tag = tag
+        self.grid_key = f"se:{self.owner_id}:grid:{self.grid_id}:gridinfo"
+
+        try:
+            self._subscription.close()
+        except Exception:
+            pass
+
+        self._subscription = self.redis.subscribe_to_key(self.grid_key, self._on_grid_change)
+        payload = self.redis.get_json(self.grid_key)
+        if isinstance(payload, dict):
+            self._on_grid_change(self.grid_key, payload, "rebind")
+
+    def ensure_device_current(self, device: "BaseDevice", *, force: bool = False) -> bool:
+        if device is None:
+            return False
+
+        if not force and not self.identity_suspect and self.devices.get(str(device.device_id)) is device:
+            return True
+
+        self.ensure_current_binding(force=force)
+        stable_key = self._device_stable_key(device.metadata)
+        if not stable_key:
+            return self.devices.get(str(device.device_id)) is device
+
+        current = self.devices_by_stable_key.get(stable_key)
+        if current is device:
+            return True
+
+        if current is not None:
+            old_id = str(device.device_id)
+            metadata = current.metadata
+            try:
+                current.close()
+            except Exception:
+                pass
+            device.rebind(metadata)
+            self.device_aliases[old_id] = str(device.device_id)
+            self.devices[str(device.device_id)] = device
+            try:
+                self.devices_by_num[int(device.device_id)] = device
+            except Exception:
+                pass
+            self.devices_by_stable_key[stable_key] = device
+            return True
+
+        return False
+
+    def _device_stable_key(self, metadata: DeviceMetadata) -> str:
+        if metadata is None:
+            return ""
+        extra = metadata.extra if isinstance(metadata.extra, dict) else {}
+        name = metadata.name or extra.get("customName") or extra.get("name") or extra.get("displayName") or extra.get("displayNameText")
+        tag = _extract_identity_tag(name, "device")
+        if tag:
+            return f"tag:{tag}"
+        subtype = extra.get("subtype") or extra.get("subType") or extra.get("Subtype") or ""
+        position = extra.get("position") or extra.get("localPosition") or extra.get("min") or extra.get("gridPosition") or ""
+        name_key = _normalize_identity_text(name)
+        if name_key:
+            return f"type:{metadata.device_type}|subtype:{_normalize_identity_text(subtype)}|name:{name_key}"
+        if position:
+            return f"type:{metadata.device_type}|subtype:{_normalize_identity_text(subtype)}|pos:{_normalize_identity_text(position)}"
+        return ""
 
     @staticmethod
     def from_name(
@@ -338,8 +602,15 @@ class Grid:
                 return
         if not isinstance(payload, dict):
             return
+        self.last_gridinfo_at = time.monotonic()
         # При наличии имени грида в payload — обновим локальное имя
         try:
+            payload_id = payload.get("id") or payload.get("gridId") or payload.get("gridEntityId")
+            if payload_id not in (None, "") and str(payload_id) != str(self.grid_id):
+                self.grid_aliases.add(str(self.grid_id))
+                self.grid_id = str(payload_id)
+                self.grid_key = f"se:{self.owner_id}:grid:{self.grid_id}:gridinfo"
+
             new_name = (
                 payload.get("name")
                 or payload.get("gridName")
@@ -348,6 +619,9 @@ class Grid:
             )
             if isinstance(new_name, str) and new_name.strip():
                 self.name = new_name
+                tag = _extract_identity_tag(self.name, "grid")
+                if tag:
+                    self.stable_grid_tag = tag
         except Exception:
             pass
 
@@ -369,10 +643,23 @@ class Grid:
 
         added_devices: List[BaseDevice] = []
         removed_devices: List[RemovedDeviceInfo] = []
+        old_by_stable: Dict[str, BaseDevice] = {}
+        reused_object_ids: set[int] = set()
+        for old_device in self.devices.values():
+            stable_key = self._device_stable_key(getattr(old_device, "metadata", None))
+            if stable_key:
+                old_by_stable.setdefault(stable_key, old_device)
+        self.devices_by_stable_key = {}
 
         # добавление/обновление устройств
         for metadata in device_metadata:
             device = self.devices.get(metadata.device_id)
+            stable_key = self._device_stable_key(metadata)
+            if device is None and stable_key:
+                device = old_by_stable.get(stable_key)
+                if device is not None:
+                    self.device_aliases[str(device.device_id)] = str(metadata.device_id)
+                    device.rebind(metadata)
             if device is None:
                 device = create_device(self, metadata)
                 self.devices[metadata.device_id] = device
@@ -399,18 +686,24 @@ class Grid:
                 else:
                     device.update_metadata(metadata)
 
+            self.devices[metadata.device_id] = device
+            reused_object_ids.add(id(device))
             try:
                 did_int = int(metadata.device_id)
             except Exception:
                 pass
             else:
                 self.devices_by_num[did_int] = device
+            if stable_key:
+                self.devices_by_stable_key[stable_key] = device
 
         # удаление исчезнувших устройств
         for device_id in list(self.devices):
             if device_id in metadata_ids:
                 continue
             device = self.devices.pop(device_id)
+            if id(device) in reused_object_ids:
+                continue
             removed_devices.append(
                 RemovedDeviceInfo(
                     device_id=device_id,
@@ -867,6 +1160,8 @@ class Grid:
         if not command:
             raise ValueError("command must be a non-empty string")
 
+        self.before_command()
+
         message: Dict[str, Any] = {}
         if payload:
             for key, value in payload.items():
@@ -1254,7 +1549,7 @@ class Grid:
                 or "generic"
             )
             subtype = entry.get("subtype") or entry.get("SubtypeName")
-            device_type = normalize_device_type(raw_type, subtype)
+            device_type = normalize_device_type(raw_type)
 
             # id может быть int — приводим к строке
             raw_id = (
@@ -1492,6 +1787,12 @@ class Grid:
             self._subscription.close()
         except Exception:
             pass
+        for subscription in (self._runtime_subscription, self._runtime_channel_subscription):
+            try:
+                if subscription is not None:
+                    subscription.close()
+            except Exception:
+                pass
         for damage_subscription in list(self._damage_subscriptions):
             try:
                 damage_subscription.close()

@@ -721,8 +721,8 @@ def process_and_visualize(
 def main() -> None:
     print(f"Script version: {SCRIPT_VERSION}")
 
-    # grid = prepare_grid("skynet-agent2")
-    grid = prepare_grid("rover")
+    grid = prepare_grid("agent")
+    # grid = prepare_grid("rover")
     # grid = prepare_grid("DroneBase")
     # grid = prepare_grid("farpost0")
 
@@ -740,10 +740,10 @@ def main() -> None:
 
         controller = RadarController(
             radar,
-            radius=1000,
-            cell_size=100.0,
-            ore_only=False,
-            # ore_only=True,
+            radius=5000,
+            cell_size=50.0,
+            # ore_only=False,
+            ore_only=True,
             # boundingBoxX=10,
             # boundingBoxY=1000,
             # boundingBoxZ=5000,

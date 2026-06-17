@@ -45,6 +45,7 @@ _BUILTIN_MODULES = [
     "gyro_device",
     "lamp_device",
     "large_turret_device",
+    "merge_block_device",
     "nanobot_drill_system_device",
     "projector_device",
     "reactor_device",

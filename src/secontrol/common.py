@@ -95,7 +95,7 @@ def get_all_grids(existing_client: RedisEventClient | str | None = None,
 
     owner_id = resolve_owner_id()
 
-    grids = client.list_grids(owner_id, exclude_subgrids=False)
+    grids = client.list_grids(owner_id)
     if not grids:
         return []
 

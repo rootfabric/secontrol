@@ -228,9 +228,9 @@ def save_to_shared_map(grid, ore_cells, radar_ctrl):
 
 def main():
     parser = argparse.ArgumentParser(description="Universal ore scanner — file + Redis")
-    parser.add_argument("--grid", default="skynet-baza0", help="Grid name or ID")
+    parser.add_argument("--grid", default="agent", help="Grid name or ID")
     parser.add_argument("--radius", type=int, default=1000, help="Scan radius (m)")
-    parser.add_argument("--cell_size", type=float, default=10.0, help="Voxel cell size")
+    parser.add_argument("--cell_size", type=float, default=50.0, help="Voxel cell size")
     parser.add_argument("--bbox_y", type=int, default=1000, help="Bounding box Y size")
     parser.add_argument("--cluster_radius", type=float, default=50.0, help="Clustering radius (m)")
     parser.add_argument("--output", default=None, help="Output JSON path")

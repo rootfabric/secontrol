@@ -19,6 +19,16 @@ def format_amount(amt):
     return str(amt)
 
 
+def _safe_inventory(dev):
+    inv = getattr(dev, 'inventory', None)
+    if callable(inv):
+        try:
+            return inv()
+        except Exception:
+            return None
+    return inv
+
+
 def report_grid(gid, gname):
     grid = prepare_grid(str(gid))
     time.sleep(0.8)
@@ -89,8 +99,8 @@ def report_grid(gid, gname):
         elif dtype == 'reactor':
             name = t.get('CustomName', t.get('displayName', 'Reactor'))
             reactors.append({'name': name})
-            inv = dev.get_inventory()
-            if inv and inv.items:
+            inv = _safe_inventory(dev)
+            if inv and getattr(inv, 'items', None):
                 for item in inv.items:
                     if 'uranium' in item.display_name.lower():
                         total_uranium += item.amount
@@ -133,7 +143,7 @@ def report_grid(gid, gname):
                     t = telemetry_map.get(did, dev.telemetry or {})
                     name = t.get('CustomName', t.get('displayName', 'Reactor'))
                     if name == r['name']:
-                        inv = dev.get_inventory()
+                        inv = _safe_inventory(dev)
                         break
             if inv and inv.items:
                 for item in inv.items:
@@ -156,17 +166,17 @@ def report_grid(gid, gname):
         dtype = dev.device_type
         name = t.get('CustomName', t.get('displayName', dtype))
         if dtype == 'container':
-            inv = dev.get_inventory()
+            inv = _safe_inventory(dev)
             mass = inv.current_mass if inv else 0.0
             total_inventory_mass += mass
-            if inv and inv.items:
+            if inv and getattr(inv, 'items', None):
                 for item in inv.items:
                     all_inventory_items.append({'name': item.display_name, 'amount': item.amount, 'source': name})
         elif dtype == 'reactor':
-            inv = dev.get_inventory()
+            inv = _safe_inventory(dev)
             if inv:
                 total_inventory_mass += inv.current_mass if inv.current_mass else 0.0
-                if inv.items:
+                if getattr(inv, 'items', None):
                     for item in inv.items:
                         all_inventory_items.append({'name': item.display_name, 'amount': item.amount, 'source': name})
         elif dtype in ('refinery', 'assembler'):

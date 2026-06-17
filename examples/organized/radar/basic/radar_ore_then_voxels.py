@@ -34,11 +34,11 @@ ORE_COLORS = {
 }
 DEFAULT_ORE_COLOR = (200, 80, 200)  # magenta for unknown ores
 
-GRID_NAME = "rover0"
-# GRID_NAME = "agent2"
+# GRID_NAME = "rover0"
+GRID_NAME = "agent"
 # GRID_NAME = "taburet3"
-SCAN_RADIUS = 5000
-CELL_SIZE = 200
+SCAN_RADIUS = 1000
+CELL_SIZE = 50
 SCRIPT_VERSION = "radar-ore-then-voxels-surface-neighbor-v1-2026-06-06"
 
 

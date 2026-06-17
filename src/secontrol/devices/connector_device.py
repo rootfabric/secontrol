@@ -15,15 +15,32 @@ class ConnectorDevice(ContainerDevice):
     device_type = "connector"
 
     def set_state(self, *, locked: Optional[bool] = None, enabled: Optional[bool] = None) -> int:
-        state: dict[str, any] = {}
+        """Set connector terminal power and optional physical lock state.
+
+        This method intentionally sends a single canonical ``connector_state``
+        command because the server-side plugin applies the required order on
+        the game thread: power ON before ``Connect()``, and disconnect before
+        power OFF.
+        """
+        state: dict[str, Any] = {}
         if locked is not None:
             state["locked"] = bool(locked)
         if enabled is not None:
             state["enabled"] = bool(enabled)
+        if not state:
+            return 0
         return self.send_command({
             "cmd": "connector_state",
             "state": state,
         })
+
+    def lock(self) -> int:
+        """Enable and connect the connector to the facing connector."""
+        return self.set_state(enabled=True, locked=True)
+
+    def unlock(self) -> int:
+        """Disconnect the connector without powering it down."""
+        return self.set_state(locked=False)
 
     # ------------------------------------------------------------------
     # Connection commands
