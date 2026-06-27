@@ -1544,6 +1544,30 @@ class BaseDevice:
     """Base class for all telemetry driven devices."""
 
     device_type: str = "generic"
+    is_container: bool = False
+
+    def inventories(self) -> Iterable[Any]:
+        telemetry = getattr(self, "telemetry", None)
+        if not isinstance(telemetry, dict):
+            return []
+        items_data = telemetry.get("items")
+        if not isinstance(items_data, list):
+            return []
+        from secontrol.inventory import InventorySnapshot, normalize_inventory_items
+        items = normalize_inventory_items(items_data)
+        snapshot = InventorySnapshot(
+            device_id=_safe_int(self.device_id) or 0,
+            key="default",
+            index=0,
+            name=str(self.name or ""),
+            current_volume=_safe_float(telemetry.get("currentVolume")) or 0.0,
+            max_volume=_safe_float(telemetry.get("maxVolume")) or 0.0,
+            current_mass=_safe_float(telemetry.get("currentMass")) or 0.0,
+            fill_ratio=_safe_float(telemetry.get("fillRatio")) or 0.0,
+            items=items,
+            raw=telemetry,
+        )
+        return [snapshot]
 
     def __init__(self, grid: Grid, metadata: DeviceMetadata) -> None:
         self.grid = grid
@@ -2091,6 +2115,7 @@ TYPE_ALIASES = {
     "container": "container",
     "MyObjectBuilder_Projector": "projector",
     "projector": "projector",
+    "MyObjectBuilder_Drill": "nanobot_drill_system",
     "cockpit": "cockpit",
     "oxygen_generator": "gas_generator",
     "gas_generator": "gas_generator",
@@ -2124,13 +2149,16 @@ TYPE_ALIASES = {
 }
 
 
-def normalize_device_type(raw_type: Optional[str]) -> str:
+def normalize_device_type(raw_type: Optional[str], raw_subtype: Optional[str] = None) -> str:
     if not raw_type:
         return "generic"
     t = str(raw_type)
     # точное совпадение по объект билдеру
     if t in TYPE_ALIASES:
         return TYPE_ALIASES[t]
+    # MyObjectBuilder_Drill с нанобот-subtype → nanobot_drill_system
+    if t == "MyObjectBuilder_Drill" and raw_subtype and "nanobot" in str(raw_subtype).lower():
+        return "nanobot_drill_system"
     # запасной вариант: "MyObjectBuilder_Xxx" -> "xxx"
     if t.startswith("MyObjectBuilder_"):
         return t.split("_", 1)[1].lower()

@@ -16,7 +16,7 @@ from secontrol.common import close, prepare_grid
 from secontrol.devices.ore_detector_device import OreDetectorDevice
 
 
-GRID_NAME = "skynet-baza0"  # Replace with actual grid name
+GRID_NAME = "skynet-agent0"  # Replace with actual grid name
 RESULT_LIMIT = 128
 TIMEOUT_SECONDS = 10.0
 

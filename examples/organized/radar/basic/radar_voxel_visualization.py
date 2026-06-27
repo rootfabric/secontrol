@@ -740,7 +740,7 @@ def main() -> None:
 
         controller = RadarController(
             radar,
-            radius=5000,
+            radius=3000,
             cell_size=50.0,
             # ore_only=False,
             ore_only=True,

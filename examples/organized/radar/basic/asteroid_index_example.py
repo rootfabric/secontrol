@@ -19,7 +19,7 @@ from secontrol.common import close, prepare_grid
 from secontrol.devices.ore_detector_device import OreDetectorDevice
 
 
-GRID_NAME_DEFAULT = "skynet-baza0"
+GRID_NAME_DEFAULT = "skynet-agent0"
 SEARCH_RADIUS = 50_000.0
 RESULT_LIMIT = 320
 INCLUDE_PLANETS = False

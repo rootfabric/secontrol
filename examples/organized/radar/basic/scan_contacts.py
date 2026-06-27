@@ -63,7 +63,7 @@ def distance(a: List[float], b: List[float]) -> float:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Scan for nearby grids and players")
-    parser.add_argument("--grid", default="skynet-farpost0", help="Grid name to scan from")
+    parser.add_argument("--grid", default="skynet-agent0", help="Grid name to scan from")
     parser.add_argument("--radius", type=float, default=500, help="Scan radius in meters")
     args = parser.parse_args()
 

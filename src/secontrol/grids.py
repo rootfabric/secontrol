@@ -996,7 +996,7 @@ class Grid:
         """
         Возвращает список устройств, которые могут содержать предметы (имеют инвентари).
         """
-        return [d for d in self.devices.values() if d.is_container]
+        return [d for d in self.devices.values() if getattr(d, "is_container", False)]
 
     def get_all_grid_items(self) -> list[dict]:
         """
