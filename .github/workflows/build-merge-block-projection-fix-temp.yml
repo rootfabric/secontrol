@@ -36,7 +36,9 @@ jobs:
           $install = Join-Path $env:GITHUB_WORKSPACE '_se_ds'
           # First launch lets a freshly downloaded SteamCMD update itself cleanly.
           & $env:STEAMCMD +quit
-          if ($LASTEXITCODE -ne 0) { throw "SteamCMD self-update exited $LASTEXITCODE" }
+          # A bootstrap self-update can intentionally terminate the old process with exit 7.
+          # The following invocation uses the updated executable and is checked strictly.
+          $global:LASTEXITCODE = 0
 
           & $env:STEAMCMD +force_install_dir $install +login anonymous +app_update 298740 validate +quit
           if ($LASTEXITCODE -ne 0) { throw "SteamCMD app_update exited $LASTEXITCODE" }
