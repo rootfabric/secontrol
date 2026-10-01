@@ -1,61 +1,34 @@
-# MergeBlockProjectionFix R2
+# MergeBlockProjectionFix R3
 
 Server-only experimental compatibility fix for the Space Engineers 1.210 projected Merge Block regression.
 
-## What changed from R1
+R2 did not activate on the tested 1.210.014 server because the runtime MyShipMergeBlock type did not expose the SlimBlock property via reflection. R3 removes that dependency completely.
 
-R1 forced structural permission while a Merge Block was not yet functional. The observed server test showed that this was insufficient: the projected Merge Block could remain in place briefly, then lose structural attachment about a second later.
+R3 patch strategy:
 
-R2 instead patches the exact regression path described in the Keen bug report:
+1. Patch MyShipMergeBlock.UpdateOnceBeforeFrame().
+2. Record IsWorking at method entry.
+3. Identify the exact two direct UpdateBlockNeighbours() calls present in the current 1.210.014 method body.
+4. Patch those target methods globally, but change behavior only while a MyShipMergeBlock.UpdateOnceBeforeFrame() is active on the current thread.
+5. If IsWorking did not change, suppress the neighbour refresh.
+6. If IsWorking changed, allow vanilla neighbour refresh.
+7. Outside MyShipMergeBlock.UpdateOnceBeforeFrame(), all normal UpdateBlockNeighbours calls are untouched.
 
-1. MyShipMergeBlock.UpdateOnceBeforeFrame() begins.
-2. R2 records the Merge Block's IsWorking value.
-3. Vanilla performs its state update.
-4. Vanilla reaches the two new UpdateBlockNeighbours() calls.
-5. If IsWorking did not actually change during this UpdateOnceBeforeFrame call, R2 suppresses those two neighbour refreshes.
-6. If IsWorking really changed false->true or true->false, R2 allows the vanilla neighbour refresh.
+Expected startup log:
 
-This matches the proposed fix: refresh merge neighbours only after a real IsWorking transition rather than unconditionally.
+    [MergeBlockProjectionFix R3] Initializing R3 direct merge-update neighbour gate.
+    [MergeBlockProjectionFix R3] Compatibility guard: UpdateOnceBeforeFrame contains 2 direct UpdateBlockNeighbours call(s).
+    [MergeBlockProjectionFix R3] PATCH ACTIVE R3: direct UpdateBlockNeighbours calls are gated by MyShipMergeBlock IsWorking transition.
 
-Normal grid neighbour updates outside MyShipMergeBlock.UpdateOnceBeforeFrame are never changed.
+Expected welding diagnostics:
 
-## Why this should preserve normal release
+    SUPPRESS neighbour refresh ... Merge IsWorking stayed False ...
 
-- unfinished projected merge: false -> false, refresh suppressed, block remains structurally supported
-- merge becomes working: false -> true, refresh allowed, normal merge logic runs
-- later Merge Block is switched OFF: true -> false, refresh allowed, normal disconnect runs
+Expected real state transition:
 
-## Files required
+    ALLOW neighbour refresh ... Merge IsWorking changed False -> True ...
 
-- MergeBlockProjectionFix.dll
-- 0Harmony.dll
-
-Clients do not need the plugin.
-
-## Log verification
-
-The plugin writes to:
-- MergeBlockProjectionFix.log next to the DLL
-- the main SpaceEngineersDedicated log when VRage.Utils.MyLog is available
-
-Expected startup lines:
-
-    [MergeBlockProjectionFix R2] Initializing R2 transition-gated neighbour refresh patch.
-    [MergeBlockProjectionFix R2] Compatibility guard: UpdateOnceBeforeFrame contains 2 direct UpdateBlockNeighbours call(s).
-    [MergeBlockProjectionFix R2] PATCH ACTIVE R2: Merge neighbour refresh runs only when IsWorking changes during UpdateOnceBeforeFrame.
-
-During welding, expected lines include:
-
-    SUPPRESS neighbour refresh ... IsWorking stayed False ...
-
-When the block becomes genuinely working or is later disabled:
-
-    ALLOW neighbour refresh ... IsWorking changed False -> True ...
-    ALLOW neighbour refresh ... IsWorking changed True -> False ...
-
-If the current game code no longer has exactly two direct UpdateBlockNeighbours calls, R2 safe-disables.
-
-## Emergency disable
+Emergency disable:
 
     set SE_MERGE_PROJECTION_FIX_DISABLE=1
 
