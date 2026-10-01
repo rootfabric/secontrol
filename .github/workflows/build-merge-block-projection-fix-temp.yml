@@ -1,9 +1,9 @@
-name: Build Merge Block Projection Fix R1
+name: Build Merge Block Projection Fix R2
 
 on:
   push:
     branches:
-      - build/merge-block-projection-fix-r1
+      - build/merge-block-projection-fix-r2
     paths:
       - 'tools/merge-block-projection-fix/**'
       - '.github/workflows/build-merge-block-projection-fix-temp.yml'
@@ -64,19 +64,19 @@ jobs:
           Copy-Item 'tools\merge-block-projection-fix\README.md' $out
 
           @(
-            "MergeBlockProjectionFix R1",
+            "MergeBlockProjectionFix R2",
             "Build commit: $env:GITHUB_SHA",
             "",
             (Get-FileHash (Join-Path $out 'MergeBlockProjectionFix.dll') -Algorithm SHA256 | Out-String).Trim(),
             (Get-FileHash (Join-Path $out '0Harmony.dll') -Algorithm SHA256 | Out-String).Trim()
           ) | Set-Content (Join-Path $out 'SHA256.txt')
 
-          Compress-Archive -Path (Join-Path $out '*') -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'MergeBlockProjectionFix-R1.zip') -Force
+          Compress-Archive -Path (Join-Path $out '*') -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'MergeBlockProjectionFix-R2.zip') -Force
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MergeBlockProjectionFix-R1
+          name: MergeBlockProjectionFix-R2
           path: |
             artifact/*
-            MergeBlockProjectionFix-R1.zip
+            MergeBlockProjectionFix-R2.zip
           if-no-files-found: error
