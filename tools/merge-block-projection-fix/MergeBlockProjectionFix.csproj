@@ -12,22 +12,15 @@
     <FileVersion>1.0.0.0</FileVersion>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <Deterministic>true</Deterministic>
-    <SEDS Condition="'$(SEDS)' == ''">$(MSBuildThisFileDirectory)..\..\_se_ds\DedicatedServer64</SEDS>
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="VRage">
-      <HintPath>$(SEDS)\VRage.dll</HintPath>
+    <ProjectReference Include="ReferenceVRage\VRage.csproj">
       <Private>false</Private>
-    </Reference>
+    </ProjectReference>
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Lib.Harmony" Version="2.4.2" />
   </ItemGroup>
-
-  <Target Name="ValidateDedicatedServerReference" BeforeTargets="ResolveReferences">
-    <Error Condition="!Exists('$(SEDS)\VRage.dll')"
-           Text="VRage.dll not found under SEDS=$(SEDS). Point SEDS at SpaceEngineersDedicated\DedicatedServer64." />
-  </Target>
 </Project>
