@@ -1,0 +1,84 @@
+name: Build Merge Block Projection Fix R1
+
+on:
+  push:
+    branches:
+      - build/merge-block-projection-fix-r1
+    paths:
+      - 'tools/merge-block-projection-fix/**'
+      - '.github/workflows/build-merge-block-projection-fix-temp.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SteamCMD
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'steamcmd.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'steamcmd'
+          Invoke-WebRequest 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip' -OutFile $zip
+          Expand-Archive $zip -DestinationPath $dir -Force
+          "STEAMCMD=$dir\steamcmd.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install vanilla Space Engineers Dedicated Server
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $install = Join-Path $env:GITHUB_WORKSPACE '_se_ds'
+          & $env:STEAMCMD +force_install_dir $install +login anonymous +app_update 298740 validate +quit
+          if ($LASTEXITCODE -ne 0) { throw "SteamCMD exited $LASTEXITCODE" }
+          $dedicated = Join-Path $install 'DedicatedServer64'
+          $vrage = Join-Path $dedicated 'VRage.dll'
+          $game = Join-Path $dedicated 'SpaceEngineers.Game.dll'
+          if (!(Test-Path $vrage)) { throw "VRage.dll missing at $vrage" }
+          if (!(Test-Path $game)) { throw "SpaceEngineers.Game.dll missing at $game" }
+          "SEDS=$dedicated" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Record server assembly versions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @(
+            (Join-Path $env:SEDS 'SpaceEngineers.Game.dll'),
+            (Join-Path $env:SEDS 'VRage.dll')
+          )
+          foreach ($f in $files) {
+            $v = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($f)
+            "$([IO.Path]::GetFileName($f)) fileVersion=$($v.FileVersion) productVersion=$($v.ProductVersion)"
+            Get-FileHash $f -Algorithm SHA256
+          }
+
+      - name: Build Release against current vanilla DS
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet build tools/merge-block-projection-fix/MergeBlockProjectionFix.csproj -c Release -p:SEDS="$env:SEDS"
+          if ($LASTEXITCODE -ne 0) { throw "dotnet build exited $LASTEXITCODE" }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:GITHUB_WORKSPACE 'artifact'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          $bin = Join-Path $env:GITHUB_WORKSPACE 'tools\merge-block-projection-fix\bin\Release\net48'
+          Copy-Item (Join-Path $bin 'MergeBlockProjectionFix.dll') $out
+          Copy-Item (Join-Path $bin '0Harmony.dll') $out
+          Copy-Item 'tools\merge-block-projection-fix\README.md' $out
+          Get-FileHash (Join-Path $out 'MergeBlockProjectionFix.dll') -Algorithm SHA256
+          Get-FileHash (Join-Path $out '0Harmony.dll') -Algorithm SHA256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MergeBlockProjectionFix-R1
+          path: artifact/*
+          if-no-files-found: error
