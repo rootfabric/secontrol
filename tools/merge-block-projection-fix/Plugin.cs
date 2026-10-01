@@ -12,7 +12,7 @@ namespace MergeBlockProjectionFix
 {
     public sealed class Plugin : IPlugin
     {
-        private const string HarmonyId = "rootfabric.se.mergeblock-projection-fix.r3";
+        private const string HarmonyId = "rootfabric.se.mergeblock-projection-fix.r4";
         private static readonly object LogLock = new object();
 
         private static Harmony _harmony;
@@ -50,7 +50,7 @@ namespace MergeBlockProjectionFix
                 _logPath = Path.Combine(assemblyDir, "MergeBlockProjectionFix.log");
                 InitGameLogBridge();
 
-                Log("Initializing R3 direct merge-update neighbour gate.");
+                Log("Initializing R4 runtime-signature merge-update neighbour gate.");
 
                 if (string.Equals(
                         Environment.GetEnvironmentVariable("SE_MERGE_PROJECTION_FIX_DISABLE"),
@@ -106,9 +106,9 @@ namespace MergeBlockProjectionFix
                     directCalls.Count +
                     " direct UpdateBlockNeighbours call(s).");
 
-                if (directCalls.Count != 2)
+                if (directCalls.Count < 1 || directCalls.Count > 2)
                 {
-                    Log("SAFE-DISABLE: expected exactly 2 direct UpdateBlockNeighbours calls; current game code differs.");
+                    Log("SAFE-DISABLE: expected 1 or 2 direct UpdateBlockNeighbours calls; current game code differs.");
                     return;
                 }
 
@@ -151,7 +151,7 @@ namespace MergeBlockProjectionFix
                 }
 
                 _patchApplied = true;
-                Log("PATCH ACTIVE R3: direct UpdateBlockNeighbours calls are gated by MyShipMergeBlock IsWorking transition.");
+                Log("PATCH ACTIVE R4: " + directCalls.Count + " direct UpdateBlockNeighbours call(s) gated by MyShipMergeBlock IsWorking transition.");
             }
             catch (Exception ex)
             {
@@ -338,7 +338,7 @@ namespace MergeBlockProjectionFix
         {
             var line =
                 DateTime.UtcNow.ToString("O") +
-                " [MergeBlockProjectionFix R3] " +
+                " [MergeBlockProjectionFix R4] " +
                 message;
 
             try
