@@ -14,61 +14,43 @@ permissions:
 jobs:
   build:
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install SteamCMD
+      - name: Build Release
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $zip = Join-Path $env:RUNNER_TEMP 'steamcmd.zip'
-          $dir = Join-Path $env:RUNNER_TEMP 'steamcmd'
-          Invoke-WebRequest 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip' -OutFile $zip
-          Expand-Archive $zip -DestinationPath $dir -Force
-          "STEAMCMD=$dir\steamcmd.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          dotnet build tools/merge-block-projection-fix/MergeBlockProjectionFix.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw "dotnet build exited $LASTEXITCODE" }
 
-      - name: Install vanilla Space Engineers Dedicated Server
+      - name: Verify assembly contract
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $install = Join-Path $env:GITHUB_WORKSPACE '_se_ds'
-          # First launch lets a freshly downloaded SteamCMD update itself cleanly.
-          & $env:STEAMCMD +quit
-          # A bootstrap self-update can intentionally terminate the old process with exit 7.
-          # The following invocation uses the updated executable and is checked strictly.
-          $global:LASTEXITCODE = 0
+          $bin = Join-Path $env:GITHUB_WORKSPACE 'tools\merge-block-projection-fix\bin\Release\net48'
+          $plugin = Join-Path $bin 'MergeBlockProjectionFix.dll'
+          $harmony = Join-Path $bin '0Harmony.dll'
+          if (!(Test-Path $plugin)) { throw "Plugin DLL missing: $plugin" }
+          if (!(Test-Path $harmony)) { throw "Harmony DLL missing: $harmony" }
 
-          & $env:STEAMCMD +force_install_dir $install +login anonymous +app_update 298740 validate +quit
-          if ($LASTEXITCODE -ne 0) { throw "SteamCMD app_update exited $LASTEXITCODE" }
-          $dedicated = Join-Path $install 'DedicatedServer64'
-          $vrage = Join-Path $dedicated 'VRage.dll'
-          $game = Join-Path $dedicated 'SpaceEngineers.Game.dll'
-          if (!(Test-Path $vrage)) { throw "VRage.dll missing at $vrage" }
-          if (!(Test-Path $game)) { throw "SpaceEngineers.Game.dll missing at $game" }
-          "SEDS=$dedicated" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Record server assembly versions
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $files = @(
-            (Join-Path $env:SEDS 'SpaceEngineers.Game.dll'),
-            (Join-Path $env:SEDS 'VRage.dll')
-          )
-          foreach ($f in $files) {
-            $v = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($f)
-            "$([IO.Path]::GetFileName($f)) fileVersion=$($v.FileVersion) productVersion=$($v.ProductVersion)"
-            Get-FileHash $f -Algorithm SHA256
+          $asm = [Reflection.Assembly]::ReflectionOnlyLoadFrom($plugin)
+          $refs = $asm.GetReferencedAssemblies()
+          $vrage = $refs | Where-Object Name -eq 'VRage'
+          if ($null -eq $vrage) { throw "Plugin does not reference VRage" }
+          if ($vrage.Version.ToString() -ne '1.0.0.0') {
+            throw "Unexpected VRage reference version: $($vrage.Version)"
+          }
+          if ($vrage.GetPublicKeyToken().Length -ne 0) {
+            throw "Unexpected strong-named VRage reference"
           }
 
-      - name: Build Release against current vanilla DS
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          dotnet build tools/merge-block-projection-fix/MergeBlockProjectionFix.csproj -c Release -p:SEDS="$env:SEDS"
-          if ($LASTEXITCODE -ne 0) { throw "dotnet build exited $LASTEXITCODE" }
+          "Plugin: $($asm.FullName)"
+          "VRage reference: $($vrage.FullName)"
+          Get-FileHash $plugin -Algorithm SHA256
+          Get-FileHash $harmony -Algorithm SHA256
 
       - name: Package
         shell: pwsh
@@ -80,11 +62,21 @@ jobs:
           Copy-Item (Join-Path $bin 'MergeBlockProjectionFix.dll') $out
           Copy-Item (Join-Path $bin '0Harmony.dll') $out
           Copy-Item 'tools\merge-block-projection-fix\README.md' $out
-          Get-FileHash (Join-Path $out 'MergeBlockProjectionFix.dll') -Algorithm SHA256
-          Get-FileHash (Join-Path $out '0Harmony.dll') -Algorithm SHA256
+
+          @(
+            "MergeBlockProjectionFix R1",
+            "Build commit: $env:GITHUB_SHA",
+            "",
+            (Get-FileHash (Join-Path $out 'MergeBlockProjectionFix.dll') -Algorithm SHA256 | Out-String).Trim(),
+            (Get-FileHash (Join-Path $out '0Harmony.dll') -Algorithm SHA256 | Out-String).Trim()
+          ) | Set-Content (Join-Path $out 'SHA256.txt')
+
+          Compress-Archive -Path (Join-Path $out '*') -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'MergeBlockProjectionFix-R1.zip') -Force
 
       - uses: actions/upload-artifact@v4
         with:
           name: MergeBlockProjectionFix-R1
-          path: artifact/*
+          path: |
+            artifact/*
+            MergeBlockProjectionFix-R1.zip
           if-no-files-found: error
