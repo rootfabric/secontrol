@@ -27,7 +27,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "dotnet build exited $LASTEXITCODE" }
 
       - name: Verify assembly contract
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $bin = Join-Path $env:GITHUB_WORKSPACE 'tools\merge-block-projection-fix\bin\Release\net48'
