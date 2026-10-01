@@ -34,8 +34,12 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $install = Join-Path $env:GITHUB_WORKSPACE '_se_ds'
+          # First launch lets a freshly downloaded SteamCMD update itself cleanly.
+          & $env:STEAMCMD +quit
+          if ($LASTEXITCODE -ne 0) { throw "SteamCMD self-update exited $LASTEXITCODE" }
+
           & $env:STEAMCMD +force_install_dir $install +login anonymous +app_update 298740 validate +quit
-          if ($LASTEXITCODE -ne 0) { throw "SteamCMD exited $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) { throw "SteamCMD app_update exited $LASTEXITCODE" }
           $dedicated = Join-Path $install 'DedicatedServer64'
           $vrage = Join-Path $dedicated 'VRage.dll'
           $game = Join-Path $dedicated 'SpaceEngineers.Game.dll'
