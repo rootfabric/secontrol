@@ -1,55 +1,62 @@
-# MergeBlockProjectionFix R1
+# MergeBlockProjectionFix R2
 
 Server-only experimental compatibility fix for the Space Engineers 1.210 projected Merge Block regression.
 
-Basis
+## What changed from R1
 
-The plugin uses the vanilla VRage.Plugins.IPlugin entry point and Harmony runtime patching pattern used by established Space Engineers plugin projects. It is intentionally narrow:
+R1 forced structural permission while a Merge Block was not yet functional. The observed server test showed that this was insufficient: the projected Merge Block could remain in place briefly, then lose structural attachment about a second later.
 
-- It first checks that MyShipMergeBlock.UpdateOnceBeforeFrame() still contains at least two calls named UpdateBlockNeighbours, the regression signature reported for 1.210.
-- If that signature is absent, the plugin safe-disables and does not patch the game.
-- If present, it patches private ConnectionAllowedInternal().
-- Only when the Merge Block reports IsFunctional == false does the prefix return true for structural connectivity.
-- As soon as the block is functional, all vanilla Merge Block connection rules run unchanged.
-- A fully built but OFF or unpowered Merge Block is therefore not globally forced to remain connected.
+R2 instead patches the exact regression path described in the Keen bug report:
 
-This is a test fix, not an official Keen patch.
+1. MyShipMergeBlock.UpdateOnceBeforeFrame() begins.
+2. R2 records the Merge Block's IsWorking value.
+3. Vanilla performs its state update.
+4. Vanilla reaches the two new UpdateBlockNeighbours() calls.
+5. If IsWorking did not actually change during this UpdateOnceBeforeFrame call, R2 suppresses those two neighbour refreshes.
+6. If IsWorking really changed false->true or true->false, R2 allows the vanilla neighbour refresh.
 
-Files required on the server
+This matches the proposed fix: refresh merge neighbours only after a real IsWorking transition rather than unconditionally.
 
-Keep these next to each other:
+Normal grid neighbour updates outside MyShipMergeBlock.UpdateOnceBeforeFrame are never changed.
+
+## Why this should preserve normal release
+
+- unfinished projected merge: false -> false, refresh suppressed, block remains structurally supported
+- merge becomes working: false -> true, refresh allowed, normal merge logic runs
+- later Merge Block is switched OFF: true -> false, refresh allowed, normal disconnect runs
+
+## Files required
 
 - MergeBlockProjectionFix.dll
 - 0Harmony.dll
 
-Clients do not need either file.
+Clients do not need the plugin.
 
-Vanilla Dedicated Server test
+## Log verification
 
-    SpaceEngineersDedicated.exe -console -plugin "C:\SEPlugins\MergeBlockProjectionFix\MergeBlockProjectionFix.dll"
+The plugin writes to:
+- MergeBlockProjectionFix.log next to the DLL
+- the main SpaceEngineersDedicated log when VRage.Utils.MyLog is available
 
-Verify
+Expected startup lines:
 
-After startup inspect MergeBlockProjectionFix.log.
+    [MergeBlockProjectionFix R2] Initializing R2 transition-gated neighbour refresh patch.
+    [MergeBlockProjectionFix R2] Compatibility guard: UpdateOnceBeforeFrame contains 2 direct UpdateBlockNeighbours call(s).
+    [MergeBlockProjectionFix R2] PATCH ACTIVE R2: Merge neighbour refresh runs only when IsWorking changes during UpdateOnceBeforeFrame.
 
-Expected:
+During welding, expected lines include:
 
-    Compatibility guard: UpdateOnceBeforeFrame contains 2 UpdateBlockNeighbours call(s).
-    PATCH ACTIVE: non-functional Merge Blocks keep structural connectivity while welding.
+    SUPPRESS neighbour refresh ... IsWorking stayed False ...
 
-Then test a minimal Survival setup:
+When the block becomes genuinely working or is later disabled:
 
-1. Existing fully built Merge Block ON.
-2. Project another grid with its Merge Block directly face-to-face.
-3. Weld with a ship welder at normal speed.
-4. The unfinished projected Merge Block should remain structurally attached instead of becoming a loose grid.
-5. Finish welding and verify the two Merge Blocks lock normally.
-6. Turn a fully built Merge Block OFF and verify normal vanilla disconnect behaviour still occurs.
+    ALLOW neighbour refresh ... IsWorking changed False -> True ...
+    ALLOW neighbour refresh ... IsWorking changed True -> False ...
 
-If the log says SAFE-DISABLE, do not force the patch. Save the log plus the current server build number for a revised build.
+If the current game code no longer has exactly two direct UpdateBlockNeighbours calls, R2 safe-disables.
 
-Emergency disable
+## Emergency disable
 
     set SE_MERGE_PROJECTION_FIX_DISABLE=1
 
-The DLL will load but leave all game methods untouched.
+This is an experimental server-side compatibility patch, not an official Keen fix.
