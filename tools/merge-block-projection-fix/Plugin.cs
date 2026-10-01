@@ -12,14 +12,12 @@ namespace MergeBlockProjectionFix
 {
     public sealed class Plugin : IPlugin
     {
-        private const string HarmonyId = "rootfabric.se.mergeblock-projection-fix.r2";
+        private const string HarmonyId = "rootfabric.se.mergeblock-projection-fix.r3";
         private static readonly object LogLock = new object();
 
         private static Harmony _harmony;
         private static Type _mergeType;
         private static PropertyInfo _isWorkingProperty;
-        private static PropertyInfo _slimBlockProperty;
-        private static MethodInfo _getOtherMergeBlockMethod;
         private static MethodInfo[] _neighbourRefreshMethods;
         private static string _logPath;
         private static bool _patchApplied;
@@ -39,10 +37,8 @@ namespace MergeBlockProjectionFix
         {
             public MergeUpdateContext Previous;
             public object Merge;
-            public object SelfSlim;
-            public object OtherSlim;
             public bool IsWorkingBefore;
-            public int MatchedRefreshCalls;
+            public int InterceptedRefreshCalls;
         }
 
         public void Init(object gameInstance)
@@ -54,7 +50,7 @@ namespace MergeBlockProjectionFix
                 _logPath = Path.Combine(assemblyDir, "MergeBlockProjectionFix.log");
                 InitGameLogBridge();
 
-                Log("Initializing R2 transition-gated neighbour refresh patch.");
+                Log("Initializing R3 direct merge-update neighbour gate.");
 
                 if (string.Equals(
                         Environment.GetEnvironmentVariable("SE_MERGE_PROJECTION_FIX_DISABLE"),
@@ -82,9 +78,6 @@ namespace MergeBlockProjectionFix
                 }
 
                 _isWorkingProperty = AccessTools.Property(_mergeType, "IsWorking");
-                _slimBlockProperty = AccessTools.Property(_mergeType, "SlimBlock");
-                _getOtherMergeBlockMethod = AccessTools.Method(_mergeType, "GetOtherMergeBlock");
-
                 if (_isWorkingProperty == null ||
                     _isWorkingProperty.PropertyType != typeof(bool))
                 {
@@ -92,23 +85,11 @@ namespace MergeBlockProjectionFix
                     return;
                 }
 
-                if (_slimBlockProperty == null)
-                {
-                    Log("SAFE-DISABLE: SlimBlock property was not found.");
-                    return;
-                }
-
-                if (_getOtherMergeBlockMethod == null)
-                {
-                    Log("SAFE-DISABLE: GetOtherMergeBlock() was not found.");
-                    return;
-                }
-
                 var originalInstructions = PatchProcessor
                     .GetOriginalInstructions(updateOnce)
                     .ToList();
 
-                var neighbourRefreshCalls = originalInstructions
+                var directCalls = originalInstructions
                     .Where(i =>
                     {
                         var method = i.operand as MethodInfo;
@@ -122,24 +103,18 @@ namespace MergeBlockProjectionFix
                     .ToList();
 
                 Log("Compatibility guard: UpdateOnceBeforeFrame contains " +
-                    neighbourRefreshCalls.Count +
+                    directCalls.Count +
                     " direct UpdateBlockNeighbours call(s).");
 
-                if (neighbourRefreshCalls.Count != 2)
+                if (directCalls.Count != 2)
                 {
-                    Log("SAFE-DISABLE: expected exactly 2 direct neighbour-refresh calls; current game code differs.");
+                    Log("SAFE-DISABLE: expected exactly 2 direct UpdateBlockNeighbours calls; current game code differs.");
                     return;
                 }
 
-                _neighbourRefreshMethods = neighbourRefreshCalls
+                _neighbourRefreshMethods = directCalls
                     .Distinct(MethodInfoComparer.Instance)
                     .ToArray();
-
-                if (_neighbourRefreshMethods.Length == 0)
-                {
-                    Log("SAFE-DISABLE: no neighbour-refresh target method resolved.");
-                    return;
-                }
 
                 var updatePrefix = AccessTools.Method(
                     typeof(Plugin),
@@ -166,15 +141,17 @@ namespace MergeBlockProjectionFix
                         method,
                         prefix: new HarmonyMethod(neighbourPrefix));
 
-                    Log("Patched neighbour refresh target: " +
-                        method.DeclaringType?.FullName + "." + method.Name +
-                        "(" + string.Join(", ",
+                    Log("Patched target: " +
+                        method.DeclaringType?.FullName + "." +
+                        method.Name + "(" +
+                        string.Join(", ",
                             method.GetParameters()
-                                  .Select(p => p.ParameterType.FullName)) + ")");
+                                  .Select(p => p.ParameterType.FullName)) +
+                        ")");
                 }
 
                 _patchApplied = true;
-                Log("PATCH ACTIVE R2: Merge neighbour refresh runs only when IsWorking changes during UpdateOnceBeforeFrame.");
+                Log("PATCH ACTIVE R3: direct UpdateBlockNeighbours calls are gated by MyShipMergeBlock IsWorking transition.");
             }
             catch (Exception ex)
             {
@@ -184,7 +161,6 @@ namespace MergeBlockProjectionFix
 
         public void Update()
         {
-            // No polling or per-frame mutation is required.
         }
 
         public void Dispose()
@@ -209,24 +185,13 @@ namespace MergeBlockProjectionFix
         {
             try
             {
-                var previous = _mergeUpdateContext;
-
-                var context = new MergeUpdateContext
+                _mergeUpdateContext = new MergeUpdateContext
                 {
-                    Previous = previous,
+                    Previous = _mergeUpdateContext,
                     Merge = __instance,
                     IsWorkingBefore = ReadIsWorking(__instance),
-                    SelfSlim = _slimBlockProperty.GetValue(__instance, null)
+                    InterceptedRefreshCalls = 0
                 };
-
-                var other = _getOtherMergeBlockMethod.Invoke(
-                    __instance,
-                    Array.Empty<object>());
-
-                if (other != null)
-                    context.OtherSlim = _slimBlockProperty.GetValue(other, null);
-
-                _mergeUpdateContext = context;
             }
             catch (Exception ex)
             {
@@ -239,18 +204,19 @@ namespace MergeBlockProjectionFix
             try
             {
                 var context = _mergeUpdateContext;
-
                 if (context != null)
                 {
-                    if (context.MatchedRefreshCalls > 0)
+                    if (context.InterceptedRefreshCalls > 0)
                     {
                         var after = ReadIsWorking(context.Merge);
+
                         if (after != context.IsWorkingBefore)
                         {
-                            LogOccasionally(
-                                "IsWorking transition observed " +
+                            Log(
+                                "Merge update completed with IsWorking transition " +
                                 context.IsWorkingBefore + " -> " + after +
-                                "; vanilla neighbour refresh allowed.");
+                                ", intercepted calls=" +
+                                context.InterceptedRefreshCalls + ".");
                         }
                     }
 
@@ -266,49 +232,38 @@ namespace MergeBlockProjectionFix
             return __exception;
         }
 
-        private static bool UpdateBlockNeighboursPrefix(object[] __args)
+        private static bool UpdateBlockNeighboursPrefix()
         {
             try
             {
                 var context = _mergeUpdateContext;
 
-                // Never change normal MyCubeGrid neighbour updates. We only gate the
-                // two calls made while MyShipMergeBlock.UpdateOnceBeforeFrame is active.
+                // Critical safety boundary:
+                // Outside MyShipMergeBlock.UpdateOnceBeforeFrame, never alter grid topology updates.
                 if (context == null)
                 {
                     Interlocked.Increment(ref _unrelatedRefreshCount);
                     return true;
                 }
 
-                if (__args == null || __args.Length < 1)
-                    return true;
+                context.InterceptedRefreshCalls++;
 
-                var slim = __args[0];
+                var isWorkingNow = ReadIsWorking(context.Merge);
 
-                // Extra safety: only intercept the current merge block or the facing
-                // merge block captured by GetOtherMergeBlock() at method entry.
-                if (!ReferenceEquals(slim, context.SelfSlim) &&
-                    !ReferenceEquals(slim, context.OtherSlim))
-                {
-                    Interlocked.Increment(ref _unrelatedRefreshCount);
-                    return true;
-                }
-
-                context.MatchedRefreshCalls++;
-
-                var isWorkingAfterUpdate = ReadIsWorking(context.Merge);
-
-                if (isWorkingAfterUpdate == context.IsWorkingBefore)
+                // Regression path: the 1.210 code refreshes neighbours even though
+                // MyShipMergeBlock did not actually change working state.
+                if (isWorkingNow == context.IsWorkingBefore)
                 {
                     var count = Interlocked.Increment(ref _suppressedRefreshCount);
 
-                    if (count <= 8 || count % 100 == 0)
+                    if (count <= 12 || count % 100 == 0)
                     {
                         Log(
                             "SUPPRESS neighbour refresh #" + count +
-                            ": IsWorking stayed " +
-                            context.IsWorkingBefore +
-                            " during Merge UpdateOnceBeforeFrame.");
+                            ": Merge IsWorking stayed " +
+                            isWorkingNow +
+                            " inside UpdateOnceBeforeFrame; callIndex=" +
+                            context.InterceptedRefreshCalls + ".");
                     }
 
                     return false;
@@ -317,13 +272,15 @@ namespace MergeBlockProjectionFix
                 var allowed = Interlocked.Increment(
                     ref _allowedTransitionRefreshCount);
 
-                if (allowed <= 8 || allowed % 100 == 0)
+                if (allowed <= 12 || allowed % 100 == 0)
                 {
                     Log(
                         "ALLOW neighbour refresh #" + allowed +
-                        ": IsWorking changed " +
+                        ": Merge IsWorking changed " +
                         context.IsWorkingBefore + " -> " +
-                        isWorkingAfterUpdate + ".");
+                        isWorkingNow +
+                        "; callIndex=" +
+                        context.InterceptedRefreshCalls + ".");
                 }
 
                 return true;
@@ -332,8 +289,7 @@ namespace MergeBlockProjectionFix
             {
                 RuntimeFailure("UpdateBlockNeighboursPrefix", ex);
 
-                // Fail open: if the runtime shape is not what we expected,
-                // execute vanilla code rather than risking stuck grid topology.
+                // Fail open. Never block vanilla topology work if our reflection state fails.
                 return true;
             }
         }
@@ -351,13 +307,6 @@ namespace MergeBlockProjectionFix
                     "RUNTIME PATCH ERROR at " + where +
                     "; falling back to vanilla where possible: " + ex);
             }
-        }
-
-        private static void LogOccasionally(string message)
-        {
-            // The important per-call counters are already rate limited in the prefix.
-            // This helper exists to keep transition diagnostics concise.
-            Log(message);
         }
 
         private static void InitGameLogBridge()
@@ -389,7 +338,7 @@ namespace MergeBlockProjectionFix
         {
             var line =
                 DateTime.UtcNow.ToString("O") +
-                " [MergeBlockProjectionFix R2] " +
+                " [MergeBlockProjectionFix R3] " +
                 message;
 
             try
