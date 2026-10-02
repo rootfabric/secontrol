@@ -1569,6 +1569,45 @@ class BaseDevice:
         )
         return [snapshot]
 
+    def _numeric_device_id(self) -> Optional[int]:
+        """Numeric device id for transfer commands (None if not resolvable)."""
+        return _safe_int(getattr(self, "device_id", None))
+
+    def inventory_count(self) -> int:
+        """Number of inventories reported by telemetry (0 if unknown)."""
+        try:
+            return len(list(self.inventories() or []))
+        except Exception:
+            return 0
+
+    def get_inventory(self, reference=None):
+        """Alias of :meth:`inventory` used by transfer helpers."""
+        try:
+            return self.inventory(reference)  # type: ignore[attr-defined]
+        except Exception:
+            return None
+
+    def inventory_items(self, inventory=None) -> list:
+        """Flat list of InventoryItem for the given inventory (or the first one).
+
+        Compatibility helper: some device helpers call ``inventory_items`` while
+        older checkouts only exposed ``items``. Built on top of ``inventories()``.
+        """
+        snapshots = list(self.inventories() or [])
+        if not snapshots:
+            return []
+        wanted = None
+        try:
+            wanted = int(inventory) if inventory is not None else None
+        except (TypeError, ValueError):
+            wanted = None
+        if wanted is None:
+            return list(getattr(snapshots[0], "items", []) or [])
+        for snap in snapshots:
+            if getattr(snap, "index", None) == wanted:
+                return list(getattr(snap, "items", []) or [])
+        return list(getattr(snapshots[0], "items", []) or [])
+
     def __init__(self, grid: Grid, metadata: DeviceMetadata) -> None:
         self.grid = grid
         self.redis = grid.redis

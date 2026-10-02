@@ -22,7 +22,7 @@
           <CubeBlocks>
             <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_Projector">
               <SubtypeName>SmallProjector</SubtypeName>
-              <Min x="0" y="1" z="1" /><BlockOrientation Forward="Forward" Up="Up" /><EntityId>77400216751825854</EntityId>
+              <EntityId>77400216751825854</EntityId>
               <ColorMaskHSV x="0" y="-0.8" z="0.4" />
               <Owner>144115188075855919</Owner>
               <BuiltBy>144115188075855919</BuiltBy>
@@ -33,14 +33,14 @@
               <NumberInGrid>1</NumberInGrid>
               <Enabled>true</Enabled>
               <ProjectionOffset>
-                <X>-1</X>
-                <Y>5</Y>
-                <Z>-3</Z>
+                <X>0</X>
+                <Y>0</Y>
+                <Z>0</Z>
               </ProjectionOffset>
               <ProjectionRotation>
-                <X>1</X>
-                <Y>2</Y>
-                <Z>2</Z>
+                <X>0</X>
+                <Y>0</Y>
+                <Z>0</Z>
               </ProjectionRotation>
               <KeepProjection>false</KeepProjection>
               <ShowOnlyBuildable>false</ShowOnlyBuildable>
@@ -674,7 +674,7 @@
               <ShowInToolbarConfig>true</ShowInToolbarConfig>
               <ShowInInventory>true</ShowInInventory>
               <NumberInGrid>1</NumberInGrid>
-              <Enabled>true</Enabled>
+              <Enabled>false</Enabled>
             </MyObjectBuilder_CubeBlock>
             <MyObjectBuilder_CubeBlock xsi:type="MyObjectBuilder_SolarPanel">
               <SubtypeName>SmallBlockSolarPanel</SubtypeName>
