@@ -208,8 +208,8 @@ class DoorDevice(FunctionalDevice):
 
 class ConnectorDevice(FunctionalDevice):
     device_type = "connector"
-    capabilities = FunctionalDevice.capabilities | {"connector.connect"}
-    commands = FunctionalDevice.commands | {"connect", "disconnect"}
+    capabilities = FunctionalDevice.capabilities | {"connector.connect", "inventory.transfer"}
+    commands = FunctionalDevice.commands | {"connect", "disconnect", "transfer_item"}
     @property
     def connected(self) -> bool:
         return self._state.get("status") == "Connected"
@@ -228,10 +228,24 @@ class ConnectorDevice(FunctionalDevice):
         props = self._state.get("properties") or {}
         return {"position": props.get("pivotPosition"), "forward": props.get("pivotForward"),
                 "up": props.get("pivotUp")}
+    @property
+    def inventories(self) -> list[dict[str, Any]]:
+        return self._state.get("inventories") or []
+    def items(self) -> list[dict[str, Any]]:
+        inventory = self.inventories[0] if self.inventories else {}
+        return inventory.get("items") or []
     def connect(self) -> CommandResult:
         return self.client.command(self, "connect")
     def disconnect(self) -> CommandResult:
         return self.client.command(self, "disconnect")
+    def transfer_item(self, target, item_index: int, amount: float) -> CommandResult:
+        """Move items to another inventory-bearing device (connector/cargo) on a connected conveyor system."""
+        if not isinstance(target, (ConnectorDevice, CargoDevice)) or target.client is not self.client:
+            raise ValueError("target must be a connector or cargo device of the same client")
+        if not isinstance(item_index, int) or item_index < 0:
+            raise ValueError("item_index must be nonnegative")
+        return self.client.command(self, "transfer_item", target_id=target.device_id,
+                                   item_index=item_index, amount=float(amount))
 
 class CargoDevice(Device):
     device_type = "cargo"
