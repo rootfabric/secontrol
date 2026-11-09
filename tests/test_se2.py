@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from secontrol.se2 import BridgeError, Client, LampDevice
+from secontrol.se2 import REPLY_CHANNEL, STATE_CHANNEL, BridgeError, Client, LampDevice
 
 
 def ready(epoch="test:1"):
@@ -161,3 +161,29 @@ def test_new_property_command_payloads(client):
     with pytest.raises(TypeError):
         reactor.set_processing(1)
     client.redis.eval.assert_not_called()
+
+
+def test_subscribe_uses_pubsub_channels(client):
+    pubsub = client.subscribe()
+    client.redis.pubsub.assert_called_once_with(ignore_subscribe_messages=True)
+    pubsub.subscribe.assert_called_once_with(STATE_CHANNEL, REPLY_CHANNEL)
+
+
+def test_listen_decodes_state_and_reply_messages(client, monkeypatch):
+    import secontrol.se2 as se2
+    events = []
+
+    class FakePubSub:
+        def __init__(self): self.closed = False
+        def subscribe(self, *a): pass
+        def close(self): self.closed = True
+        def listen(self):
+            yield {"channel": STATE_CHANNEL.encode(), "data": json.dumps(ready()).encode()}
+            yield {"channel": b"other", "data": b"{}"}
+            yield {"channel": REPLY_CHANNEL.encode(), "data": json.dumps({"requestId": "x", "status": "confirmed"}).encode()}
+
+    monkeypatch.setattr(se2.Client, "subscribe", lambda self: FakePubSub())
+    client.listen(lambda kind, payload: events.append((kind, payload)))
+    assert events[0][0] == "state" and events[0][1]["state"] == "READY"
+    assert events[1][0] == "reply" and events[1][1]["status"] == "confirmed"
+    assert len(events) == 2

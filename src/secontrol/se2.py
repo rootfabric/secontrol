@@ -10,6 +10,9 @@ import redis
 class BridgeError(RuntimeError):
     pass
 
+STATE_CHANNEL = "se2:local:state"
+REPLY_CHANNEL = "se2:local:replies"
+
 @dataclass(frozen=True)
 class CommandResult:
     request_id: str
@@ -105,6 +108,37 @@ return 1
                                      (time.monotonic() - started) * 1000)
             time.sleep(.01)
         raise TimeoutError(f"Unknown command outcome: {request_id}; read telemetry before retrying")
+
+    def subscribe(self):
+        """Open a pub/sub subscription to bridge notifications.
+
+        Yields ("state", snapshot) every publish tick and ("reply", receipt)
+        for every completed command. Plain Redis PUBLISH/SUBSCRIBE: no server
+        configuration is required. Close the returned PubSub to stop.
+        """
+        pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
+        pubsub.subscribe(STATE_CHANNEL, REPLY_CHANNEL)
+        return pubsub
+
+    def listen(self, callback, *, timeout: float | None = None):
+        """Blocking event loop: calls callback(kind, payload) for each notification."""
+        import time as _time
+        pubsub = self.subscribe()
+        deadline = None if timeout is None else _time.monotonic() + timeout
+        try:
+            for message in pubsub.listen():
+                channel = message.get("channel")
+                if isinstance(channel, bytes):
+                    channel = channel.decode()
+                kind = {STATE_CHANNEL: "state", REPLY_CHANNEL: "reply"}.get(channel)
+                if kind is None:
+                    continue
+                payload = json.loads(message["data"])
+                callback(kind, payload)
+                if deadline is not None and _time.monotonic() > deadline:
+                    break
+        finally:
+            pubsub.close()
 
     def close(self) -> None:
         self.redis.close()

@@ -38,6 +38,10 @@ production activity and weapon continuous fire state. These new operations have
 API/build/contract checks; in-game actuation tests are intentionally scheduled
 for purpose-built grids. Limits are conservative until compared with the game UI.
 One shared Client uses pooled Redis connections and no per-device subscription threads.
+Notifications: every snapshot is published to the `se2:local:state` channel (~5 Hz) and
+every command receipt to `se2:local:replies`; plain PUBLISH/SUBSCRIBE, no Redis server
+configuration needed. Use `Client.subscribe()` or `Client.listen(callback)` instead of
+polling.
 
 Connection defaults to `redis://127.0.0.1:6379/0`, prefix `se2:local`. The corresponding
 plugin currently targets this fixed local Redis endpoint. Do not expose the test
