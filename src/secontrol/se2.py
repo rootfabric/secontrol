@@ -182,6 +182,18 @@ class ConnectorDevice(FunctionalDevice):
     @property
     def counterpart_id(self) -> str | None:
         return (self._state.get("properties") or {}).get("counterpartId")
+    @property
+    def nearby_counterpart_id(self) -> str | None:
+        return (self._state.get("properties") or {}).get("nearbyCounterpartId")
+    @property
+    def ready_to_connect(self) -> bool:
+        return bool((self._state.get("properties") or {}).get("readyToConnect"))
+    @property
+    def pivot(self) -> dict:
+        """World-space mating pivot: position/forward/up arrays, if exposed by the bridge."""
+        props = self._state.get("properties") or {}
+        return {"position": props.get("pivotPosition"), "forward": props.get("pivotForward"),
+                "up": props.get("pivotUp")}
     def connect(self) -> CommandResult:
         return self.client.command(self, "connect")
     def disconnect(self) -> CommandResult:

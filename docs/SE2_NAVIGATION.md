@@ -61,6 +61,32 @@ ap.goto(home, max_speed=3.0, position_tolerance=0.2,        # точный во�
 `heading_tolerance_deg=0.5°`. Живой пример: `tmp/se2_precise_return.py`
 (временные файлы живут в `tmp/`, паттерн копируйте отсюда).
 
+## Парковка на коннектор: `park()` / `unpark()`
+
+Модуль `secontrol.se2_parking` выполняет полный цикл стыковки с коннектором
+станции. Телеметрия коннектора содержит мировой стыковочный пивот
+(`pivotPosition`/`pivotForward`/`pivotUp`), по которому вычисляется поза грида
+для совмещения пивотов (конвенция движка: пивоты при стыковке антипараллельны,
+up совпадает).
+
+```python
+from secontrol.se2 import Client
+from secontrol.se2_parking import park, unpark
+
+with Client(timeout=9) as bridge:
+    # dock_id можно не указывать, если детектор уже видит коннектор станции
+    report = park(bridge, "Blue Fighter", dock_id="8935:1")
+    assert report["connected"]
+    ...
+    unpark(bridge, "Blue Fighter", backoff=40.0)   # disconnect + отлет назад
+```
+
+Цикл: waypoint в 15 м перед доком → точный подлёт к совмещению пивотов
+(допуск 0.05 м — движковый лимит стыковки ~0.1 м, жёстче SE1-магнитов) →
+`TryConnect` движка с подтверждением `Connected`. Проверено в игре:
+Blue Fighter отстыковался, отлетел на 40 м, вернулся и состыковался с
+Concordia Research Station (`connected: true`).
+
 ## Правила безопасности
 
 - Наблюдайте прибытие по `wait()`/телеметрии, а не только по ACK `goto`.
