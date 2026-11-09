@@ -51,4 +51,6 @@ optimistic conflict check. FIFO ordering is not exclusive ownership of a device.
 
 Unit tests: `python -m pytest tests/test_se2.py tests/test_grid_rebind_compat.py`.
 Flight usage guide (align_course, precise return, player control): [SE2_NAVIGATION.md](SE2_NAVIGATION.md).
-Live tests and performance evidence are in the SpaceEngineers2-RedisBridge project.
+Live tests and performance evidence are in the SE2GameAPI plugin project:
+https://github.com/rootfabric/SE2GameAPI (transport and protocol implementation;
+this Python backend is the reference client).
