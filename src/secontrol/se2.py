@@ -58,7 +58,8 @@ return 1
         factories = {"lamp": LampDevice, "door": DoorDevice, "connector": ConnectorDevice,
                      "cargo": CargoDevice, "autopilot": AutopilotDevice, "thruster": ThrusterDevice,
                      "gravity_generator": GravityDevice, "antenna": AntennaDevice,
-                     "landing_gear": LandingGearDevice, "Reactor": ConverterDevice,
+                     "landing_gear": LandingGearDevice, "drill": DrillDevice,
+                     "Reactor": ConverterDevice,
                      "O2H2Generator": ConverterDevice, "Battery": BatteryDevice,
                      "tank": TankDevice}
         snapshot = self.snapshot(fresh=True)
@@ -74,6 +75,8 @@ return 1
         return self.devices(device_type="door", **filters)
     def connectors(self, **filters) -> list[ConnectorDevice]:
         return self.devices(device_type="connector", **filters)
+    def drills(self, **filters) -> list[DrillDevice]:
+        return self.devices(device_type="drill", **filters)
     def containers(self, **filters) -> list[CargoDevice]:
         return self.devices(device_type="cargo", **filters)
 
@@ -205,6 +208,30 @@ class DoorDevice(FunctionalDevice):
         return self.client.command(self, "close")
     def toggle_door(self) -> CommandResult:
         return self.client.command(self, "toggle_door")
+
+class DrillDevice(FunctionalDevice):
+    """Ship drill: primary action collects ore, secondary action excavates wider (extend)."""
+    device_type = "drill"
+    capabilities = FunctionalDevice.capabilities | {"drill.mode"}
+    commands = FunctionalDevice.commands | {"drill_mode"}
+    def start_collect(self) -> CommandResult:
+        """Ore collection mode (primary brush)."""
+        return self.client.command(self, "drill_mode", mode="collect")
+    def start_extend(self) -> CommandResult:
+        """Extension/excavation mode (secondary, wider brush)."""
+        return self.client.command(self, "drill_mode", mode="extend")
+    def stop(self) -> CommandResult:
+        return self.client.command(self, "drill_mode", mode="off")
+    @property
+    def mode(self) -> str:
+        return {"Collect": "collect", "Extend": "extend"}.get(self._state.get("status"), "off")
+    @property
+    def drilling_voxels(self) -> bool:
+        return bool((self._state.get("properties") or {}).get("isDrillingVoxels"))
+    @property
+    def detected_content(self) -> bool:
+        return bool((self._state.get("properties") or {}).get("hasDetectedDrillableContent"))
+
 
 class ConnectorDevice(FunctionalDevice):
     device_type = "connector"

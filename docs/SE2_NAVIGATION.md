@@ -92,6 +92,24 @@ Concordia Research Station (`connected: true`).
 проверяет фильтры инвентаря. Проверено в игре: инструмент (WelderMk1) из
 коннектора корабля перенесён в коннектор базы после автопарковки.
 
+## Буры: `collect` / `extend` / `off`
+
+`Client.drills(grid_name=...)` возвращает буры грида. Движок даёт буру два
+действия с разными формами кисти: **primary = сбор породы**, **secondary =
+расширение/разработка** (широкая форма).
+
+```python
+drill.start_collect()   # режим сбора породы (primary)
+drill.start_extend()    # режим расширения (secondary, широкая кисть)
+drill.stop()            # выключить бур
+drill.mode              # "collect" | "extend" | "off"
+drill.drilling_voxels   # фактически бурит воксели прямо сейчас
+```
+
+Проверено в игре на гриде Bullfrog SM-31 Miner (2 × Drill 3.5 m): все три
+режима подтверждаются квитанциями и отражаются в телеметрии
+(`isPrimaryActionEnabled` / `isSecondaryActionEnabled`).
+
 ## Правила безопасности
 
 - Наблюдайте прибытие по `wait()`/телеметрии, а не только по ACK `goto`.

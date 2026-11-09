@@ -187,3 +187,23 @@ def test_listen_decodes_state_and_reply_messages(client, monkeypatch):
     assert events[0][0] == "state" and events[0][1]["state"] == "READY"
     assert events[1][0] == "reply" and events[1][1]["status"] == "confirmed"
     assert len(events) == 2
+
+
+def test_drill_modes_send_mode_payload():
+    from secontrol.se2 import DrillDevice
+    client = Mock()
+    drill = DrillDevice(client, "epoch", {"id": "1:1", "gridId": "2:1", "name": "Drill",
+                                          "status": "Idle", "properties": {}})
+    drill.start_collect()
+    assert client.command.call_args.kwargs["mode"] == "collect"
+    drill.start_extend()
+    assert client.command.call_args.kwargs["mode"] == "extend"
+    drill.stop()
+    assert client.command.call_args.kwargs["mode"] == "off"
+
+
+def test_drill_mode_property_maps_status():
+    from secontrol.se2 import DrillDevice
+    drill = DrillDevice(Mock(), "epoch", {"id": "1:1", "gridId": "2:1", "name": "Drill",
+                                          "status": "Extend", "properties": {}})
+    assert drill.mode == "extend"
