@@ -167,8 +167,10 @@ def unpark(bridge: Client, grid_name: str, backoff: float = 40.0, *, max_speed: 
     else:
         fwd = grid_props["forward"]
         target = [a - f * backoff for a, f in zip(grid_props["position"], fwd)]
+    # No forward/up and no align_course: keep the docking orientation, fly straight out.
     r = autopilot.goto(target, mode="flight", max_speed=max_speed,
-                       position_tolerance=2.0, align_course=True, timeout=timeout)
+                       position_tolerance=2.0, timeout=timeout)
     autopilot.wait(r.actual_state["properties"]["missionId"], timeout=timeout + 30)
     return {"grid": grid_name, "connected": _props(own).get("isConnected"),
-            "position": [round(x, 2) for x in autopilot.refresh()["properties"]["position"]]}
+            "position": [round(x, 2) for x in autopilot.refresh()["properties"]["position"]],
+            "heading": [round(x, 3) for x in autopilot.refresh()["properties"]["forward"]]}
