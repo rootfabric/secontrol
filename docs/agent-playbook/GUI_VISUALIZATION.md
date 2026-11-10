@@ -114,6 +114,26 @@ python examples/organized/radar/basic/radar_path_to_player_visualization.py --ra
 - **Когда использовать:** посмотреть, что накопил `shared_map_sync.py` за время
   патрулирования.
 
+### `se2_voxel_dashboard` — воксели Space Engineers 2 (SE2GameAPI)
+**Запуск:**
+```bash
+python -m secontrol.tools.se2_voxel_dashboard --list
+python -m secontrol.tools.se2_voxel_dashboard --grid-name "Bullfrog SM-31 Miner" --radius 32
+python -m secontrol.tools.se2_voxel_dashboard --grid-name "..." --watch        # скан за сканом
+python -m secontrol.tools.se2_voxel_dashboard --replay C:/SE2GameAPI/artifacts/voxel-scan.json
+```
+**Где:** `src/secontrol/tools/se2_voxel_dashboard.py`
+
+Тот же `RadarVisualizer` (PyVista), но данные — из воксельного протокола SE2GameAPI
+(`se2:local:voxels:*`): сам заказывает скан вокруг грида (радиус — полуразмер куба),
+декодирует плитки в мировые точки, квантует в occupancy-grid и рисует воксели серой
+оболочкой. Соседние гриды — синие контакты, сканируемый корабль — зелёная точка в
+центре. `--replay` показывает записанный скан без игры. Нужны: SE2 с плагином
+SE2GameAPI (ветка `feature/voxel-scan-service`), Redis, `pip install pyvista`.
+
+- **Когда использовать:** посмотреть рельеф/астероид вокруг корабля во вторых
+  инженерах тем же инструментом, что и радар в SE1.
+
 ### `radar_visualizer.py` (модуль) — переиспользуемый визуализатор
 **Где:** `src/secontrol/tools/radar_visualizer.py:20`
 
@@ -174,6 +194,7 @@ PySide6-приложение: выпадающий список гридов →
 | Увидеть руды + камень (двойной проход) | `python examples/organized/radar/basic/radar_ore_then_voxels.py` |
 | Проверить A*-путь до игрока | `python examples/organized/radar/basic/radar_path_to_player_visualization.py` |
 | Посмотреть накопленную карту из Redis | `python examples/organized/map/load_and_visualize_map.py` |
+| Воксели вокруг корабля в SE2 | `python -m secontrol.tools.se2_voxel_dashboard --grid-name "Имя Грида"` |
 | Мониторить телеметрию в реальном времени (Qt-окно) | `python -m secontrol.tools.telemetry_reader_gui` |
 | Понять, какие устройства грузят CPU | `python -m secontrol.tools.device_load_monitor_gui` |
 | Разобрать телеметрию одного устройства с diff | `python examples/organized/basic/intermediate/gui_telemetry_viewer.py` |
