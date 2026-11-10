@@ -79,17 +79,43 @@ def collect_scan(client: Client, request_id: str, timeout: float = 240.0) -> dic
     return None
 
 
-def decode_tiles(document: dict[str, Any], threshold: int = 1) -> tuple[np.ndarray, float]:
-    """Return (Nx3 world points centered on the scanned grid, voxel size in metres)."""
+ORE_KEYWORDS = ("ore", "iron", "nickel", "gold", "silver", "chromium", "titanium",
+                "uranium", "cobalt", "copper", "platinum", "ice", "silicon", "magnesium")
+
+
+def is_ore_name(name: str) -> bool:
+    lowered = name.lower()
+    return any(keyword in lowered for keyword in ORE_KEYWORDS)
+
+
+def decode_tiles(document: dict[str, Any], threshold: int = 1):
+    """Return (Nx3 world points centered on the scanned grid, voxel size, ore points)."""
     status = document["status"]
     grid_pos = np.array(status["grid"]["position"], dtype=np.float64)
+    legend = {}
+    for entry in status.get("materialLegend") or []:
+        index, _, name = entry.partition("=")
+        try:
+            legend[int(index)] = name
+        except ValueError:
+            continue
+    ore_ids = {idx for idx, name in legend.items() if is_ore_name(name)}
     chunks: list[np.ndarray] = []
+    ore_chunks: list[np.ndarray] = []
     voxel_size = 1.0
     for tile in document.get("tiles", []):
         content = np.frombuffer(base64.b64decode(tile["content"]), dtype=np.uint8)
         nx, ny, nz = tile["size"]
         arr = content.reshape(nz, ny, nx)
-        xs, ys, zs = np.nonzero(arr >= threshold)
+        material = None
+        if tile.get("material") and ore_ids:
+            material = np.frombuffer(base64.b64decode(tile["material"]), dtype=np.uint8).reshape(nz, ny, nx)
+        solid = arr >= threshold
+        if material is not None:
+            ore_mask = solid & np.isin(material, list(ore_ids))
+        else:
+            ore_mask = np.zeros_like(solid)
+        xs, ys, zs = np.nonzero(solid)
         if xs.size == 0:
             continue
         origin = np.array(tile["origin"], dtype=np.float64)
@@ -104,13 +130,21 @@ def decode_tiles(document: dict[str, Any], threshold: int = 1) -> tuple[np.ndarr
                  + fy[:, None] * ay[None, :]
                  + fz[:, None] * az[None, :])
         chunks.append(world - grid_pos)
+        if ore_mask.any():
+            ox, oy, oz = np.nonzero(ore_mask)
+            ore_world = (origin[None, :]
+                         + (ox + 0.5)[:, None] * ax[None, :]
+                         + (oy + 0.5)[:, None] * ay[None, :]
+                         + (oz + 0.5)[:, None] * az[None, :])
+            ore_chunks.append(ore_world - grid_pos)
     if not chunks:
-        return np.zeros((0, 3)), voxel_size
-    return np.vstack(chunks), voxel_size
+        return np.zeros((0, 3)), voxel_size, np.zeros((0, 3))
+    ores = np.vstack(ore_chunks) if ore_chunks else np.zeros((0, 3))
+    return np.vstack(chunks), voxel_size, ores
 
 
 def visualize(document: dict[str, Any], client: Client | None) -> None:
-    points, voxel = decode_tiles(document)
+    points, voxel, ores = decode_tiles(document)
     if points.shape[0] == 0:
         print("no non-zero voxels in scan; nothing to visualize")
         return
@@ -140,9 +174,12 @@ def visualize(document: dict[str, Any], client: Client | None) -> None:
     metadata = {"size": [int(size[0]), int(size[1]), int(size[2])],
                 "cellSize": cell, "origin": lo.tolist()}
     solid = points.tolist()
+    ore_cells = [{"position": p} for p in ores[:: max(1, len(ores) // 20000)].tolist()]
     name = document["status"]["grid"].get("gridName", scan_grid_id)
-    print(f"{len(solid)} voxels, cell {cell:.2f} m, grid {size.tolist()}, contacts {len(contacts)}")
-    RadarVisualizer().visualize(solid, metadata, contacts, own_position=[0.0, 0.0, 0.0])
+    print(f"{len(solid)} voxels, cell {cell:.2f} m, grid {size.tolist()}, "
+          f"contacts {len(contacts)}, ore voxels {len(ores)}")
+    RadarVisualizer().visualize(solid, metadata, contacts, own_position=[0.0, 0.0, 0.0],
+                                ore_cells=ore_cells)
 
 
 def main() -> None:
