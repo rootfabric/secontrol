@@ -1,5 +1,7 @@
+import base64
 import json
 import os
+import uuid
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -1240,3 +1242,190 @@ class FleetRedisReader:
         t = raw_type.lower().replace("myobjectbuilder_", "").replace("_", " ").strip()
         words = t.split()
         return " ".join(w.capitalize() for w in words) if words else raw_type
+
+
+# ── SE2GameAPI voxel protocol (Space Engineers 2) ────────────────────────────
+
+SE2_PREFIX = "se2:local"
+SE2_VOXEL_PREFIX = "se2:local:voxels"
+SE2_ENQUEUE = """
+if redis.call('LLEN', KEYS[1]) >= 64 then return 0 end
+redis.call('RPUSH', KEYS[1], ARGV[1])
+redis.call('EXPIRE', KEYS[1], 15)
+return 1
+"""
+SE2_ORE_KEYWORDS = ("ore", "iron", "nickel", "gold", "silver", "chromium", "titanium",
+                    "uranium", "cobalt", "copper", "platinum", "ice", "silicon",
+                    "magnesium", "lead")
+
+
+def _se2_is_ore(name: str) -> bool:
+    lowered = str(name or "").lower()
+    return any(keyword in lowered for keyword in SE2_ORE_KEYWORDS)
+
+
+class SE2VoxelService:
+    """Client for the SE2GameAPI voxel scan protocol (keys se2:local:voxels:*).
+
+    Uses its OWN connection to the SE2GameAPI local Redis (default 127.0.0.1:6379/0),
+    independent of the SE1 broker in REDIS_URL. Override with SE2_REDIS_URL.
+    """
+
+    def __init__(self, reader):
+        url = os.getenv("SE2_REDIS_URL", "redis://127.0.0.1:6379/0")
+        self.client = redis.Redis.from_url(url, decode_responses=True,
+                                           socket_keepalive=True, retry_on_timeout=True)
+
+
+        self._scans: Dict[str, Dict[str, Any]] = {}
+        self._lock = threading.Lock()
+
+    def _state(self) -> Dict[str, Any]:
+        raw = self.client.get(f"{SE2_PREFIX}:state")
+        if not raw:
+            return {}
+        return json.loads(raw)
+
+    def grids(self) -> List[Dict[str, Any]]:
+        state = self._state()
+        grids = {}
+        for device in state.get("devices", []):
+            if device.get("type") == "autopilot":
+                grids[device.get("gridId")] = {
+                    "grid_id": device.get("gridId"),
+                    "name": device.get("gridName"),
+                    "position": device.get("properties", {}).get("position"),
+                }
+        return list(grids.values())
+
+    def start_scan(self, grid_id: str, radius: float = 32.0, fresh: bool = True) -> Dict[str, Any]:
+        state = self._state()
+        if state.get("state") != "READY":
+            return {"error": f"SE2 bridge not READY (state={state.get('state')})"}
+        request_id = uuid.uuid4().hex
+        request = {"requestId": request_id, "epoch": state.get("epoch"), "gridId": grid_id,
+                   "expiresAtMs": int((time.time() + 120) * 1000),
+                   "action": "scan", "radius": radius, "fresh": fresh}
+        if not self.client.eval(SE2_ENQUEUE, 1, f"{SE2_VOXEL_PREFIX}:requests", json.dumps(request)):
+            return {"error": "voxel request queue is full"}
+        with self._lock:
+            self._scans[request_id] = {"state": "starting", "tiles": [], "legend": [],
+                                       "status": {}, "grid_id": grid_id, "error": None}
+        threading.Thread(target=self._collect, args=(request_id,), daemon=True).start()
+        return {"ok": True, "request_id": request_id}
+
+    def _collect(self, request_id: str):
+        scan = self._scans[request_id]
+        deadline = time.time() + 240
+        while time.time() < deadline:
+            raw = self.client.get(f"{SE2_VOXEL_PREFIX}:scan:{request_id}")
+            if raw:
+                status = json.loads(raw)
+                scan["status"] = status
+                scan["legend"] = status.get("materialLegend") or []
+                scan["state"] = status.get("state", "scanning")
+                count = status.get("publishedTiles", 0)
+                for i in range(len(scan["tiles"]), count):
+                    tile_raw = self.client.get(f"{SE2_VOXEL_PREFIX}:tile:{request_id}:{i}")
+                    if not tile_raw:
+                        break
+                    scan["tiles"].append(json.loads(tile_raw))
+                scan["solid_count"] = sum(
+                    int.from_bytes(base64.b64decode(t["content"]), "big").bit_count()
+                    for t in scan["tiles"]) if scan["tiles"] else 0
+                if scan["state"] in ("complete", "partial", "failed", "cancelled"):
+                    scan["scanning"] = False
+                    return
+            else:
+                scan["state"] = scan.get("state", "waiting")
+            time.sleep(0.25)
+        scan["scanning"] = False
+        scan["error"] = "timeout"
+
+    def status(self, request_id: str) -> Dict[str, Any]:
+        scan = self._scans.get(request_id)
+        if not scan:
+            return {"error": "unknown scan"}
+        return {"request_id": request_id, "state": scan.get("state"),
+                "scanning": scan.get("scanning", True),
+                "tiles": len(scan.get("tiles", [])),
+                "published": scan.get("status", {}).get("publishedTiles", 0),
+                "error": scan.get("error")}
+
+    def cancel(self, request_id: str) -> bool:
+        scan = self._scans.get(request_id)
+        if not scan:
+            return False
+        status = scan.get("status") or {}
+        request = {"requestId": request_id, "epoch": status.get("epoch"), "action": "cancel"}
+        self.client.eval(SE2_ENQUEUE, 1, f"{SE2_VOXEL_PREFIX}:requests", json.dumps(request))
+        return True
+
+    def voxels(self, request_id: str) -> Optional[Dict[str, Any]]:
+        scan = self._scans.get(request_id)
+        if not scan or not scan.get("tiles"):
+            return None
+        import base64 as _b64
+        import numpy as _np
+        state = self._state()
+        autopilots = [d for d in state.get("devices", []) if d.get("type") == "autopilot"]
+        scan_grid = next((d for d in autopilots if d.get("gridId") == scan.get("grid_id")), None)
+        legend = {}
+        for entry in scan.get("legend") or []:
+            index, _, name = entry.partition("=")
+            try:
+                legend[int(index)] = name
+            except ValueError:
+                continue
+        ore_ids = {idx: name for idx, name in legend.items() if _se2_is_ore(name)}
+        solid: List[List[float]] = []
+        ore_cells: List[Dict[str, Any]] = []
+        voxel_size = 1.0
+        for tile in scan["tiles"]:
+            content = _np.frombuffer(_b64.b64decode(tile["content"]), dtype=_np.uint8)
+            nx, ny, nz = tile["size"]
+            arr = content.reshape(nz, ny, nx)
+            material = None
+            if tile.get("material") and ore_ids:
+                material = _np.frombuffer(_b64.b64decode(tile["material"]), dtype=_np.uint8).reshape(nz, ny, nx)
+            origin = _np.array(tile["origin"], dtype=_np.float64)
+            ax = _np.array(tile["axisX"], dtype=_np.float64)
+            ay = _np.array(tile["axisY"], dtype=_np.float64)
+            az = _np.array(tile["axisZ"], dtype=_np.float64)
+            voxel_size = float(_np.linalg.norm(ax))
+            solid_mask = arr >= 1
+            ore_mask = solid_mask & _np.isin(material, list(ore_ids)) if material is not None else _np.zeros_like(solid_mask)
+            stone_mask = solid_mask & ~ore_mask
+            xs, ys, zs = _np.nonzero(stone_mask)
+            if xs.size:
+                fx, fy, fz = xs + 0.5, ys + 0.5, zs + 0.5
+                world = (origin[None, :] + fx[:, None] * ax[None, :]
+                         + fy[:, None] * ay[None, :] + fz[:, None] * az[None, :])
+                solid.extend(world.tolist())
+            if ore_mask.any():
+                xs, ys, zs = _np.nonzero(ore_mask)
+                for x, y, z in zip(xs, ys, zs):
+                    name = ore_ids.get(int(material[x, y, z]), "Ore")
+                    fx, fy, fz = x + 0.5, y + 0.5, z + 0.5
+                    point = (origin + fx * ax + fy * ay + fz * az).tolist()
+                    ore_cells.append({"position": point, "ore": name})
+        contacts = [{"type": "grid", "name": d.get("gridName"),
+                     "position": d.get("properties", {}).get("position")}
+                    for d in autopilots]
+        return {"solid": solid, "ore_cells": ore_cells, "contacts": contacts,
+                "metadata": {"cellSize": voxel_size, "origin": [0, 0, 0]},
+                "grid_name": scan_grid.get("gridName") if scan_grid else scan.get("grid_id")}
+
+
+def _ensure_se2(reader):
+    service = getattr(reader, "_se2_service", None)
+    if service is None:
+        service = SE2VoxelService(reader)
+        reader._se2_service = service
+    return service
+
+FleetRedisReader.se2_grids = lambda self: _ensure_se2(self).grids()
+FleetRedisReader.se2_start_scan = lambda self, grid_id, radius=32.0, fresh=True: _ensure_se2(self).start_scan(grid_id, radius, fresh)
+FleetRedisReader.se2_status = lambda self, request_id: _ensure_se2(self).status(request_id)
+FleetRedisReader.se2_voxels = lambda self, request_id: _ensure_se2(self).voxels(request_id)
+FleetRedisReader.se2_cancel = lambda self, request_id: _ensure_se2(self).cancel(request_id)

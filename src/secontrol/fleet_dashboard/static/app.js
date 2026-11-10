@@ -1663,3 +1663,159 @@ setInterval(loadGrids, 10000);
 setInterval(loadFleet, 15000);
 buildFleetView();
 animate();
+
+// ── SE2 (SE2GameAPI) voxel scans ─────────────────────────────────────────────
+window.se2ActiveKey = null;
+
+async function se2LoadGrids() {
+    try {
+        const res = await fetch('/api/se2/grids');
+        const data = await res.json();
+        const select = document.getElementById('se2-grid-select');
+        select.innerHTML = '';
+        for (const g of data.grids || []) {
+            const opt = document.createElement('option');
+            opt.value = g.grid_id;
+            opt.textContent = g.name || g.grid_id;
+            select.appendChild(opt);
+        }
+        if (!data.grids || !data.grids.length) {
+            select.innerHTML = '<option value="">нет гридов (мост офлайн?)</option>';
+        }
+    } catch (e) {
+        console.warn('SE2 grids load failed', e);
+    }
+}
+
+document.getElementById('se2-refresh').addEventListener('click', se2LoadGrids);
+
+document.getElementById('se2-scan-start').addEventListener('click', async () => {
+    const gridId = document.getElementById('se2-grid-select').value;
+    const radius = parseFloat(document.getElementById('se2-radius').value) || 32;
+    const statusEl = document.getElementById('se2-status');
+    if (!gridId) { statusEl.textContent = 'Выберите грид'; return; }
+    try {
+        statusEl.textContent = 'Запрос скана...';
+        const res = await fetch('/api/se2/voxel_scan', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({grid_id: gridId, radius: radius, fresh: true}),
+        });
+        const data = await res.json();
+        if (data.error) { statusEl.textContent = 'Ошибка: ' + data.error; return; }
+        se2PollStatus(data.request_id, statusEl);
+    } catch (e) { statusEl.textContent = 'Ошибка: ' + e.message; }
+});
+
+function se2PollStatus(requestId, statusEl) {
+    const timer = setInterval(async () => {
+        try {
+            const res = await fetch(`/api/se2/voxel_status/${requestId}`);
+            const st = await res.json();
+            statusEl.textContent = `${st.state || '...'}: ${st.published || 0} плиток`;
+            if (!st.scanning) {
+                clearInterval(timer);
+                if (st.error) { statusEl.textContent = 'Ошибка: ' + st.error; return; }
+                statusEl.textContent = 'Загрузка вокселей...';
+                await se2LoadVoxels(requestId);
+                statusEl.textContent = 'Готово';
+            }
+        } catch (e) { clearInterval(timer); statusEl.textContent = 'Ошибка: ' + e.message; }
+    }, 1000);
+}
+
+async function se2LoadVoxels(requestId) {
+    const res = await fetch(`/api/se2/voxels/${requestId}`);
+    const data = await res.json();
+    if (data.error || !data.solid) return;
+    const key = 'se2:' + requestId;
+    // Center voxels on the scanned grid so the view is near scene origin
+    const scanGrid = (data.contacts || []).find(c => Math.abs(c.position[0] - (data.solid[0] ? data.solid[0][0] : 0)) < 1e9);
+    mergeAndRenderVoxels(key, data);
+    window.se2ActiveKey = key;
+    se2FocusCamera(data);
+    renderVoxels();
+}
+
+function se2FocusCamera(data) {
+    // Place the camera around the scan center
+    const pts = data.solid || [];
+    if (!pts.length) return;
+    let minX = 1e12, minY = 1e12, minZ = 1e12, maxX = -1e12, maxY = -1e12, maxZ = -1e12;
+    for (const p of pts) {
+        if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+        if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+        if (p[2] < minZ) minZ = p[2]; if (p[2] > maxZ) maxZ = p[2];
+    }
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+    const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 10);
+    camera.position.set(cx + span * 0.8, cy + span * 0.8, cz + span * 0.8);
+    controls.target.set(cx, cy, cz);
+    controls.update();
+}
+
+// SE2 renders in absolute world coordinates (no SE1 grid transform).
+const _renderVoxelsSe1 = renderVoxels;
+renderVoxels = function () {
+    if (window.se2ActiveKey && allScannedVoxels[window.se2ActiveKey]) {
+        renderSe2Voxels(allScannedVoxels[window.se2ActiveKey]);
+        return;
+    }
+    _renderVoxelsSe1();
+};
+
+function renderSe2Voxels(store) {
+    voxelGroup.clear();
+    const voxelSize = store.cellSize || 1;
+    const solidPositions = [];
+    const oreByColor = {};
+    for (const k in store.ore) {
+        const v = store.ore[k];
+        const color = getOreColor(v.ore);
+        const key = '#' + color.toString(16).padStart(6, '0');
+        if (!oreByColor[key]) oreByColor[key] = [];
+        oreByColor[key].push(v.pos);
+    }
+    for (const k in store.solid) {
+        if (store.ore[k]) continue;
+        solidPositions.push(store.solid[k]);
+    }
+    if (solidPositions.length) {
+        const geo = new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize);
+        const mat = new THREE.MeshLambertMaterial({color: SOLID_COLOR, transparent: true, opacity: 0.25});
+        const instanced = new THREE.InstancedMesh(geo, mat, solidPositions.length);
+        const dummy = new THREE.Object3D();
+        for (let i = 0; i < solidPositions.length; i++) {
+            const pt = solidPositions[i];
+            dummy.position.set(pt[0], pt[1], pt[2]);
+            dummy.updateMatrix();
+            instanced.setMatrixAt(i, dummy.matrix);
+        }
+        instanced.instanceMatrix.needsUpdate = true;
+        voxelGroup.add(instanced);
+    }
+    for (const colorKey in oreByColor) {
+        const positions = oreByColor[colorKey];
+        const geo = new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize);
+        const mat = new THREE.MeshLambertMaterial({color: colorKey, transparent: true, opacity: 0.95});
+        const instanced = new THREE.InstancedMesh(geo, mat, positions.length);
+        const dummy = new THREE.Object3D();
+        for (let i = 0; i < positions.length; i++) {
+            const pt = positions[i];
+            dummy.position.set(pt[0], pt[1], pt[2]);
+            dummy.updateMatrix();
+            instanced.setMatrixAt(i, dummy.matrix);
+        }
+        instanced.instanceMatrix.needsUpdate = true;
+        voxelGroup.add(instanced);
+    }
+    for (const c of store.contacts || []) {
+        if (!c.position) continue;
+        const geo = new THREE.BoxGeometry(6, 6, 6);
+        const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({color: 0x3a86ff}));
+        mesh.position.set(c.position[0], c.position[1], c.position[2]);
+        voxelGroup.add(mesh);
+        addLabel(c.name || 'Grid', mesh.position.clone().add(new THREE.Vector3(0, 8, 0)), 'subgrid');
+    }
+}
+
+se2LoadGrids();

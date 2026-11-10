@@ -14,6 +14,57 @@ from .redis_reader import FleetRedisReader
 app = FastAPI(title="SE Fleet Dashboard")
 reader = FleetRedisReader()
 
+# ── SE2 (Space Engineers 2 / SE2GameAPI) endpoints ──
+
+
+@app.get("/api/se2/grids")
+async def api_se2_grids():
+    try:
+        return {"grids": reader.se2_grids()}
+    except Exception as e:
+        return {"error": str(e), "grids": []}
+
+
+class SE2ScanRequest(BaseModel):
+    grid_id: str
+    radius: float = 32.0
+    fresh: bool = True
+
+
+@app.post("/api/se2/voxel_scan")
+async def api_se2_voxel_scan(body: SE2ScanRequest):
+    try:
+        return reader.se2_start_scan(body.grid_id, body.radius, body.fresh)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/se2/voxel_status/{request_id}")
+async def api_se2_voxel_status(request_id: str):
+    try:
+        return reader.se2_status(request_id)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/se2/voxels/{request_id}")
+async def api_se2_voxels(request_id: str):
+    try:
+        result = reader.se2_voxels(request_id)
+        if result is None:
+            return {"error": "No scan data available"}
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/se2/voxel_cancel/{request_id}")
+async def api_se2_voxel_cancel(request_id: str):
+    try:
+        return {"ok": reader.se2_cancel(request_id)}
+    except Exception as e:
+        return {"error": str(e)}
+
 static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
