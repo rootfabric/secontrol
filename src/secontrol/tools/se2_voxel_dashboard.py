@@ -21,6 +21,7 @@ import json
 import sys
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -89,7 +90,7 @@ def is_ore_name(name: str) -> bool:
 
 
 def decode_tiles(document: dict[str, Any], threshold: int = 1):
-    """Return (Nx3 world points centered on the scanned grid, voxel size, ore points)."""
+    """Return (points, voxel size, ore cells [{position, name}]) centered on the grid."""
     status = document["status"]
     grid_pos = np.array(status["grid"]["position"], dtype=np.float64)
     legend = {}
@@ -99,9 +100,9 @@ def decode_tiles(document: dict[str, Any], threshold: int = 1):
             legend[int(index)] = name
         except ValueError:
             continue
-    ore_ids = {idx for idx, name in legend.items() if is_ore_name(name)}
+    ore_ids = {idx: name for idx, name in legend.items() if is_ore_name(name)}
     chunks: list[np.ndarray] = []
-    ore_chunks: list[np.ndarray] = []
+    ore_cells: list[dict[str, Any]] = []
     voxel_size = 1.0
     for tile in document.get("tiles", []):
         content = np.frombuffer(base64.b64decode(tile["content"]), dtype=np.uint8)
@@ -135,16 +136,27 @@ def decode_tiles(document: dict[str, Any], threshold: int = 1):
             ore_world = (origin[None, :]
                          + (ox + 0.5)[:, None] * ax[None, :]
                          + (oy + 0.5)[:, None] * ay[None, :]
-                         + (oz + 0.5)[:, None] * az[None, :])
-            ore_chunks.append(ore_world - grid_pos)
+                         + (oz + 0.5)[:, None] * az[None, :]) - grid_pos
+            for row, m in zip(ore_world, material[ore_mask]):
+                ore_cells.append({"position": row.tolist(), "name": ore_ids.get(int(m), "Ore")})
     if not chunks:
-        return np.zeros((0, 3)), voxel_size, np.zeros((0, 3))
-    ores = np.vstack(ore_chunks) if ore_chunks else np.zeros((0, 3))
-    return np.vstack(chunks), voxel_size, ores
+        return np.zeros((0, 3)), voxel_size, []
+    return np.vstack(chunks), voxel_size, ore_cells
+
+
+def _colored_ores_renderer():
+    """Load visualize_colored_ores from the SE1 radar example (per-type colors + labels)."""
+    import importlib.util
+    path = Path(__file__).resolve().parents[3] / "examples" / "organized" / "radar" / "basic" / \
+        "radar_voxel_visualization.py"
+    spec = importlib.util.spec_from_file_location("secontrol_radar_voxel_viz", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.visualize_colored_ores
 
 
 def visualize(document: dict[str, Any], client: Client | None) -> None:
-    points, voxel, ores = decode_tiles(document)
+    points, voxel, ore_cells = decode_tiles(document)
     if points.shape[0] == 0:
         print("no non-zero voxels in scan; nothing to visualize")
         return
@@ -174,12 +186,11 @@ def visualize(document: dict[str, Any], client: Client | None) -> None:
     metadata = {"size": [int(size[0]), int(size[1]), int(size[2])],
                 "cellSize": cell, "origin": lo.tolist()}
     solid = points.tolist()
-    ore_cells = [{"position": p} for p in ores[:: max(1, len(ores) // 20000)].tolist()]
     name = document["status"]["grid"].get("gridName", scan_grid_id)
     print(f"{len(solid)} voxels, cell {cell:.2f} m, grid {size.tolist()}, "
-          f"contacts {len(contacts)}, ore voxels {len(ores)}")
-    RadarVisualizer().visualize(solid, metadata, contacts, own_position=[0.0, 0.0, 0.0],
-                                ore_cells=ore_cells)
+          f"contacts {len(contacts)}, ore voxels {len(ore_cells)}")
+    renderer = _colored_ores_renderer()
+    renderer(solid, metadata, contacts, [0.0, 0.0, 0.0], ore_cells)
 
 
 def main() -> None:
