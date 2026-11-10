@@ -138,21 +138,21 @@ def decode_tiles(document: dict[str, Any], threshold: int = 1):
                          + (oy + 0.5)[:, None] * ay[None, :]
                          + (oz + 0.5)[:, None] * az[None, :]) - grid_pos
             for row, m in zip(ore_world, material[ore_mask]):
-                ore_cells.append({"position": row.tolist(), "name": ore_ids.get(int(m), "Ore")})
+                ore_cells.append({"position": row.tolist(), "ore": ore_ids.get(int(m), "Ore")})
     if not chunks:
         return np.zeros((0, 3)), voxel_size, []
     return np.vstack(chunks), voxel_size, ore_cells
 
 
-def _colored_ores_renderer():
-    """Load visualize_colored_ores from the SE1 radar example (per-type colors + labels)."""
+def _radar_module():
+    """Load SE1 radar visualization helpers (envelope, ore grids, colors)."""
     import importlib.util
     path = Path(__file__).resolve().parents[3] / "examples" / "organized" / "radar" / "basic" / \
         "radar_voxel_visualization.py"
     spec = importlib.util.spec_from_file_location("secontrol_radar_voxel_viz", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.visualize_colored_ores
+    return module
 
 
 def visualize(document: dict[str, Any], client: Client | None) -> None:
@@ -187,10 +187,63 @@ def visualize(document: dict[str, Any], client: Client | None) -> None:
                 "cellSize": cell, "origin": lo.tolist()}
     solid = points.tolist()
     name = document["status"]["grid"].get("gridName", scan_grid_id)
+    ore_names = {c.get("ore") for c in ore_cells}
     print(f"{len(solid)} voxels, cell {cell:.2f} m, grid {size.tolist()}, "
-          f"contacts {len(contacts)}, ore voxels {len(ore_cells)}")
-    renderer = _colored_ores_renderer()
-    renderer(solid, metadata, contacts, [0.0, 0.0, 0.0], ore_cells)
+          f"contacts {len(contacts)}, ore voxels {len(ore_cells)} ({', '.join(sorted(n for n in ore_names if n))})")
+
+    # Clear rendering: dark background, translucent rock surface, colored ore cubes, labels.
+    import pyvista as pv
+    module = _radar_module()
+    plotter = pv.Plotter()
+    plotter.set_background("black", top="darkslategray")
+
+    occ = module.build_occ_grid(solid, metadata)
+    if occ is not None and np.any(occ):
+        pts, faces, env_cells, total_cells, face_count = \
+            module.build_outer_envelope_mesh_data(occ, metadata)
+        if pts.size and faces.size:
+            mesh = pv.PolyData(pts, faces)
+            plotter.add_mesh(mesh, style="surface", color="lightgray", opacity=0.45,
+                             label=f"Rock surface ({env_cells}/{total_cells} cells)")
+    ore_grids, label_points = module.build_ore_grids(ore_cells, metadata)
+    summary = []
+    for ore_name, ogrid in sorted(ore_grids.items()):
+        count = int(np.sum(ogrid))
+        if count <= 0:
+            continue
+        color = module.ore_color(ore_name)
+        module.add_occ_mesh(plotter, ogrid, metadata, f"ore_{ore_name}",
+                            f"{ore_name} ({count})", color, opacity=0.95, show_edges=True)
+        summary.append(f"{ore_name}: {count}")
+        pts_named = label_points.get(ore_name, [])
+        if pts_named:
+            centroid = np.mean(np.asarray(pts_named, dtype=float), axis=0)
+            plotter.add_point_labels(np.asarray([centroid]), [f"{ore_name} ({count})"],
+                                     point_size=0, font_size=14, text_color=color,
+                                     shape_opacity=0.4, always_visible=True)
+    grid_points, grid_labels = [], []
+    for contact in contacts:
+        pos = contact.get("position")
+        if pos:
+            grid_points.append(pos)
+            dist = float(np.linalg.norm(np.asarray(pos, dtype=float)))
+            grid_labels.append(f"{contact.get('name', 'Grid')} ({dist:.0f} m)")
+    if grid_points:
+        plotter.add_mesh(pv.PolyData(grid_points), color="blue", point_size=18,
+                         render_points_as_spheres=True, label="Grids")
+        plotter.add_point_labels(np.asarray(grid_points, dtype=float), grid_labels,
+                                 point_size=0, font_size=11, text_color="lightblue",
+                                 shape_opacity=0.4, always_visible=True)
+    plotter.add_mesh(pv.PolyData(np.asarray([[0.0, 0.0, 0.0]])), color="lime",
+                     point_size=16, render_points_as_spheres=True, label=name)
+    hud = f"SE2 voxels: {len(solid)}  cell {cell:.1f} m  radius {document['status'].get('radius')}"
+    if summary:
+        hud += "\nOres: " + ", ".join(summary)
+    else:
+        hud += "\nOres: none in scan"
+    plotter.add_text(hud, position="upper_left", font_size=10, color="white")
+    plotter.add_text(name, position="upper_right", font_size=12, color="white")
+    plotter.show(title=f"SE2 Voxel Dashboard: {name}")
 
 
 def main() -> None:
