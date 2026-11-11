@@ -198,6 +198,7 @@ function toLocal(ox, oy, oz) {
 
 // ── Fleet view ──
 async function loadFleet() {
+    if (window.__se2ViewActive) { se2SyncScene(); return; } // SE2 mode: keep the SE2 scene instead of SE1 fleet
     try {
         const res = await fetch('/api/fleet/status');
         fleetData = await res.json();
@@ -933,6 +934,7 @@ function connectWS() {
 // ── Grid selection ──
 function selectGrid(gridId) {
     selectedGridId = gridId;
+    window.__se2ViewActive = false; window.se2ActiveKey = null; // selecting an SE1 grid returns to the SE1 view
     document.querySelectorAll('.grid-item').forEach(el => el.classList.remove('active'));
     const item = document.querySelector(`.grid-item[data-id="${gridId}"]`);
     if (item) item.classList.add('active');
@@ -1623,6 +1625,7 @@ function animate() {
 let lastNearbyPositions = {};
 
 async function checkNearbyGridPositions() {
+    if (window.__se2ViewActive) return; // SE2 mode: SE1 nearby markers would clutter the scene
     if (!selectedGridId || !gridData) return;
     try {
         const res = await fetch(`/api/grid/${selectedGridId}`);
@@ -1732,6 +1735,7 @@ async function se2LoadVoxels(requestId) {
     const scanGrid = (data.contacts || []).find(c => Math.abs(c.position[0] - (data.solid[0] ? data.solid[0][0] : 0)) < 1e9);
     mergeAndRenderVoxels(key, data);
     window.se2ActiveKey = key;
+    window.__se2ViewActive = true;
     se2FocusCamera(data);
     renderVoxels();
 }
@@ -1756,6 +1760,11 @@ function se2FocusCamera(data) {
 // SE2 renders in absolute world coordinates (no SE1 grid transform).
 const _renderVoxelsSe1 = renderVoxels;
 renderVoxels = function () {
+    if (window.__se2ViewActive) {
+        if (window.se2ActiveKey && allScannedVoxels[window.se2ActiveKey]) renderSe2Voxels(allScannedVoxels[window.se2ActiveKey]);
+        else voxelGroup.clear();
+        return;
+    }
     if (window.se2ActiveKey && allScannedVoxels[window.se2ActiveKey]) {
         renderSe2Voxels(allScannedVoxels[window.se2ActiveKey]);
         return;
@@ -1819,3 +1828,101 @@ function renderSe2Voxels(store) {
 }
 
 se2LoadGrids();
+
+// ── SE2 scene mode: show SE2 world as the default fleet view ────────────────
+function se2SyncScene() {
+    if (window.se2ActiveKey && allScannedVoxels[window.se2ActiveKey]) renderSe2Voxels(allScannedVoxels[window.se2ActiveKey]);
+    else se2RenderFleet();
+}
+
+window.se2SceneActive = false; window.__se2ViewActive = false;
+let se2FleetData = [];
+
+function se2RenderFleet() {
+    objectsGroup.clear();
+    clearLabels();
+    allMeshes = [];
+    fleetMeshes = [];
+    if (!se2FleetData.length) {
+        addLabel('SE2: нет гридов (мост офлайн?)', new THREE.Vector3(0, 5, 0));
+        return;
+    }
+    let maxDist = 1;
+    for (const g of se2FleetData) {
+        if (g.position) {
+            const d = Math.sqrt(g.position[0] ** 2 + g.position[1] ** 2 + g.position[2] ** 2);
+            maxDist = Math.max(maxDist, d);
+        }
+    }
+    const scale = maxDist > 0 ? 500 / maxDist : 1;
+    for (const g of se2FleetData) {
+        if (!g.position) continue;
+        const pos = new THREE.Vector3(g.position[0] * scale, g.position[1] * scale, g.position[2] * scale);
+        const geo = new THREE.BoxGeometry(4, 4, 4);
+        const mat = new THREE.MeshLambertMaterial({color: 0x8be9fd, transparent: true, opacity: 0.85});
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.copy(pos);
+        mesh.userData = {se2_grid_id: g.grid_id, isSe2FleetMarker: true};
+        objectsGroup.add(mesh);
+        allMeshes.push(mesh);
+        const labelEl = addLabel(`${g.name || g.grid_id} [SE2]`, pos.clone().add(new THREE.Vector3(0, 6, 0)), 'fleet-marker', true);
+        labelEl.addEventListener('click', () => {
+            document.getElementById('se2-grid-select').value = g.grid_id;
+            document.getElementById('se2-scan-start').click();
+        });
+        const coords = g.position.map(v => (v / 1000).toFixed(1) + 'k').join(', ');
+        addLabel(`(${coords})`, pos.clone().add(new THREE.Vector3(0, 3.5, 0)), 'nearby');
+    }
+    const dist = Math.max(maxDist * scale * 1.5, 50);
+    controls.target.set(0, 0, 0);
+    camera.position.set(0, dist * 0.8, dist * 0.6);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(0, 0, 0);
+    controls.update();
+}
+
+const _loadFleetBase = loadFleet;
+loadFleet = async function () {
+    if (window.se2SceneActive || window.__se2ViewActive) {
+        se2RenderFleet();
+        return;
+    }
+    await _loadFleetBase();
+};
+
+const _se2LoadGridsBase = se2LoadGrids;
+se2LoadGrids = async function () {
+    await _se2LoadGridsBase();
+    try {
+        const res = await fetch('/api/se2/grids');
+        const data = await res.json();
+        if (data.grids && data.grids.length) {
+            const firstLoad = se2FleetData.length === 0;
+            se2FleetData = data.grids;
+            if (firstLoad && !window.se2ActiveKey) {
+                window.se2SceneActive = true; window.__se2ViewActive = true;
+                se2RenderFleet();
+            }
+        }
+    } catch (e) {}
+};
+
+// Scene/fleet toggle button in the SE2 panel
+const se2Toggle = document.createElement('button');
+se2Toggle.textContent = 'SE2 Scene';
+se2Toggle.style.cssText = 'background:rgba(139,233,253,0.12);border:1px solid #8be9fd;color:#8be9fd;border-radius:4px;padding:5px 8px;font-size:12px;cursor:pointer;flex:1';
+se2Toggle.addEventListener('click', () => {
+    window.se2SceneActive = true; window.__se2ViewActive = true;
+    window.se2ActiveKey = null;
+    se2RenderFleet();
+});
+document.getElementById('se2-panel').querySelector('div[style*="display:flex"]').appendChild(se2Toggle);
+
+const se2LabelClickGuard = setInterval(() => {
+    // clicking an SE1 grid returns to the SE1 view
+    if (selectedGridId && window.se2SceneActive) {
+        window.se2SceneActive = false; window.__se2ViewActive = false;
+        window.se2ActiveKey = null;
+        clearInterval(se2LabelClickGuard);
+    }
+}, 2000);

@@ -191,6 +191,20 @@ def visualize(document: dict[str, Any], client: Client | None) -> None:
     print(f"{len(solid)} voxels, cell {cell:.2f} m, grid {size.tolist()}, "
           f"contacts {len(contacts)}, ore voxels {len(ore_cells)} ({', '.join(sorted(n for n in ore_names if n))})")
 
+    # console ore summary: type -> count + centroid distance from the ship
+    if ore_cells:
+        print("  Ore summary:")
+        by_type: dict[str, list[list[float]]] = {}
+        for cell_ in ore_cells:
+            by_type.setdefault(cell_["ore"], []).append(cell_["position"])
+        for ore_name_, pts_ in sorted(by_type.items()):
+            centroid = np.mean(np.asarray(pts_, dtype=float), axis=0)
+            dist = float(np.linalg.norm(centroid))
+            print(f"    {ore_name_:12s} x{len(pts_):6d}  centroid at {dist:7.1f} m "
+                  f"[{centroid[0]:.0f}, {centroid[1]:.0f}, {centroid[2]:.0f}]")
+    else:
+        print("  Ore summary: no ores in scan volume — increase radius or scan another grid")
+
     # Clear rendering: dark background, translucent rock surface, colored ore cubes, labels.
     import pyvista as pv
     module = _radar_module()
