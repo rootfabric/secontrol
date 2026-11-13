@@ -1298,14 +1298,17 @@ class SE2VoxelService:
                 }
         return list(grids.values())
 
-    def start_scan(self, grid_id: str, radius: float = 32.0, fresh: bool = True) -> Dict[str, Any]:
+    def start_scan(self, grid_id: str, radius: float = 32.0, fresh: bool = True,
+                   center: Optional[List[float]] = None) -> Dict[str, Any]:
         state = self._state()
         if state.get("state") != "READY":
             return {"error": f"SE2 bridge not READY (state={state.get('state')})"}
         request_id = uuid.uuid4().hex
-        request = {"requestId": request_id, "epoch": state.get("epoch"), "gridId": grid_id,
-                   "expiresAtMs": int((time.time() + 120) * 1000),
-                   "action": "scan", "radius": radius, "fresh": fresh}
+        request: Dict[str, Any] = {"requestId": request_id, "epoch": state.get("epoch"), "gridId": grid_id,
+                                   "expiresAtMs": int((time.time() + 110) * 1000),
+                                   "action": "scan", "radius": radius, "fresh": fresh}
+        if center:
+            request["center"] = [float(c) for c in center]
         if not self.client.eval(SE2_ENQUEUE, 1, f"{SE2_VOXEL_PREFIX}:requests", json.dumps(request)):
             return {"error": "voxel request queue is full"}
         with self._lock:
@@ -1510,7 +1513,7 @@ FleetRedisReader.se2_start_asteroid_index = lambda self, grid_id, radius_km=40.0
 FleetRedisReader.se2_asteroid_index = lambda self, grid_id, radius_km=40.0: _ensure_se2(self).start_asteroid_index(grid_id, radius_km)
 FleetRedisReader.se2_asteroids = lambda self, request_id: _ensure_se2(self).asteroids(request_id)
 FleetRedisReader.se2_grids = lambda self: _ensure_se2(self).grids()
-FleetRedisReader.se2_start_scan = lambda self, grid_id, radius=32.0, fresh=True: _ensure_se2(self).start_scan(grid_id, radius, fresh)
+FleetRedisReader.se2_start_scan = lambda self, grid_id, radius=32.0, fresh=True, center=None: _ensure_se2(self).start_scan(grid_id, radius, fresh, center)
 FleetRedisReader.se2_status = lambda self, request_id: _ensure_se2(self).status(request_id)
 FleetRedisReader.se2_tiles = lambda self, request_id: _ensure_se2(self).tiles(request_id)
 FleetRedisReader.se2_voxels = lambda self, request_id: _ensure_se2(self).voxels(request_id)

@@ -50,10 +50,36 @@ async def api_se2_asteroids(request_id: str):
         return {"error": str(e)}
 
 
+class SE2ScanRequest(BaseModel):
+    grid_id: str
+    radius: float = 32.0
+    fresh: bool = True
+    center: list[float] | None = None
+
+
+@app.post("/api/se2/asteroid_index")
+async def api_se2_asteroid_index(body: SE2ScanRequest):
+    try:
+        return reader.se2_start_asteroid_index(body.grid_id, body.radius)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/se2/asteroids/{request_id}")
+async def api_se2_asteroids(request_id: str):
+    try:
+        result = reader.se2_asteroids(request_id)
+        if result is None:
+            return {"error": "No index data available"}
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.post("/api/se2/voxel_scan")
 async def api_se2_voxel_scan(body: SE2ScanRequest):
     try:
-        return reader.se2_start_scan(body.grid_id, body.radius, body.fresh)
+        return reader.se2_start_scan(body.grid_id, body.radius, body.fresh, body.center)
     except Exception as e:
         return {"error": str(e)}
 

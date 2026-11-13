@@ -321,3 +321,257 @@ document.getElementById('btn-asteroids').addEventListener('click', async () => {
 
 loadGrids();
 setInterval(loadGrids, 15000);
+
+// ── Multi-asteroid ore scan: voxel-scan around each indexed asteroid ──────────
+document.getElementById('btn-asteroid-scan').addEventListener('click', async () => {
+    if (!selectedGrid) { setStatus('выбери грид'); return; }
+    const km = parseFloat(document.getElementById('asteroid-radius').value) || 40;
+    setStatus('индекс астероидов...');
+    const res = await fetch('/api/asteroid_index', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grid_id: selectedGrid.grid_id, radius: km }),
+    });
+    const idx = await res.json();
+    if (idx.error) { setStatus('ошибка индекса: ' + idx.error); return; }
+    const rid = idx.request_id;
+    const timer = setInterval(async () => {
+        const st = await (await fetch(`/api/asteroids/${rid}`)).json();
+        if (st.state !== 'complete' && st.state !== 'partial') return;
+        clearInterval(timer);
+        const asteroids = dedupAsteroids(st.asteroids || []);
+        setStatus(`астероидов: ${asteroids.length} — сканирую каждый...`);
+        scanAll(asteroids.slice(0, 15));
+    }, 1000);
+});
+
+function dedupAsteroids(list) {
+    const seen = {};
+    const out = [];
+    for (const a of list) {
+        const k = a.center.map(v => Math.round(v)).join(',');
+        if (!seen[k]) { seen[k] = true; out.push(a); }
+    }
+    return out;
+}
+
+async function scanAll(asteroids) {
+    const origin = selectedGrid.position;
+    let found = 0;
+    for (let i = 0; i < asteroids.length; i++) {
+        const a = asteroids[i];
+        const d = Math.sqrt((a.center[0]-origin[0])**2 + (a.center[1]-origin[1])**2 + (a.center[2]-origin[2])**2);
+        setStatus(`скан ${i+1}/${asteroids.length}: ${Math.round(d/1000)} км`);
+        const body = { grid_id: selectedGrid.grid_id, center: a.center, radius: 16.0, fresh: true };
+        const res = await fetch('/api/voxel_scan', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.error) { setStatus('ошибка скана: ' + data.error); continue; }
+        // wait for tiles
+        let tiles = null;
+        for (let w = 0; w < 120; w++) {
+            const st = await (await fetch(`/api/voxel_status/${data.request_id}`)).json();
+            if (st.state === 'complete' || st.state === 'partial') { tiles = true; break; }
+            if (st.state === 'rejected' || st.state === 'failed') break;
+            await new Promise(r => setTimeout(r, 500));
+        }
+        // fetch tiles
+        const tr = await (await fetch(`/api/voxel_tiles/${data.request_id}`)).json();
+        if (!tr.tiles) continue;
+        const ores = extractOres(tr.tiles, tr.legend || []);
+        found += ores.length;
+        renderOres(ores);
+        setStatus(`скан ${i+1}/${asteroids.length}: рудных вокселей всего ${found}`);
+    }
+    setStatus(`готово: рудных вокселей ${found}`);
+}
+
+function extractOres(tiles, legend) {
+    const oreIds = {};
+    for (const entry of legend) {
+        const idx = parseInt(entry.split('=')[0]);
+        const name = entry.split('=').slice(1).join('=');
+        if (isOreName(name)) oreIds[idx] = name;
+    }
+    const out = [];
+    for (const tile of tiles) {
+        if (!tile.material) continue;
+        const content = Uint8Array.from(atob(tile.content), ch => ch.charCodeAt(0));
+        const material = Uint8Array.from(atob(tile.material), ch => ch.charCodeAt(0));
+        const nx = tile.size[0], ny = tile.size[1], nz = tile.size[2];
+        const origin = tile.origin;
+        const ax = tile.axisX, ay = tile.axisY, az = tile.axisZ;
+        for (let z = 0; z < nz; z++)
+        for (let y = 0; y < ny; y++)
+        for (let x = 0; x < nx; x++) {
+            const i = x + nx * (y + ny * z);
+            if (!content[i] || !oreIds[material[i]]) continue;
+            const p = [origin[0] + (x+0.5)*ax[0] + (y+0.5)*ay[0] + (z+0.5)*az[0],
+                       origin[1] + (x+0.5)*ax[1] + (y+0.5)*ay[1] + (z+0.5)*az[1],
+                       origin[2] + (x+0.5)*ax[2] + (y+0.5)*ay[2] + (z+0.5)*az[2]];
+            out.push({ ore: oreIds[material[i]], position: p });
+        }
+    }
+    return out;
+}
+
+function renderOres(oreCells) {
+    const ORE_MAP = { Iron: 0xb4643c, Nickel: 0x78aa50, Cobalt: 0x3c8cc8, Magnesium: 0xdcdcdc,
+        Silicon: 0xc8be8c, Silver: 0xbebed2, Gold: 0xffd700, Platinum: 0xb4dcf0,
+        Uranium: 0x50dc50, Ice: 0x8cc8ff, Copper: 0xc87840, Lead: 0x8c8c9c,
+        Chromium: 0xaadccc, Titanium: 0xdca0a0 };
+    const byType = {};
+    for (const o of oreCells) (byType[o.ore] = byType[o.ore] || []).push(o.position);
+    for (const [ore, positions] of Object.entries(byType)) {
+        const color = ORE_MAP[ore] || 0xc678dd;
+        const geo = new THREE.BoxGeometry(1, 1, 1);
+        const mat = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.4 });
+        const inst = new THREE.InstancedMesh(geo, mat, positions.length);
+        const dummy = new THREE.Object3D();
+        positions.forEach((p, i) => {
+            dummy.position.set(p[0] - originShift[0], p[1] - originShift[1], p[2] - originShift[2]);
+            dummy.updateMatrix();
+            inst.setMatrixAt(i, dummy.matrix);
+        });
+        inst.instanceMatrix.needsUpdate = true;
+        layers.voxels.add(inst);
+    }
+}
+
+// ── Ore accumulator for multi-asteroid scan ──────────────────────────────────
+let originShift = [0, 0, 0];
+const ORE_MAP = { Iron: 0xb4643c, Nickel: 0x78aa50, Cobalt: 0x3c8cc8, Magnesium: 0xdcdcdc,
+    Silicon: 0xc8be8c, Silver: 0xbebed2, Gold: 0xffd700, Platinum: 0xb4dcf0,
+    Uranium: 0x50dc50, Ice: 0x8cc8ff, Copper: 0xc87840, Lead: 0x8c8c9c,
+    Chromium: 0xaadccc, Titanium: 0xdca0a0 };
+
+function renderOres(oreCells) {
+    const byType = {};
+    for (const o of oreCells) (byType[o.ore] = byType[o.ore] || []).push(o.position);
+    for (const [ore, positions] of Object.entries(byType)) {
+        const color = ORE_MAP[ore] || 0xc678dd;
+        const geo = new THREE.BoxGeometry(1, 1, 1);
+        const mat = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.4 });
+        const inst = new THREE.InstancedMesh(geo, mat, positions.length);
+        const dummy = new THREE.Object3D();
+        positions.forEach((p, i) => {
+            dummy.position.set(p[0] - originShift[0], p[1] - originShift[1], p[2] - originShift[2]);
+            dummy.updateMatrix();
+            inst.setMatrixAt(i, dummy.matrix);
+        });
+        inst.instanceMatrix.needsUpdate = true;
+        layers.voxels.add(inst);
+        const centroid = positions.reduce((a, p) => [a[0]+p[0]/positions.length, a[1]+p[1]/positions.length, a[2]+p[2]/positions.length], [0,0,0]);
+        addLabel(ore + ' ×' + positions.length, new THREE.Vector3(centroid[0], centroid[1] + 12, centroid[2]), 'ore');
+    }
+}
+
+// ── Multi-asteroid ore scan: voxel-scan around each indexed asteroid ──────────
+document.getElementById('btn-asteroid-scan').addEventListener('click', async () => {
+    if (!selectedGrid) { setStatus('выбери грид'); return; }
+    const km = parseFloat(document.getElementById('asteroid-radius').value) || 40;
+    setStatus('индекс астероидов...');
+    const idxRes = await fetch('/api/asteroid_index', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grid_id: selectedGrid.grid_id, radius: km }),
+    });
+    const idx = await idxRes.json();
+    if (idx.error) { setStatus('ошибка индекса: ' + idx.error); return; }
+    // wait for asteroid index
+    let asteroids = null;
+    const idxDeadline = Date.now() + 120000;
+    while (Date.now() < idxDeadline) {
+        const st = await (await fetch(`/api/asteroids/${idx.request_id}`)).json();
+        if (st.state === 'complete' || st.state === 'partial') { asteroids = st.asteroids || []; break; }
+        if (st.error || st.state === 'rejected' || st.state === 'failed') { setStatus('ошибка индекса: ' + (st.error || st.state)); return; }
+        await sleep(1.0);
+    }
+    if (!asteroids) { setStatus('таймаут индекса'); return; }
+    // dedup
+    const seen = {};
+    const unique = asteroids.filter(a => {
+        const k = a.center.map(v => Math.round(v)).join(',');
+        if (seen[k]) return false;
+        seen[k] = true; return true;
+    });
+    setStatus(`астероидов: ${unique.length} — сканирую каждый (до 15)...`);
+    originShift = selectedGrid.position;
+    let found = 0;
+    for (let i = 0; i < Math.min(15, unique.length); i++) {
+        const a = unique[i];
+        setStatus(`скан ${i+1}/${Math.min(15, unique.length)}: ${Math.round(distance(a.center, originShift)/1000)} км`);
+        const body = { grid_id: selectedGrid.grid_id, center: a.center, radius: 16.0, fresh: true };
+        const res = await fetch('/api/voxel_scan', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.error) { continue; }
+        let tiles = null;
+        const deadline = Date.now() + 120000;
+        while (Date.now() < deadline) {
+            const tr = await (await fetch(`/api/voxel_tiles/${data.request_id}`)).json();
+            if (!tr.error && tr.tiles && tr.tiles.length) { tiles = tr.tiles; break; }
+            await sleep(1.0);
+        }
+        if (!tiles) continue;
+        const ores = extractOres(tiles, tr.legend || []);
+        found += ores.length;
+        renderOres(ores);
+        setStatus(`скан ${i+1}: рудных вокселей найдено ${ores.length}, всего ${found}`);
+    }
+    setStatus(`готово: рудных вокселей ${found}`);
+});
+
+function extractOres(tiles, legend) {
+    const oreIds = {};
+    for (const entry of legend) {
+        const idx = parseInt(entry.split('=')[0]);
+        const name = entry.split('=').slice(1).join('=');
+        if (isOreName(name)) oreIds[idx] = name;
+    }
+    const out = [];
+    for (const tile of tiles) {
+        if (!tile.material) continue;
+        const content = Uint8Array.from(atob(tile.content), ch => ch.charCodeAt(0));
+        const material = Uint8Array.from(atob(tile.material), ch => ch.charCodeAt(0));
+        const nx = tile.size[0], ny = tile.size[1], nz = tile.size[2];
+        const origin = tile.origin;
+        const ax = tile.axisX, ay = tile.axisY, az = tile.axisZ;
+        for (let z = 0; z < nz; z++)
+        for (let y = 0; y < ny; y++)
+        for (let x = 0; x < nx; x++) {
+            const i = x + nx * (y + ny * z);
+            if (!content[i] || !oreIds[material[i]]) continue;
+            const p = [origin[0] + (x+0.5)*ax[0] + (y+0.5)*ay[0] + (z+0.5)*az[0],
+                       origin[1] + (x+0.5)*ax[1] + (y+0.5)*ay[1] + (z+0.5)*az[1],
+                       origin[2] + (x+0.5)*ax[2] + (y+0.5)*ay[2] + (z+0.5)*az[2]];
+            out.push({ ore: oreIds[material[i]], position: p });
+        }
+    }
+    return out;
+}
+
+function renderOreMarkers(oreCells) {
+    const ORE_MAP = { Iron: 0xb4643c, Nickel: 0x78aa50, Cobalt: 0x3c8cc8, Magnesium: 0xdcdcdc,
+        Silicon: 0xc8be8c, Silver: 0xbebed2, Gold: 0xffd700, Platinum: 0xb4dcf0,
+        Uranium: 0x50dc50, Ice: 0x8cc8ff, Copper: 0xc87840, Lead: 0x8c8c9c,
+        Chromium: 0xaadccc, Titanium: 0xdca0a0 };
+    const byType = {};
+    for (const o of oreCells) (byType[o.ore] = byType[o.ore] || []).push(o.position);
+    for (const [ore, positions] of Object.entries(byType)) {
+        const color = ORE_MAP[ore] || 0xc678dd;
+        const geo = new THREE.BoxGeometry(1, 1, 1);
+        const mat = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.4 });
+        const inst = new THREE.InstancedMesh(geo, mat, positions.length);
+        const dummy = new THREE.Object3D();
+        positions.forEach((p, i) => {
+            dummy.position.set(p[0] - originShift[0], p[1] - originShift[1], p[2] - originShift[2]);
+            dummy.updateMatrix();
+            inst.setMatrixAt(i, dummy.matrix);
+        });
+        inst.instanceMatrix.needsUpdate = true;
+        layers.voxels.add(inst);
+    }
+}
