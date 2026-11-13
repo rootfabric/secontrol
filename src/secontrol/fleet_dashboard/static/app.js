@@ -126,7 +126,7 @@ function updateLabels() {
     const halfH = h / 2;
     const camPos = camera.position;
 
-    for (const label of labels) {
+    for (const label of [...labels, ...se2AsteroidLabels]) {
         const dist = camPos.distanceTo(label.position);
         if (label.minCameraDist > 0 && dist > label.minCameraDist) {
             label.el.style.display = 'none';
@@ -1961,13 +1961,17 @@ document.getElementById('se2-asteroids').addEventListener('click', async () => {
     } catch (e) { statusEl.textContent = 'Ошибка: ' + e.message; }
 });
 
+// Dedicated asteroid layer: survives SE1 polling (loadFleet/buildFleetView clear
+// objectsGroup every 15 s) and SE2 voxel re-renders (voxelGroup).
+const se2AsteroidGroup = new THREE.Group();
+scene.add(se2AsteroidGroup);
+let se2AsteroidLabels = [];
+
 function renderSe2AsteroidField() {
-    objectsGroup.clear(); clearLabels(); allMeshes = []; fleetMeshes = [];
-    voxelGroup.clear();
-    if (!se2AsteroidBoxes.length) {
-        addLabel('Астероидов не найдено', new THREE.Vector3(0, 5, 0));
-        return;
-    }
+    se2AsteroidGroup.clear();
+    se2AsteroidLabels.forEach(l => l.el.remove());
+    se2AsteroidLabels = [];
+    if (!se2AsteroidBoxes.length) return;
     const center = se2AsteroidBoxes[0].center;
     for (const a of se2AsteroidBoxes) {
         const cx = a.center[0] - center[0], cy = a.center[1] - center[1], cz = a.center[2] - center[2];
@@ -1976,20 +1980,30 @@ function renderSe2AsteroidField() {
         const mat = new THREE.MeshLambertMaterial({color: 0xffb86c, transparent: true, opacity: 0.45});
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(cx, cy, cz);
-        objectsGroup.add(mesh);
-        allMeshes.push(mesh);
+        se2AsteroidGroup.add(mesh);
         const dist = Math.sqrt(cx*cx + cy*cy + cz*cz);
-        const label = addLabel(`Астероид ${Math.round(Math.max(wx,wy,wz))}м (${Math.round(dist)} м)`,
-            new THREE.Vector3(cx, cy + wy/2 + 6, cz), 'fleet-marker', true);
-        label.addEventListener('click', () => {
-            // fly-to hint: copy GPS to clipboard
-            const gps = `GPS:Asteroid:${a.center[0]}:${a.center[1]}:${a.center[2]}:`;
+        const el = document.createElement('div');
+        el.className = 'label-3d fleet-marker';
+        el.textContent = `Астероид ${Math.round(Math.max(wx,wy,wz))}м (${Math.round(dist)} м)`;
+        el.style.cursor = 'pointer';
+        viewport.appendChild(el);
+        const center = a.center;
+        el.addEventListener('click', () => {
+            const gps = `GPS:Asteroid:${center[0]}:${center[1]}:${center[2]}:`;
             navigator.clipboard?.writeText(gps);
             document.getElementById('se2-status').textContent = 'GPS скопирован: ' + gps;
         });
+        se2AsteroidLabels.push({ el, position: new THREE.Vector3(cx, cy + wy/2 + 6, cz) });
     }
     const span = Math.max(...se2AsteroidBoxes.flatMap(a => [a.max[0]-a.min[0], a.max[1]-a.min[1], a.max[2]-a.min[2], 50]));
     camera.position.set(span, span*0.8, span*0.6);
     controls.target.set(0, 0, 0);
     controls.update();
+}
+
+function clearSe2Asteroids() {
+    se2AsteroidGroup.clear();
+    se2AsteroidLabels.forEach(l => l.el.remove());
+    se2AsteroidLabels = [];
+    se2AsteroidBoxes = [];
 }
