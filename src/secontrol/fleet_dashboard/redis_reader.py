@@ -1314,6 +1314,36 @@ class SE2VoxelService:
         threading.Thread(target=self._collect, args=(request_id,), daemon=True).start()
         return {"ok": True, "request_id": request_id}
 
+    def start_deposits(self, grid_id: str) -> Dict[str, Any]:
+        """Ore deposits of all loaded storages (engine DetectMaterialDeposits)."""
+        state = self._state()
+        if state.get("state") != "READY":
+            return {"error": f"SE2 bridge not READY (state={state.get('state')})"}
+        request_id = uuid.uuid4().hex
+        request = {"requestId": request_id, "epoch": state.get("epoch"), "gridId": grid_id,
+                   "expiresAtMs": int((time.time() + 110) * 1000),
+                   "action": "deposits", "radius": 32.0, "fresh": True}
+        if not self.client.eval(SE2_ENQUEUE, 1, f"{SE2_VOXEL_PREFIX}:requests", json.dumps(request)):
+            return {"error": "voxel request queue is full"}
+        with self._lock:
+            self._scans[request_id] = {"state": "starting", "tiles": [], "legend": [],
+                                       "status": {}, "grid_id": grid_id, "error": None}
+        threading.Thread(target=self._collect, args=(request_id,), daemon=True).start()
+        return {"ok": True, "request_id": request_id}
+
+    def deposits(self, request_id: str) -> Optional[Dict[str, Any]]:
+        """Ore deposits (name + world bbox) once detection completes."""
+        scan = self._scans.get(request_id)
+        if not scan:
+            return None
+        status = scan.get("status") or {}
+        raw = status.get("deposits") or []
+        return {"state": scan.get("state"), "count": len(raw), "deposits": [
+            {"material": d["material"],
+             "center": [(d["min"][i] + d["max"][i]) / 2 for i in range(3)],
+             "min": d["min"], "max": d["max"]}
+            for d in raw]}
+
     def start_asteroid_index(self, grid_id: str, radius_km: float = 40.0) -> Dict[str, Any]:
         """SE1-style deterministic asteroid index from the world seed."""
         state = self._state()
@@ -1456,6 +1486,8 @@ def _ensure_se2(reader):
         reader._se2_service = service
     return service
 
+FleetRedisReader.se2_start_deposits = lambda self, grid_id: _ensure_se2(self).start_deposits(grid_id)
+FleetRedisReader.se2_deposits = lambda self, request_id: _ensure_se2(self).deposits(request_id)
 FleetRedisReader.se2_start_asteroid_index = lambda self, grid_id, radius_km=40.0: _ensure_se2(self).start_asteroid_index(grid_id, radius_km)
 FleetRedisReader.se2_asteroid_index = lambda self, grid_id, radius_km=40.0: _ensure_se2(self).start_asteroid_index(grid_id, radius_km)
 FleetRedisReader.se2_asteroids = lambda self, request_id: _ensure_se2(self).asteroids(request_id)

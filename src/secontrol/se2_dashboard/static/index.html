@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>SE2 Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script type="importmap">
+        {"imports": {"three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"}}
+    </script>
+</head>
+<body>
+    <div id="sidebar">
+        <div id="title">SE2 Dashboard <span style="color:#ffb86c">Space Engineers 2</span></div>
+        <div id="bridge-status" class="hint">мост: ...</div>
+        <div class="section-title">Гриды SE2</div>
+        <div id="grid-list"></div>
+        <div id="grid-detail" class="hidden"></div>
+        <div class="section-title">Действия</div>
+        <div id="actions" class="hidden">
+            <div class="row">
+                <input id="scan-radius" type="number" value="32" min="8" max="64" title="радиус скана, м">
+                <button id="btn-voxels">Воксели вокруг</button>
+            </div>
+            <div class="row">
+                <input id="asteroid-radius" type="number" value="40" min="1" max="300" title="радиус индекса, км">
+                <button id="btn-asteroids">Астероиды (из сида)</button>
+            </div>
+            <div class="row"><button id="btn-deposits">Рудные депозиты</button></div>
+            <div id="status" class="hint"></div>
+        </div>
+    </div>
+    <div id="viewport"></div>
+    <script type="module" src="/static/app.js"></script>
+</body>
+</html>
