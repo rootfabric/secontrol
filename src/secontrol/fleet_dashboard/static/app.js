@@ -1926,3 +1926,70 @@ const se2LabelClickGuard = setInterval(() => {
         clearInterval(se2LabelClickGuard);
     }
 }, 2000);
+
+// ── SE2 asteroid index (seed-based, SE1-style) ───────────────────────────────
+let se2AsteroidBoxes = [];
+
+document.getElementById('se2-asteroids').addEventListener('click', async () => {
+    const gridId = document.getElementById('se2-grid-select').value;
+    const statusEl = document.getElementById('se2-status');
+    if (!gridId) { statusEl.textContent = 'Выберите грид'; return; }
+    try {
+        statusEl.textContent = 'Индекс астероидов (из сида)...';
+        const res = await fetch('/api/se2/asteroid_index', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({grid_id: gridId, radius: 40.0, fresh: true}),
+        });
+        const data = await res.json();
+        if (data.error) { statusEl.textContent = 'Ошибка: ' + data.error; return; }
+        const timer = setInterval(async () => {
+            try {
+                const r2 = await fetch(`/api/se2/asteroids/${data.request_id}`);
+                const st = await r2.json();
+                if (st.state === 'complete' || st.state === 'partial') {
+                    clearInterval(timer);
+                    se2AsteroidBoxes = st.asteroids || [];
+                    statusEl.textContent = `Астероидов: ${st.count}`;
+                    window.se2ActiveKey = null;
+                    renderSe2AsteroidField();
+                } else if (st.error || st.state === 'rejected' || st.state === 'failed') {
+                    clearInterval(timer);
+                    statusEl.textContent = 'Ошибка индекса: ' + (st.error || st.state);
+                }
+            } catch (e) { clearInterval(timer); }
+        }, 1000);
+    } catch (e) { statusEl.textContent = 'Ошибка: ' + e.message; }
+});
+
+function renderSe2AsteroidField() {
+    objectsGroup.clear(); clearLabels(); allMeshes = []; fleetMeshes = [];
+    voxelGroup.clear();
+    if (!se2AsteroidBoxes.length) {
+        addLabel('Астероидов не найдено', new THREE.Vector3(0, 5, 0));
+        return;
+    }
+    const center = se2AsteroidBoxes[0].center;
+    for (const a of se2AsteroidBoxes) {
+        const cx = a.center[0] - center[0], cy = a.center[1] - center[1], cz = a.center[2] - center[2];
+        const wx = Math.max(4, a.max[0] - a.min[0]), wy = Math.max(4, a.max[1] - a.min[1]), wz = Math.max(4, a.max[2] - a.min[2]);
+        const geo = new THREE.BoxGeometry(wx, wy, wz);
+        const mat = new THREE.MeshLambertMaterial({color: 0xffb86c, transparent: true, opacity: 0.45});
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(cx, cy, cz);
+        objectsGroup.add(mesh);
+        allMeshes.push(mesh);
+        const dist = Math.sqrt(cx*cx + cy*cy + cz*cz);
+        const label = addLabel(`Астероид ${Math.round(Math.max(wx,wy,wz))}м (${Math.round(dist)} м)`,
+            new THREE.Vector3(cx, cy + wy/2 + 6, cz), 'fleet-marker', true);
+        label.addEventListener('click', () => {
+            // fly-to hint: copy GPS to clipboard
+            const gps = `GPS:Asteroid:${a.center[0]}:${a.center[1]}:${a.center[2]}:`;
+            navigator.clipboard?.writeText(gps);
+            document.getElementById('se2-status').textContent = 'GPS скопирован: ' + gps;
+        });
+    }
+    const span = Math.max(...se2AsteroidBoxes.flatMap(a => [a.max[0]-a.min[0], a.max[1]-a.min[1], a.max[2]-a.min[2], 50]));
+    camera.position.set(span, span*0.8, span*0.6);
+    controls.target.set(0, 0, 0);
+    controls.update();
+}
