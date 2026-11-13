@@ -4,16 +4,18 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 // ── 3D scene ──────────────────────────────────────────────────────────────────
 const viewport = document.getElementById('viewport');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0d1117);
-scene.fog = null;
+scene.background = new THREE.Color(0x202836);
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1e9);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 viewport.appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
-scene.add(new THREE.AmbientLight(0x404060, 1.8));
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-dirLight.position.set(1, 2, 1);
-scene.add(dirLight);
+scene.add(new THREE.AmbientLight(0xffffff, 2.2));
+const dir1 = new THREE.DirectionalLight(0xffffff, 1.6);
+dir1.position.set(1, 2, 1);
+scene.add(dir1);
+const dir2 = new THREE.DirectionalLight(0x8be9fd, 0.8);
+dir2.position.set(-1, -0.5, -1);
+scene.add(dir2);
 
 function resize() {
     const w = viewport.clientWidth, h = viewport.clientHeight;
@@ -45,7 +47,6 @@ function addLabel(text, position, cls = '', onclick = null) {
 }
 function clearLayer(name) {
     layers[name].clear();
-    // labels tied to this layer: simplest policy — clear all labels on layer clear
     labels.forEach(l => l.el.remove());
     labels.length = 0;
 }
@@ -106,112 +107,237 @@ function selectGrid(g, el) {
     const pos = g.position || [0, 0, 0];
     detail.innerHTML = `<b>${g.name}</b><br>id: ${g.grid_id}<br>позиция: [${pos.map(v => Math.round(v)).join(', ')}]`;
     document.getElementById('actions').classList.remove('hidden');
-    // draw selected grid marker at scene origin
     clearLayer('grids');
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10),
         new THREE.MeshLambertMaterial({ color: 0x50fa7b }));
     layers.grids.add(mesh);
     addLabel(g.name, new THREE.Vector3(0, 14, 0));
+    frameScene(60);
 }
 
-// ── Voxel scan around grid ────────────────────────────────────────────────────
-document.getElementById('btn-voxels').addEventListener('click', async () => {
-    if (!selectedGrid) return;
-    const radius = parseFloat(document.getElementById('scan-radius').value) || 32;
-    setStatus('скан вокселей...');
-    const res = await fetch('/api/voxel_scan', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ grid_id: selectedGrid.grid_id, radius }),
-    });
-    const data = await res.json();
-    if (data.error) { setStatus('ошибка: ' + data.error); return; }
-    const timer = setInterval(async () => {
-        const st = await (await fetch(`/api/voxel_status/${data.request_id}`)).json();
-        setStatus(`скан: ${st.state}, плиток ${st.published || 0}`);
-        if (!st.scanning) {
-            clearInterval(timer);
-            const vox = await (await fetch(`/api/voxels/${data.request_id}`)).json();
-            if (vox.error) { setStatus('нет данных: ' + vox.error); return; }
-            renderVoxels(vox);
-        }
-    }, 1000);
-});
-
+// ── Tile decode: voxels with per-tile orientation ─────────────────────────────
+const ORE_NAMES = ['Iron','Nickel','Gold','Silver','Cobalt','Copper','Silicon',
+                   'Uranium','Uraninite','Platinum','Magnesium','Chromium',
+                   'Titanium','Lead','Ice'];
 const ORE_COLORS = {
     Iron: 0xb4643c, Nickel: 0x78aa50, Cobalt: 0x3c8cc8, Magnesium: 0xdcdcdc,
     Silicon: 0xc8be8c, Silver: 0xbebed2, Gold: 0xffd700, Platinum: 0xb4dcf0,
     Uranium: 0x50dc50, Ice: 0x8cc8ff, Copper: 0xc87840, Lead: 0x8c8c9c,
     Chromium: 0xaadccc, Titanium: 0xdca0a0,
 };
+function isOreName(name) {
+    const s = (name || '').toLowerCase();
+    return ['ore','iron','nickel','gold','silver','cobalt','copper','silicon','uranium',
+            'uraninite','platinum','magnesium','chromium','titanium','lead','ice']
+        .some(k => s.includes(k));
+}
 
-function renderVoxels(data) {
+// Per-tile oriented instanced rendering: each tile has basis axes (may be rotated);
+// voxels within a tile are placed in tile basis. Brighter materials.
+function renderTiles(tiles, legend, gridPos, radius) {
     clearLayer('voxels');
-    const solid = data.solid || [];
-    const ores = data.ore_cells || [];
-    const cell = (data.metadata || {}).cellSize || 1;
-    setStatus(`вокселей: ${solid.length}, руд: ${ores.length}`);
-    if (!solid.length && !ores.length) return;
+    const oreIds = {};
+    for (const entry of legend) {
+        const idx = parseInt(entry.split('=')[0]);
+        const name = entry.split('=').slice(1).join('=');
+        if (isOreName(name)) oreIds[idx] = name;
+    }
+    const ORE_PALETTE = [0xc678dd, 0xffb86c, 0x8be9fd, 0x50fa7b, 0xff5555, 0xf1fa8c];
 
-    // instanced stone
-    if (solid.length) {
-        const geo = new THREE.BoxGeometry(cell, cell, cell);
-        const mat = new THREE.MeshLambertMaterial({ color: 0x9a9a9a, transparent: true, opacity: 0.25 });
-        const inst = new THREE.InstancedMesh(geo, mat, solid.length);
-        const dummy = new THREE.Object3D();
-        for (let i = 0; i < solid.length; i++) {
-            dummy.position.set(solid[i][0], solid[i][1], solid[i][2]);
-            dummy.updateMatrix();
-            inst.setMatrixAt(i, dummy.matrix);
+    let tileIdx = 0;
+    const span = radius * 2;
+    const nextTile = () => {
+        if (tileIdx >= tiles.length) return null;
+        const tile = tiles[tileIdx++];
+        // world center of the tile
+        const c = tile.origin;
+        const ax = tile.axisX, ay = tile.axisY, az = tile.axisZ;
+        const m = new THREE.Matrix4().makeBasis(
+            new THREE.Vector3(ax[0], ax[1], ax[2]),
+            new THREE.Vector3(ay[0], ay[1], ay[2]),
+            new THREE.Vector3(az[0], az[1], az[2]));
+        const q = new THREE.Quaternion().setFromRotationMatrix(m);
+        const worldCenter = new THREE.Vector3(c[0], c[1], c[2]);
+        return { tile, q, worldCenter };
+    };
+
+    // decode loop per tile, building one InstancedMesh per tile per material
+    let done = 0;
+    const step = () => {
+        const batchStart = time.now0;
+        while (done < tiles.length) {
+            const tile = tiles[done++];
+            decodeTile(tile);
+            if (performance.now() - batchStart > 16) { setTimeout(step, 0); return; }
         }
-        inst.instanceMatrix.needsUpdate = true;
-        layers.voxels.add(inst);
-    }
-    // ores grouped by type
-    const byType = {};
-    for (const o of ores) (byType[o.ore] = byType[o.ore] || []).push(o.position);
-    let idx = 0;
-    for (const [ore, positions] of Object.entries(byType)) {
-        const color = ORE_COLORS[ore] || 0xc678dd;
-        const geo = new THREE.BoxGeometry(cell, cell, cell);
-        const mat = new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.95 });
-        const inst = new THREE.InstancedMesh(geo, mat, positions.length);
-        const dummy = new THREE.Object3D();
-        positions.forEach((p, i) => {
-            dummy.position.set(p[0], p[1], p[2]);
-            dummy.updateMatrix();
-            inst.setMatrixAt(i, dummy.matrix);
-        });
-        inst.instanceMatrix.needsUpdate = true;
-        layers.voxels.add(inst);
-        const centroid = positions.reduce((a, p) => [a[0]+p[0]/positions.length, a[1]+p[1]/positions.length, a[2]+p[2]/positions.length], [0,0,0]);
-        addLabel(`${ore} ×${positions.length}`, new THREE.Vector3(centroid[0], centroid[1] + 12, centroid[2]), 'ore');
-    }
-    // sibling grids as blue wireframe boxes
-    if (selectedGrid && selectedGrid.position) {
-        const pts = [];
-        for (const c of (data.contacts || [])) {
-            if (!c.position) continue;
-            pts.push([c.position[0] - selectedGrid.position[0],
-                      c.position[1] - selectedGrid.position[1],
-                      c.position[2] - selectedGrid.position[2], c.name]);
+        finish();
+    };
+
+    function decodeTile(tile) {
+        const content = atob(tile.content);
+        const material = tile.material ? atob(tile.material) : null;
+        const nx = tile.size[0], ny = tile.size[1], nz = tile.size[2];
+        const origin = tile.origin;
+        const ax = tile.axisX, ay = tile.axisY, az = tile.axisZ;
+        const basis = new THREE.Matrix4().makeBasis(
+            new THREE.Vector3(ax[0], ax[1], ax[2]),
+            new THREE.Vector3(ay[0], ay[1], ay[2]),
+            new THREE.Vector3(az[0], az[1], az[2]));
+        const quat = new THREE.Quaternion().setFromRotationMatrix(basis);
+        const voxelScale = Math.cbrt(Math.abs(
+            (ax[0]*(ay[1]*az[2]-ay[2]*az[1]) - ax[1]*(ay[0]*az[2]-ay[2]*az[0]) + ax[2]*(ay[0]*az[1]-ay[1]*az[0]))));
+
+        // group voxels: solid non-ore and ore-by-name
+        const groups = {};
+        const data = new Uint8Array(nx * ny * nz);
+        for (let i = 0; i < content.length; i++) data[i] = content[i];
+        const mData = material ? new Uint8Array(nx * ny * nz) : null;
+        if (material) for (let i = 0; i < material.length; i++) mData[i] = material[i];
+
+        for (let z = 0; z < nz; z++)
+        for (let y = 0; y < ny; y++)
+        for (let x = 0; x < nx; x++) {
+            const i = x + nx * (y + ny * z);
+            if (!data[i]) continue;
+            let matId = material ? mData[i] : -1;
+            const oreName = (material !== null && oreIds[matId]) ? oreIds[matId] : null;
+            const key = oreName ? 'ore:' + oreName : 'solid';
+            (groups[key] = groups[key] || []).push([x + 0.5, y + 0.5, z + 0.5]);
         }
-        for (const [x, y, z, name] of pts) {
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(8, 8, 8),
-                new THREE.MeshLambertMaterial({ color: 0x3a86ff, wireframe: true, transparent: true, opacity: 0.7 }));
-            mesh.position.set(x, y, z);
-            layers.voxels.add(mesh);
+
+        for (const [key, locals] of Object.entries(groups)) {
+            const isOre = key.startsWith('ore:');
+            const geo = new THREE.BoxGeometry(1, 1, 1);
+            const mat = isOre
+                ? new THREE.MeshLambertMaterial({ color: ORE_PALETTE[hashCode(key) % ORE_PALETTE.length],
+                                                  emissive: ORE_PALETTE[hashCode(key) % ORE_PALETTE.length],
+                                                  emissiveIntensity: 0.35 })
+                : new THREE.MeshLambertMaterial({ color: 0xd8d8e0 });
+            const inst = new THREE.InstancedMesh(geo, mat, locals.length);
+            const dummy = new THREE.Object3D();
+            dummy.quaternion.copy(quat);
+            locals.forEach((l, i) => {
+                const wp = new THREE.Vector3(origin[0] + l[0]*ax[0] + l[1]*ay[0] + l[2]*az[0] - gridPos[0],
+                                             origin[1] + l[0]*ax[1] + l[1]*ay[1] + l[2]*az[1] - gridPos[1],
+                                             origin[2] + l[0]*ax[2] + l[1]*ay[2] + l[2]*az[2] - gridPos[2]);
+                dummy.position.copy(wp);
+                dummy.updateMatrix();
+                inst.setMatrixAt(i, dummy.matrix);
+            });
+            inst.instanceMatrix.needsUpdate = true;
+            layers.voxels.add(inst);
+            if (isOre) {
+                const c = locals.reduce((a, l) => [a[0]+l[0]/locals.length, a[1]+l[1]/locals.length, a[2]+l[2]/locals.length], [0,0,0]);
+                const wp = new THREE.Vector3(
+                    origin[0] + c[0]*ax[0] + c[1]*ay[0] + c[2]*az[0] - gridPos[0],
+                    origin[1] + c[0]*ax[1] + c[1]*ay[1] + c[2]*az[1] - gridPos[1],
+                    origin[2] + c[0]*ax[2] + c[1]*ay[2] + c[2]*az[2] - gridPos[2]);
+                addLabel(key.slice(4) + ' ×' + locals.length, wp.clone().add(new THREE.Vector3(0, 8, 0)), 'ore');
+            }
         }
     }
-    frameScene(Math.max(radiusOf(solid), 60));
+
+    const origin = selectedGrid ? selectedGrid.position : [0,0,0];
+    const gridPos = origin;
+    for (const tile of tiles) decodeTile(tile);
+
+    let maxSpan = 60;
+    for (const tile of tiles) {
+        const c = tile.origin;
+        maxSpan = Math.max(maxSpan, Math.abs(c[0]-gridPos[0]), Math.abs(c[1]-gridPos[1]), Math.abs(c[2]-gridPos[2]));
+    }
+    frameScene(maxSpan * 1.6);
 }
 
-function radiusOf(points) {
-    let m = 0;
-    for (const p of points) m = Math.max(m, Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2]));
-    return m * 2 + 20;
+function hashCode(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    return Math.abs(h);
 }
 
-// ── Asteroid index (from seed) ────────────────────────────────────────────────
+// ── Buttons wiring ────────────────────────────────────────────────────────────
+async function runScan(kind) {
+    if (!selectedGrid) { setStatus('выбери грид'); return; }
+    const radius = parseFloat(document.getElementById('scan-radius').value) || 32;
+    setStatus('скан (' + kind + ')...');
+    let url = kind === 'deposits' ? '/api/deposits' : '/api/voxel_scan';
+    const res = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grid_id: selectedGrid.grid_id, radius }),
+    });
+    const data = await res.json();
+    if (data.error) { setStatus('ошибка: ' + data.error); return; }
+    const rid = data.request_id;
+    const timer = setInterval(async () => {
+        const st = await (await fetch(`/api/${kind === 'deposits' ? 'deposits_result' : 'voxel_status'}/${rid}`)).json();
+        const doneStates = ['complete', 'partial', 'rejected', 'failed'];
+        if (doneStates.includes(st.state) || st.scanning === false) {
+            clearInterval(timer);
+            if (kind === 'deposits') { renderDepositsResult(st); return; }
+            // voxel tiles path
+            loadTiles(rid);
+        }
+    }, 1000);
+}
+
+async function loadTiles(rid) {
+    const res = await fetch(`/api/voxel_tiles/${rid}`);
+    const data = await res.json();
+    if (data.error) { setStatus('нет тайлов: ' + data.error); return; }
+    renderTiles(data.tiles || [], data.legend || []);
+}
+
+async function loadAsteroids(rid) {
+    const st = await (await fetch(`/api/asteroids/${rid}`)).json();
+    if (st.error || !st.asteroids) { setStatus('ошибка: ' + (st.error || 'нет данных')); return; }
+    renderAsteroidField(st.asteroids);
+}
+
+async function loadDepositsResult(rid) {
+    const st = await (await fetch(`/api/deposits_result/${rid}`)).json();
+    if (st.error || !st.deposits) { setStatus('нет депозитов'); return; }
+    renderDeposits(st.deposits);
+}
+
+function renderAsteroidField(asteroids) {
+    clearLayer('asteroids');
+    if (!selectedGrid?.position || !asteroids.length) { setStatus('астероидов не найдено'); return; }
+    const origin = selectedGrid.position;
+    for (const a of asteroids) {
+        const cx = a.center[0] - origin[0], cy = a.center[1] - origin[1], cz = a.center[2] - origin[2];
+        const wx = Math.max(4, a.max[0] - a.min[0]), wy = Math.max(4, a.max[1] - a.min[1]), wz = Math.max(4, a.max[2] - a.min[2]);
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(wx, wy, wz),
+            new THREE.MeshLambertMaterial({ color: 0xffb86c, transparent: true, opacity: 0.35 }));
+        mesh.position.set(cx, cy, cz);
+        layers.asteroids.add(mesh);
+        const dist = Math.sqrt(cx*cx + cy*cy + cz*cz);
+        addLabel(`Астероид ${Math.round(Math.max(wx,wy,wz))}м (${Math.round(dist/100)*100} м)`,
+            new THREE.Vector3(cx, cy + wy/2 + 10, cz), 'ast');
+    }
+    setStatus(`астероидов: ${asteroids.length}`);
+    frameScene(Math.max(...asteroids.flatMap(a => [a.max[0]-a.min[0], a.max[1]-a.min[1], a.max[2]-a.min[2], 50])) * 2.2);
+}
+
+function renderDeposits(deposits) {
+    clearLayer('deposits');
+    if (!selectedGrid?.position) return;
+    const origin = selectedGrid.position;
+    const oreDeps = deposits.filter(d => !d.material.startsWith('Asteroid') && d.material !== 'Stone');
+    for (const d of oreDeps.slice(0, 300)) {
+        const cx = d.center[0] - origin[0], cy = d.center[1] - origin[1], cz = d.center[2] - origin[2];
+        const color = ORE_COLORS[d.material] || 0xc678dd;
+        const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(8),
+            new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.5 }));
+        mesh.position.set(cx, cy, cz);
+        layers.deposits.add(mesh);
+        addLabel(`${d.material}`, new THREE.Vector3(cx, cy + 12, cz), 'ore');
+    }
+    setStatus(`рудных депозитов: ${oreDeps.length}`);
+}
+
+// ── Buttons ───────────────────────────────────────────────────────────────────
+document.getElementById('btn-voxels').addEventListener('click', () => runScan('voxels'));
+document.getElementById('btn-deposits').addEventListener('click', () => runScan('deposits'));
 document.getElementById('btn-asteroids').addEventListener('click', async () => {
     if (!selectedGrid) return;
     const km = parseFloat(document.getElementById('asteroid-radius').value) || 40;
@@ -222,91 +348,8 @@ document.getElementById('btn-asteroids').addEventListener('click', async () => {
     });
     const data = await res.json();
     if (data.error) { setStatus('ошибка: ' + data.error); return; }
-    const timer = setInterval(async () => {
-        const st = await (await fetch(`/api/asteroids/${data.request_id}`)).json();
-        if (st.state === 'complete' || st.state === 'partial') {
-            clearInterval(timer);
-            renderAsteroids(st.asteroids || []);
-            setStatus(`астероидов: ${st.count}`);
-        } else if (st.error || st.state === 'rejected' || st.state === 'failed') {
-            clearInterval(timer);
-            setStatus('ошибка индекса: ' + (st.error || st.state));
-        }
-    }, 1000);
+    loadAsteroids(data.request_id);
 });
-
-function renderAsteroids(asteroids) {
-    clearLayer('asteroids');
-    if (!asteroids.length || !selectedGrid?.position) return;
-    const origin = selectedGrid.position;
-    let maxSpan = 50;
-    for (const a of asteroids) {
-        const cx = a.center[0] - origin[0], cy = a.center[1] - origin[1], cz = a.center[2] - origin[2];
-        const wx = Math.max(4, a.max[0] - a.min[0]), wy = Math.max(4, a.max[1] - a.min[1]), wz = Math.max(4, a.max[2] - a.min[2]);
-        maxSpan = Math.max(maxSpan, Math.abs(cx) + wx, Math.abs(cy) + wy, Math.abs(cz) + wz);
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(wx, wy, wz),
-            new THREE.MeshLambertMaterial({ color: 0xffb86c, transparent: true, opacity: 0.4 }));
-        mesh.position.set(cx, cy, cz);
-        layers.asteroids.add(mesh);
-        const dist = Math.sqrt(cx * cx + cy * cy + cz * cz);
-        const center = a.center;
-        addLabel(`астероид ${Math.round(Math.max(wx, wy, wz))}м (${Math.round(dist)} м)`,
-            new THREE.Vector3(cx, cy + wy / 2 + 8, cz), 'ast',
-            () => {
-                const gps = `GPS:Asteroid:${center[0]}:${center[1]}:${center[2]}:`;
-                navigator.clipboard?.writeText(gps);
-                setStatus('GPS скопирован: ' + gps);
-            });
-    }
-    frameScene(maxSpan * 2);
-}
-
-// ── Ore deposits ──────────────────────────────────────────────────────────────
-document.getElementById('btn-deposits').addEventListener('click', async () => {
-    if (!selectedGrid) return;
-    setStatus('детекция рудных депозитов...');
-    const res = await fetch('/api/deposits', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ grid_id: selectedGrid.grid_id, radius: 32 }),
-    });
-    const data = await res.json();
-    if (data.error) { setStatus('ошибка: ' + data.error); return; }
-    const timer = setInterval(async () => {
-        const st = await (await fetch(`/api/deposits_result/${data.request_id}`)).json();
-        if (st.state === 'complete' || st.state === 'partial') {
-            clearInterval(timer);
-            renderDeposits(st.deposits || []);
-            setStatus(`депозитов руды: ${st.count}`);
-        } else if (st.error) {
-            clearInterval(timer);
-            setStatus('ошибка: ' + st.error);
-        }
-    }, 1000);
-});
-
-function renderDeposits(deposits) {
-    clearLayer('deposits');
-    if (!deposits.length || !selectedGrid?.position) return;
-    const origin = selectedGrid.position;
-    const oreDeps = deposits.filter(d => !d.material.startsWith('Asteroid') && d.material !== 'Stone');
-    let span = 50;
-    for (const d of oreDeps.slice(0, 200)) {
-        const cx = d.center[0] - origin[0], cy = d.center[1] - origin[1], cz = d.center[2] - origin[2];
-        span = Math.max(span, Math.abs(cx), Math.abs(cy), Math.abs(cz));
-        const s = 6;
-        const color = ORE_COLORS[d.material] || 0xc678dd;
-        const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(s),
-            new THREE.MeshLambertMaterial({ color }));
-        mesh.position.set(cx, cy, cz);
-        layers.deposits.add(mesh);
-    }
-    if (oreDeps.length) {
-        const first = oreDeps[0];
-        addLabel(`${first.material} ×${oreDeps.length} (ближайшая)`,
-            new THREE.Vector3(first.center[0] - origin[0], first.center[1] - origin[1] + 10, first.center[2] - origin[2]), 'ore');
-    }
-    frameScene(span * 2);
-}
 
 loadGrids();
 setInterval(loadGrids, 15000);

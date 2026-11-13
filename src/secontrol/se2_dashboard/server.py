@@ -70,6 +70,18 @@ async def api_voxels(request_id: str):
         return {"error": str(e)}
 
 
+@app.get("/api/voxel_tiles/{request_id}")
+async def api_voxel_tiles(request_id: str):
+    """Raw tiles with per-tile axes — client orients chunks correctly."""
+    try:
+        result = service.tiles(request_id)
+        if result is None:
+            return {"error": "No scan data available"}
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.post("/api/asteroid_index")
 async def api_asteroid_index(body: ScanRequest):
     try:

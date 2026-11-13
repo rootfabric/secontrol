@@ -1331,6 +1331,24 @@ class SE2VoxelService:
         threading.Thread(target=self._collect, args=(request_id,), daemon=True).start()
         return {"ok": True, "request_id": request_id}
 
+    def tiles(self, request_id: str) -> Optional[Dict[str, Any]]:
+        """Raw tiles + legend + grid frame for client-side oriented rendering."""
+        scan = self._scans.get(request_id)
+        if not scan:
+            return None
+        autopilots = []
+        try:
+            state = self._state()
+            autopilots = [d for d in state.get("devices", []) if d.get("type") == "autopilot"]
+        except Exception:
+            pass
+        scan_grid = next((d for d in autopilots if d.get("gridId") == scan.get("grid_id")), None)
+        return {"tiles": scan.get("tiles", []),
+                "legend": scan.get("legend", []),
+                "state": scan.get("state"),
+                "grid_name": scan_grid.get("name") if scan_grid else scan.get("grid_id"),
+                "grid_pos": scan_grid.get("properties", {}).get("position") if scan_grid else None}
+
     def deposits(self, request_id: str) -> Optional[Dict[str, Any]]:
         """Ore deposits (name + world bbox) once detection completes."""
         scan = self._scans.get(request_id)
@@ -1494,5 +1512,6 @@ FleetRedisReader.se2_asteroids = lambda self, request_id: _ensure_se2(self).aste
 FleetRedisReader.se2_grids = lambda self: _ensure_se2(self).grids()
 FleetRedisReader.se2_start_scan = lambda self, grid_id, radius=32.0, fresh=True: _ensure_se2(self).start_scan(grid_id, radius, fresh)
 FleetRedisReader.se2_status = lambda self, request_id: _ensure_se2(self).status(request_id)
+FleetRedisReader.se2_tiles = lambda self, request_id: _ensure_se2(self).tiles(request_id)
 FleetRedisReader.se2_voxels = lambda self, request_id: _ensure_se2(self).voxels(request_id)
 FleetRedisReader.se2_cancel = lambda self, request_id: _ensure_se2(self).cancel(request_id)
