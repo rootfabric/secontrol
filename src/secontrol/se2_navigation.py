@@ -11,7 +11,7 @@ class AutopilotDevice(Device):
 
     def goto(self, target, *, forward=None, up=None, mode="flight", max_speed=5.0,
              position_tolerance=1.0, heading_tolerance_deg=3.0, timeout=120.0,
-             align_course=False, cancel_on_player=False):
+             align_course=False, cancel_on_player=False, eject_pilot=False):
         """Start a mission; ACK confirms acceptance. Use wait() to observe arrival.
 
         target is a world position in metres; forward is world direction of grid -Z.
@@ -20,6 +20,8 @@ class AutopilotDevice(Device):
         cancel_on_player=False (default): a player entering a seat does not cancel
         the mission; the controller keeps commanding. Set True to restore the old
         yield-to-player behaviour.
+        eject_pilot=True: the pilot is unseated at mission start (and re-ejected if
+        they sit back down) so their zero input cannot override the controller.
         Ground final-heading control is not yet supported. No obstacle avoidance.
         """
         if align_course:
@@ -39,7 +41,8 @@ class AutopilotDevice(Device):
             "target": vector(target), "forward": vector(forward), "up": vector(up), "mode": mode,
             "maxSpeed": max_speed, "positionTolerance": position_tolerance,
             "headingToleranceDeg": heading_tolerance_deg, "timeoutSeconds": timeout,
-            "alignCourse": align_course, "keepControlOnPlayer": not cancel_on_player})
+            "alignCourse": align_course, "keepControlOnPlayer": not cancel_on_player,
+            "ejectPilot": eject_pilot})
 
     def stop(self):
         return self.client.command(self, "autopilot_stop")
