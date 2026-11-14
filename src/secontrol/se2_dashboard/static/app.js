@@ -166,7 +166,8 @@ function renderVoxelTiles(tiles, legend, gridPos) {
             const isOre = key.startsWith('ore:');
             const oreName = isOre ? key.slice(4) : null;
             const color = isOre ? oreColor(oreName) : 0xd8d8e0;
-            const geo = new THREE.BoxGeometry(1, 1, 1);
+            const voxel = Math.max(Math.hypot(ax[0], ax[1], ax[2]), 0.1);
+            const geo = new THREE.BoxGeometry(voxel, voxel, voxel);
             const mat = isOre
                 ? new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.3 })
                 : new THREE.MeshLambertMaterial({ color: 0xd8d8e0, transparent: true, opacity: 0.55 });
